@@ -38,7 +38,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Core
 
-- [ ] **Reconciler**: `reconcile(ref)` reading `dusk.md` into a graph ([0001](../adr/0001-git-as-source-of-truth.md), [0004](../adr/0004-dusk-md-convention.md))
+- [x] **`dusk.md` schema and parser**: `pkg/duskmd`, one entity per file with its prose as the description, derived refs, outbound relations only, and includes that cannot escape the repository ([0004](../adr/0004-dusk-md-convention.md), [0026](../adr/0026-dusk-md-schema.md))
+- [ ] **Reconciler**: `reconcile(ref)` expanding includes against a tree and reading the result into a graph ([0001](../adr/0001-git-as-source-of-truth.md), [0004](../adr/0004-dusk-md-convention.md))
 - [ ] **Storage**: SQLite, ref as a column, FTS5 ([0008](../adr/0008-storage.md))
 - [ ] **Entity graph**: relations, traversal, drift between declared and observed ([0007](../adr/0007-entity-schema.md))
 - [ ] **Poll floor**: periodic `git ls-remote` reconcile ([0006](../adr/0006-reconcile-triggering.md))
@@ -83,8 +84,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. The reconciler over a single local repo, with no App, webhooks, or UI involved.
-2. Storage and the graph.
+1. Storage: the SQLite schema keyed by ref, with FTS5 and cheap garbage collection of a ref.
+2. The reconciler, over a single local repository with no App, webhooks, or UI involved: expand includes against a tree, parse, upsert at a ref, prune what is gone. Wiring the existing webhook receiver to it closes the first known gap below.
 3. The MCP surface.
 
 ## Known gaps
