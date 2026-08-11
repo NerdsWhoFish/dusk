@@ -188,6 +188,67 @@ FTS5 is the strongest argument here, because search is a core product requiremen
 
 Full reasoning: [ADR-0008](adr/0008-storage.md).
 
+### Every write requires a proof token
+
+**You cannot write what you have not read.**
+
+A token is issued by any read and carries the `(ref, version)` pairs that read returned.
+A write is accepted only if its target is covered by the token and unchanged since.
+Creating something requires a token from a search that did **not** find it, so an agent cannot create a duplicate without having looked for one.
+
+One invariant replaces three mechanisms: dedup, optimistic concurrency, and the vocabulary gate.
+Rejections return the exact call that fixes them, because an unactionable error makes the contract hostile rather than teachable.
+
+Full reasoning: [ADR-0009](adr/0009-proof-tokens.md).
+
+### The MCP surface is a few fat tools
+
+`search`, `get`, `neighbors`, `changes` to read.
+`declare`, `note`, `relate`, `mintKind`, `push` to write.
+
+Reads return markdown rather than nested JSON, and every read returns refs that feed back into `get`.
+Writes report where they landed, so an agent hands a human a link rather than asserting success.
+
+Writes queue as one commit per call on a **per-session branch**, which makes direct mode a fast-forward and proposal mode a pull request from the same mechanism.
+
+Full reasoning: [ADR-0010](adr/0010-mcp-surface.md).
+
+### Pages are markdown, blocks are queries
+
+A block is a typed query, not a placed widget, so an agent curating layout is an agent tuning queries, and a bad query renders empty instead of breaking the page.
+
+**Entity pages** are owned by the satellite repo that owns the entity; **portal pages** are owned by the config repo.
+Route collisions are impossible by construction.
+Defaults must be good enough that declaring a page is optional.
+
+Full reasoning: [ADR-0013](adr/0013-layout-and-pages.md).
+
+### Agents are given context at boot
+
+Three layers: the MCP `instructions` field carries the portable half, a `dusk_context(root)` tool tailors to location, and an optional client hook calls it automatically.
+
+`instructions` is returned before the client sends roots, so it is location-blind by construction, which is why the other two exist.
+
+Scope is **an interaction manual and an inventory**, not a knowledge dump.
+It is a page with an agent-context render target, with a hard token budget, because bad instructions poison every future session.
+
+Full reasoning: [ADR-0014](adr/0014-agent-context-injection.md).
+
+### Plugins expose actions, deferred until after the core
+
+`invoke(ref, action, params)`.
+The agent names the entity, Dusk routes to the owning plugin.
+
+Actions declare a class, dry run is required (nil means unsupported, surfaced at approval), enabling is default-deny, and mutating actions require a proof token.
+
+Invocations emit **events**, not notes, persisted by an optional time-series exporter.
+Events are never stored in the SQLite index, because that index is disposable by contract and events cannot be rebuilt from git.
+
+The declaration shape ships in `v1alpha` now; the implementation lands after the core works.
+This is the point at which Dusk becomes a privileged control plane, and that is treated as the feature's main cost.
+
+Full reasoning: [ADR-0015](adr/0015-plugin-actions-and-events.md).
+
 ### GitOps, never a fork
 
 Backstage's fatal flaw is that it is a source distribution.
@@ -221,26 +282,20 @@ CSS is authored with custom properties so that custom themes are possible, but D
 
 ## Open questions
 
+None blocking.
 The architectural decisions are settled and recorded in [adr/](adr/).
-What remains is undecided but does not block starting.
 
-### What does the MCP server actually expose?
+What remains is implementation judgement rather than architecture: the concrete block vocabulary for pages, the default entity page design, the fairness policy when ingesters compete for a shared API budget, and an explicit grant mechanism for viewers with no repo access.
 
-Which tools, at what granularity.
-Too fine and an agent burns a dozen calls answering one question; too coarse and it cannot ask anything specific.
-This shapes how good Dusk feels to the primary consumer, so it deserves real thought rather than a mechanical mapping of the schema.
+Each of those is answered by building, not by arguing.
 
-### How does an agent curate the layout?
+## Build order
 
-Layout is markdown in the config repo, so an agent can already edit it.
-What is undecided is how much structure that markdown carries, and how a layout change is reviewed before it lands.
-
-### How are ingesters scheduled?
-
-Ingesters are configured as markdown, but their cadence, concurrency, failure handling, and API budget are not specified.
-Rich ingesters are where REST quota actually burns, per [ADR-0006](adr/0006-reconcile-triggering.md), so this needs a real answer before the second ingester ships.
-
-### Who can view Dusk?
-
-The GitHub App governs what Dusk can read and write, not who can read Dusk.
-A private catalog rendered on a public URL needs its own authentication story, and it is not yet designed.
+1. **The `v1alpha` proto**, including the action declaration shape, so the contract is fixed before anything depends on it.
+2. **The reconciler over a single local repo.** No GitHub App, no webhooks, no UI. Prove `reconcile(ref)` reads a `dusk.md` and produces a graph.
+3. **Storage and the graph**, with FTS5 search.
+4. **The MCP server**, including proof tokens and the commit queue.
+5. **The GitHub App**, webhooks, and the poll floor.
+6. **The UI**, pages, and PR previews.
+7. **Ingesters**: Kubernetes, Flux, GitHub.
+8. **Actions**, once the catalog is trusted.
