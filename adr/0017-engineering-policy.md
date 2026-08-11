@@ -55,6 +55,24 @@ cgo costs cross-compilation, distroless and Alpine images without a C toolchain,
 The failure mode is that cgo arrives as a transitive dependency nobody chose.
 Requiring an ADR makes it a decision rather than an accident.
 
+### Packages are the unit of reuse, and `internal/` needs a reason
+
+Default to a real package with a real name.
+Write it so another caller could use it, and export what that caller would reasonably want, even when no such caller exists yet.
+
+- **`pkg/`** holds anything that could plausibly be used outside the repository. This is a FetchHQ convention rather than a Go standard, adopted because paired against `internal/` it states intent unambiguously: `pkg/` is a promise, `internal/` is a fence.
+- **`internal/`** is for code that genuinely should not be imported elsewhere, and choosing it is a decision. "I have not thought about reuse yet" is not a reason to put something there, because the compiler will not let you change your mind cheaply once other things depend on the shape.
+- **`cmd/`** holds binaries and stays thin. A command parses flags, wires dependencies, and calls into a package. Logic in `cmd/` is logic nothing else can reach and nothing can test through its real interface.
+
+Package names are short, lowercase, and describe what the package provides.
+A package is a coherent thing with a reason to exist, not a folder for loosely related files.
+
+**A second consumer promotes a package to its own module.**
+Importing `dusk/pkg/foo` from another repository drags the whole `dusk` module and its entire dependency graph along with it, which is a real cost that arrives quietly.
+So `pkg/` is the staging ground: the moment a second repository actually depends on something there, it moves to its own module, as [ADR-0016](0016-plugin-sdk-repo.md) already did for the plugin contract.
+
+Until there is a second consumer, splitting early is premature.
+
 ### Reuse before writing, and know where DRY stops
 
 The default assumption is that the thing you need already exists.
@@ -177,6 +195,7 @@ Coverage is reported, not gated.
 
 - Conventions written once stop being re-litigated per pull request, and a contributor can read the rules instead of inferring them from review comments.
 - Requiring an ADR for cgo turns a transitive dependency into a visible decision, protecting cross-compilation and the multi-architecture build that the distribution story depends on.
+- Making `internal/` a decision rather than a default preserves reuse that would otherwise be lost by reflex, and the promotion rule stops `pkg/` from turning one repository into an accidental library everyone else depends on.
 - Naming the limit of DRY prevents the more common failure, which is not duplication but a premature abstraction that couples two things that should have stayed apart.
 - Linted complexity is enforceable in a way that "keep it simple" is not, and it survives deadline pressure.
 - Separating documentation from commentary resolves a contradiction that would otherwise produce either undocumented exported API or narrated implementation.
@@ -189,6 +208,8 @@ Coverage is reported, not gated.
 
 - A long policy is a long policy. Some of it will not be read, and the parts CI does not enforce will drift.
 - Requiring an ADR for cgo will occasionally block something reasonable behind paperwork, and someone will be annoyed by that at exactly the wrong moment.
+- `pkg/` is a convention borrowed from a layout the Go team does not endorse, and it adds a directory level carrying no semantic meaning of its own. It is adopted for the signal it sends next to `internal/`, and that is a trade rather than a free win.
+- Defaulting to exported means designing interfaces for callers who may never exist, which is work that is sometimes wasted.
 - "A little duplication is better than the wrong abstraction" is a judgement call, and judgement calls get argued over in review.
 - A complexity limit produces false positives. Some genuinely irreducible functions will need a waiver, and waivers erode if granted freely.
 - Documenting every subsystem in `docs/` is real ongoing work, and stale documentation is worse than absent documentation.
