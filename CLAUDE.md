@@ -17,7 +17,8 @@ Settled decisions are not re-litigated without new information.
 Any decision with a real trade-off gets an ADR: an alternative that looked better than it was, a non-obvious constraint, anything a future reader would otherwise re-argue.
 
 - They live in `adr/`, numbered sequentially, in [MADR](https://adr.github.io/madr/) form.
-- **Never rewrite history.** A reversed decision gets a new ADR that supersedes the old one; the old one stays with its status updated.
+- **Never rewrite a decision.** A reversed decision gets a new ADR that supersedes the old one; the old one stays with its status updated.
+- **Wording may be amended in place**, recorded in a dated `## Amendments` section at the bottom of the file. Substance may not: the decision, the considered options, and why each won or lost are the record ([ADR-0028](adr/0028-amending-adrs.md)).
 - **Every ADR lists its rejected options and its bad consequences.** One with no downsides has not been thought through.
 - **Adding, superseding, or removing an ADR updates [`adr/README.md`](adr/README.md) in the same change.** A stale index sends readers to decisions that do not exist.
 - Any rule an ADR calls load-bearing gets a test named after it: `TestADR0011_FailedIngestDoesNotDelete`.

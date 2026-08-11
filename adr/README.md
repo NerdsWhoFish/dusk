@@ -36,10 +36,18 @@ That is what stops the same argument happening again in six months.
 | [0025](0025-responsive-ui.md) | Mobile and desktop are both first class | A fixed viewport matrix is the definition, tests assert no overflow and touch target size, screenshot diffing is rejected |
 | [0026](0026-dusk-md-schema.md) | One file declares one entity, and its prose is the description | Fills in what 0004 left open. Refs are derived not authored, only outbound relations are declarable, `include` is one level deep and cannot escape the repository. Also places the declaration path's normalization edge, which 0018 left unstated, and spends the repository's zero-dependency property on a YAML parser |
 
+| [0027](0027-design-target.md) | The design target is a single operator and their agents | Homelabs and personal infrastructure, not platform teams. Team use stays supported but never breaks a tie. Corrects an audience assumption 0003, 0005 and 0013 had absorbed from Backstage |
+
+| [0028](0028-amending-adrs.md) | ADRs may be amended in place, with a dated record | Wording that has gone stale is fixed where it is; substance still needs a superseding ADR. Every amendment is dated and explained at the bottom of the file |
+
 ## Writing one
 
-Number sequentially, never reuse a number, and never rewrite history.
+Number sequentially, never reuse a number, and never rewrite a decision.
 A reversed decision gets a **new** ADR that supersedes the old one, and the old one stays with its status updated.
+
+Wording may be amended in place when a document has become inaccurate without its decision changing, recorded in a dated `## Amendments` section at the bottom of the file.
+Substance may not: the decision, the considered options, and the reasons each option won or lost are the record, so changing what an argument says is a new ADR.
+Full policy in [ADR-0028](0028-amending-adrs.md).
 
 Every ADR states its rejected options and why they lost, and its consequences honestly, including the bad ones.
 An ADR with no downsides listed has not been thought through.

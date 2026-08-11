@@ -13,24 +13,24 @@ Its frontmatter carries identity and outbound relations, and everything below th
 ```markdown
 ---
 dusk: v1alpha1
-namespace: platform
+namespace: home
 kind: service
-name: checkout
-title: Checkout API
+name: jellyfin
+title: Jellyfin
 relations:
   - type: runs_on
-    to: host:platform/runner-1
+    to: host:home/nas
   - type: depends_on
-    to: datastore:platform/orders
+    to: datastore:home/postgres
 attributes:
-  tier: "1"
+  backup: nightly
 include:
   - services/*/dusk.md
 ---
 
-# Checkout API
+# Jellyfin
 
-Takes payment for orders.
+Media server. Transcoding is off, so anything that will not direct play is a client problem.
 
 Everything here is the description, markdown and all.
 ```
@@ -40,7 +40,7 @@ Everything here is the description, markdown and all.
 | Field | Required | What it is |
 | --- | --- | --- |
 | `dusk` | yes | Schema version. `v1alpha1` is the only accepted value |
-| `kind` | yes | What sort of thing this is. Open vocabulary: `service`, `host`, `datastore`, or anything your organisation needs |
+| `kind` | yes | What sort of thing this is. Open vocabulary: `service`, `host`, `datastore`, or anything else you need |
 | `name` | yes | The entity's name within its namespace |
 | `namespace` | on the root file | Groups entities. Declared once on the root `dusk.md` and inherited by included files, which may override it |
 | `title` | no | Human-facing name. Defaults to `name` |
@@ -93,9 +93,9 @@ A file is validated in full rather than abandoned at the first problem, so one p
 
 ## Declared, not observed
 
-A `dusk.md` says what you intend: this service exists, it is owned by this team, it should run on that host.
+A `dusk.md` says what you intend: this service exists, it should run on that host, it depends on that database.
 Plugins report what is actually there.
 
 Neither overwrites the other, and disagreement between them is surfaced as drift rather than merged away.
-"Your `dusk.md` says this runs on `runner-1`, and the ingester found it on `runner-2`" is information worth having, so the catalog keeps both.
+"Your `dusk.md` says this runs on the NAS, and the ingester found it on the Pi" is information worth having, so the catalog keeps both.
 See [ADR-0007](../adr/0007-entity-schema.md).

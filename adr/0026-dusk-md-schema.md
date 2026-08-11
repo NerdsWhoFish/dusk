@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. Amended, see [Amendments](#amendments).
 
 ## Context and Problem Statement
 
@@ -40,20 +40,20 @@ Its frontmatter carries that entity's identity and its declared relations, and *
 ```markdown
 ---
 dusk: v1alpha1
-namespace: platform
+namespace: home
 kind: service
-name: checkout
-title: Checkout API
+name: jellyfin
+title: Jellyfin
 relations:
   - type: runs_on
-    to: host:platform/runner-1
+    to: host:home/nas
 attributes:
-  tier: "1"
+  backup: nightly
 include:
   - services/*/dusk.md
 ---
 
-# Checkout API
+# Jellyfin
 
 Everything below the frontmatter is this entity's description.
 ```
@@ -175,3 +175,15 @@ Entities and relations are what the reconciler needs; notes get their own decisi
 
 - **Option 1** was rejected because it leaves prose with no owner. One markdown body and N entities means descriptions can only come from YAML strings, which discards the property ADR-0001 exists to protect. It also makes every entity edit a modification to a shared list, so two agents touching two unrelated entities collide in one hunk, and it gives a repo a natural place to declare entities it has no claim to.
 - **Option 3** was rejected because multi-document YAML is a YAML file wearing a markdown extension. Prose stops being first class, which contradicts the constraint in [DESIGN.md](../DESIGN.md) that config forced to document itself stays understandable. It inherits option 1's shared-file conflict problem without inheriting its single-file simplicity.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-11: the worked example
+
+The example declared `service:platform/checkout` running on `host:platform/runner-1`.
+[ADR-0027](0027-design-target.md) settled the design target as a single operator and noted that an example is the fastest signal about who a tool expects, so it now declares a media server running on a NAS.
+
+Illustration only.
+Every rule in the decision is unchanged.

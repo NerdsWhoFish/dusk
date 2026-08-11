@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. Amended, see [Amendments](#amendments).
 
 ## Context and Problem Statement
 
@@ -94,5 +94,17 @@ One layout system, two renderers.
 ### Rejected because
 
 - Positioned widgets were rejected because agents edit them badly and diffs of geometry are unreviewable.
-- Config-repo-only pages were rejected because a service's own team knows best how to present it, and centralising that recreates the bottleneck the `dusk.md` convention removed.
+- Config-repo-only pages were rejected because whoever owns a service knows best how to present it, and centralising that recreates the bottleneck the `dusk.md` convention removed.
 - Any repo claiming any route was rejected as a collision and hijacking surface.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-11: "a service's own team" to "whoever owns a service"
+
+The rejected-options entry for config-repo-only pages attributed presentation knowledge to a service's own team.
+[ADR-0027](0027-design-target.md) settled the design target as a single operator, where there is no team to be the one who knows.
+
+Terminology only.
+The argument, that centralising presentation recreates the bottleneck the `dusk.md` convention removed, is unchanged, and it holds identically whether the owner is a team or a person.

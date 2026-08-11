@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. Amended, see [Amendments](#amendments).
 
 ## Context and Problem Statement
 
@@ -74,4 +74,16 @@ GitHub is the only implementation for now, but no GitHub type crosses that bound
 - PAT only was rejected on scope and consent. It grants everything the user can do, it cannot express per-repo access, and it has no natural webhook story.
 - Hand-registered App only was rejected because the manifest flow exists and makes it unnecessary.
 - Supporting both was rejected as surface area. The manifest flow removes the reason the fallback existed, and two credential paths means two sets of failure modes, docs, and tests for no remaining benefit.
-- Two write modes was rejected because it forces the larger ask. Proposal mode is the setting most teams will actually live in.
+- Two write modes was rejected because it forces the larger ask. Proposal mode is the setting most users will actually live in.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-11: "teams" to "users"
+
+The last rejected-options entry read "the setting most teams will actually live in".
+[ADR-0027](0027-design-target.md) settled the design target as a single operator, so the noun is now "users".
+
+Terminology only.
+The argument, that two write modes forces the larger ask, is unchanged.
