@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/FetchHQ/dusk-plugin-sdk v0.0.0-20260811210610-5599a3cafbae
 	github.com/glebarez/sqlite v1.11.0
+	github.com/urfave/cli/v3 v3.10.1
 	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/protobuf v1.36.12
 	gorm.io/gorm v1.31.2

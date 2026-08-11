@@ -1,4 +1,4 @@
-// Command dusk runs the Dusk server.
+// Command dusk runs the Dusk server and its local tools.
 package main
 
 import (
@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/urfave/cli/v3"
+
 	"github.com/FetchHQ/dusk/internal/config"
 	"github.com/FetchHQ/dusk/internal/server"
 	"github.com/FetchHQ/dusk/internal/store"
@@ -21,63 +23,59 @@ import (
 // version is set at build time with -ldflags.
 var version = "dev"
 
-const usage = `dusk - a service catalog that maintains itself
+func main() {
+	if err := command().Run(context.Background(), os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-Usage:
-  dusk serve     Run the server
-  dusk genkey    Generate a DUSK_ENCRYPTION_KEY
-  dusk version   Print the version
+func command() *cli.Command {
+	return &cli.Command{
+		Name:    "dusk",
+		Usage:   "a service catalog that maintains itself",
+		Version: version,
+		Commands: []*cli.Command{
+			serveCommand(),
+			validateCommand(),
+			genkeyCommand(),
+		},
+	}
+}
 
-Environment:
+func serveCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "serve",
+		Usage: "run the server",
+		Description: fmt.Sprintf(`Environment:
   DUSK_PRIVATE_HOST     Required. Where you reach the UI, and where GitHub
                         returns your browser during setup.
   DUSK_PUBLIC_HOST      Where GitHub delivers webhooks. Defaults to the private
                         host. Set it when a forwarder exposes only /webhooks.
   DUSK_ENCRYPTION_KEY   Required. Base64 32-byte key. Generate with 'dusk genkey'.
   DUSK_ADDR             Listen address (default %s)
-  DUSK_DATA_DIR         Where credentials live (default %s)
-`
-
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+  DUSK_DATA_DIR         Where credentials live (default %s)`,
+			config.DefaultAddr, config.DefaultDataDir),
+		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
 }
 
-func run(args []string) error {
-	cmd := "serve"
-	if len(args) > 0 {
-		cmd = args[0]
-	}
-
-	switch cmd {
-	case "serve":
-		return serve()
-	case "genkey":
-		return genkey()
-	case "version":
-		fmt.Println(version)
-		return nil
-	case "help", "-h", "--help":
-		fmt.Printf(usage, config.DefaultAddr, config.DefaultDataDir)
-		return nil
-	default:
-		fmt.Printf(usage, config.DefaultAddr, config.DefaultDataDir)
-		return fmt.Errorf("unknown command %q", cmd)
+func genkeyCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "genkey",
+		Usage: "generate a DUSK_ENCRYPTION_KEY",
+		Action: func(_ context.Context, _ *cli.Command) error {
+			key, err := vault.NewKey()
+			if err != nil {
+				return err
+			}
+			fmt.Println(key)
+			return nil
+		},
 	}
 }
 
-func genkey() error {
-	key, err := vault.NewKey()
-	if err != nil {
-		return err
-	}
-	fmt.Println(key)
-	return nil
-}
-
-func serve() error {
+func serve(parent context.Context) error {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	cfg, err := config.LoadFromEnv()
@@ -104,7 +102,7 @@ func serve() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	errc := make(chan error, 1)
@@ -130,7 +128,7 @@ func serve() error {
 		return err
 	case <-ctx.Done():
 		log.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
