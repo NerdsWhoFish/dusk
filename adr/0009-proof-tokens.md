@@ -32,7 +32,18 @@ In every case the agent wrote without first looking.
 
 Chosen: **option 2**.
 
-**Every write in Dusk requires a proof token, issued by a read.**
+**Every agent write requires a proof token, issued by a read.**
+
+### Humans never present tokens
+
+The gate is agent-facing, and deliberately does not apply to the UI.
+
+Every failure it prevents comes from writing without looking, and a human editing in the UI cannot do that: the read is the screen in front of them.
+They searched, they opened an entity, they clicked edit on a specific thing.
+Requiring a token there would enforce the letter of this decision while its entire purpose is already satisfied, and it would put protocol ceremony in front of a person for no gain.
+
+Concurrency is still handled on the human path, just not by tokens.
+Per-session branches in [ADR-0010](0010-mcp-surface.md) mean two people editing the same entity collide at merge, which is where a collision belongs and where git already knows what to do.
 
 A token is issued by any read operation (`get`, `search`, `neighbors`, `getKinds`) and carries the set of `(ref, version)` pairs that read returned, plus an issue time.
 

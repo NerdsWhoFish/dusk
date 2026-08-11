@@ -1,0 +1,233 @@
+name: release
+
+# Dusk publishes a container image and a Helm chart, not archives, so this
+# drives `docker buildx` and `helm` directly. GoReleaser would only wrap them,
+# and a service with no binaries or tap leaves it nothing else to do.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: What to cut
+        type: choice
+        default: Release
+        options:
+          - Release
+          - Release Candidate
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+  # Cross-building on every PR is the point: a break that only shows up on
+  # arm64 is invisible to `go test` on an amd64 runner, and arm64 is what the
+  # image actually runs on.
+  pull_request:
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Cancel superseded PR builds; never cancel a release, which is mid-way
+  # through tagging and publishing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/fetchhq/dusk
+  # The chart lives in FetchHQ/charts, one directory per chart.
+  CHART_REPO: ${{ github.repository_owner }}/charts
+  # `helm push` appends the chart name, landing at ghcr.io/fetchhq/charts/dusk.
+  CHART_REGISTRY: oci://ghcr.io/fetchhq/charts
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  snapshot:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build both architectures
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=0.0.0-pr.${{ github.event.number }}
+            COMMIT=${{ github.sha }}
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      # Releasing from a topic branch produces a tag whose history is not on
+      # main, which is unpickable afterwards.
+      - name: Refuse to release off main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Release from main. This ran on ${{ github.ref }}."
+          exit 1
+
+      - uses: actions/checkout@v5
+        with:
+          # Release notes are built from the commit log, which a shallow clone
+          # does not have.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Pinned rather than taken from the runner image: OCI push needs 3.8+.
+      - uses: azure/setup-helm@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          git tag --list 'v*' | go run ./internal/nextversion \
+            -bump '${{ inputs.bump }}' \
+            ${{ inputs.scope == 'Release Candidate' && '-candidate' || '' }} \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Image tags
+        id: tags
+        run: |
+          {
+            echo 'list<<TAGS'
+            echo "${IMAGE}:${{ steps.version.outputs.version }}"
+            # A candidate must be installable by tag without becoming what
+            # `latest` resolves to, or the rehearsal ships itself to everyone.
+            if [ '${{ steps.version.outputs.prerelease }}' = 'false' ]; then
+              echo "${IMAGE}:latest"
+            fi
+            echo TAGS
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Everything above this line is side-effect free, and so is this: the full
+      # cross-build with publishing switched off. A tag is only worth cutting
+      # once we know it can be built.
+      - name: Dry run
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ github.sha }}
+
+      # Publishing the chart reads another repo, which this job's own token
+      # cannot reach. An App token is scoped to that one repo and expires in an
+      # hour, unlike a PAT that lives in settings until someone rotates it.
+      - name: Token for the chart repo
+        id: charts_token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CHARTS_APP_ID }}
+          private-key: ${{ secrets.CHARTS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: charts
+
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.CHART_REPO }}
+          token: ${{ steps.charts_token.outputs.token }}
+          path: charts-repo
+
+      # Packaging is side-effect free, so a chart that will not build fails
+      # before a tag exists. The edits are never committed: the chart repo keeps
+      # its own version, and this pins the published copy to the image.
+      - name: Dry run the chart
+        run: |
+          yq -i '.image.tag = "${{ steps.version.outputs.version }}"' \
+            charts-repo/dusk/values.yaml
+          helm lint --strict charts-repo/dusk
+          helm package charts-repo/dusk \
+            --version '${{ steps.version.outputs.version }}' \
+            --app-version '${{ steps.version.outputs.version }}' \
+            --destination dist
+          helm template dusk dist/dusk-${{ steps.version.outputs.version }}.tgz > /dev/null
+
+      - name: Tag ${{ steps.version.outputs.next }}
+        id: tag
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a '${{ steps.version.outputs.next }}' \
+            -m '${{ steps.version.outputs.next }}'
+          git push origin '${{ steps.version.outputs.next }}'
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A cache hit off the dry run, so this pushes the bytes that were already
+      # proven to build rather than compiling them a second time.
+      - name: Push the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ github.sha }}
+
+      # The image is already public by now. If this fails the chart is a version
+      # behind, which is loud and re-runnable; unpublishing an image is neither,
+      # so nothing here rolls the image back.
+      - name: Push the chart
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm registry login ghcr.io \
+            --username '${{ github.actor }}' \
+            --password-stdin <<< "$GH_TOKEN"
+          helm push \
+            'dist/dusk-${{ steps.version.outputs.version }}.tgz' \
+            "$CHART_REGISTRY"
+
+      # Marking a candidate as a prerelease keeps it off the "latest release"
+      # the README and the install docs point at.
+      - name: Release ${{ steps.version.outputs.next }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+        run: |
+          gh release create '${{ steps.version.outputs.next }}' \
+            --title '${{ steps.version.outputs.next }}' \
+            --verify-tag \
+            --generate-notes \
+            ${PREVIOUS:+--notes-start-tag $PREVIOUS} \
+            ${{ steps.version.outputs.prerelease == 'true' && '--prerelease' || '' }}
+
+      # A tag left behind by a failed run burns that version number: the next
+      # attempt computes the one after it. Deleting it lets a retry reuse the
+      # same version and overwrite whatever the failed run pushed.
+      - name: Untag a failed release
+        if: failure() && steps.tag.outcome == 'success'
+        run: |
+          git push --delete origin '${{ steps.version.outputs.next }}' || true
+          git tag --delete '${{ steps.version.outputs.next }}' || true

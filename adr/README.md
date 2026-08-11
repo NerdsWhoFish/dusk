@@ -27,6 +27,10 @@ That is what stops the same argument happening again in six months.
 | [0016](0016-plugin-sdk-repo.md) | The plugin contract lives in its own repo | The `.proto` first, the Go SDK second, so non-Go authors are first-class |
 | [0017](0017-engineering-policy.md) | Engineering policy for FetchHQ repositories | Go conventions, no cgo without an ADR, package layout, DRY and its limit, docs everywhere, and the testing rules |
 | [0018](0018-normalization-at-the-edge.md) | Plugins normalize, Dusk never re-derives | Data is final by the time it reaches the graph, which is what keeps renderers free of a branch per source |
+| [0019](0019-chart-repo.md) | The Helm chart lives in its own repository | `FetchHQ/charts`, published as OCI. The release still drives from here, via an App token scoped to that one repo |
+| [0020](0020-plugin-ui.md) | Plugins contribute UI as Web Components, in three tiers | Declarative spec by default, Web Component opt-in, iframe for the rest. Never compiled in, because that is the Backstage fork |
+| [0021](0021-release-tooling.md) | Release with docker buildx and helm, not GoReleaser | Dusk ships an image and a chart, none of the artifacts GoReleaser exists for. All the release safety patterns are kept |
+| [0022](0022-credential-encryption.md) | Credentials encrypted at rest with a required external key | No unencrypted mode. Envelope encryption so the key can rotate, and the chart never generates it |
 
 ## Writing one
 

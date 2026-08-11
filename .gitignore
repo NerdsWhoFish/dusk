@@ -1,0 +1,6 @@
+# `go build ./...`, which is what `make nocgo` runs, drops a main package's
+# binary in the working directory.
+/nextversion
+
+/bin/
+/dist/
