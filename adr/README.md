@@ -31,6 +31,7 @@ That is what stops the same argument happening again in six months.
 | [0020](0020-plugin-ui.md) | Plugins contribute UI as Web Components, in three tiers | Declarative spec by default, Web Component opt-in, iframe for the rest. Never compiled in, because that is the Backstage fork |
 | [0021](0021-release-tooling.md) | Release with docker buildx and helm, not GoReleaser | Dusk ships an image and a chart, none of the artifacts GoReleaser exists for. All the release safety patterns are kept |
 | [0022](0022-credential-encryption.md) | Credentials encrypted at rest with a required external key | No unencrypted mode. Envelope encryption so the key can rotate, and the chart never generates it |
+| [0023](0023-plugin-configuration.md) | Plugins declare typed config; sensitive values never enter git | Non-sensitive config is markdown in the config repo, secrets are referenced from the encrypted store and are write-only |
 
 ## Writing one
 
