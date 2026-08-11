@@ -31,7 +31,7 @@ Chosen: **option 2**.
 The workflow calls `docker buildx build` for the multi-architecture image and `helm package` with `helm push` for the chart.
 There is no `.goreleaser.yaml`.
 
-Everything the workflow inherits from the pattern in `ollie-hooks` is kept, because those parts are about release *safety* rather than about GoReleaser:
+The release safety patterns are kept regardless of tooling, because they are about not shipping a broken tag rather than about GoReleaser:
 
 - `workflow_dispatch` with `scope` and `bump` choice inputs, so releases are deliberate.
 - Pull requests run a snapshot build, so a cross-build break is caught before merge rather than at release.

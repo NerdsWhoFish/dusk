@@ -142,13 +142,13 @@ func TestWebhookRouteRejectsGet(t *testing.T) {
 // The manifest must point GitHub at the public host while the browser callback
 // stays private, or a split-host deployment silently cannot receive deliveries.
 func TestADR0005_ManifestUsesPublicHostForWebhooksAndPrivateForCallbacks(t *testing.T) {
-	h := newServerWithHosts(t, "https://dusk.stout.zone", "https://dusk.example.com")
+	h := newServerWithHosts(t, "https://dusk.internal.example.com", "https://dusk.example.com")
 	m := manifestFrom(t, get(t, h, "/setup").Body.String())
 
 	if m.HookAttributes.URL != "https://dusk.example.com/webhooks" {
 		t.Errorf("webhook URL = %q, want the public host", m.HookAttributes.URL)
 	}
-	if m.RedirectURL != "https://dusk.stout.zone/setup/callback" {
+	if m.RedirectURL != "https://dusk.internal.example.com/setup/callback" {
 		t.Errorf("redirect URL = %q, want the private host", m.RedirectURL)
 	}
 }

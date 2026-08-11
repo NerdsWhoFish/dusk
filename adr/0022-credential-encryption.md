@@ -53,7 +53,7 @@ A random data key encrypts the credentials; the master key from the environment 
 Rotating the master key rewrites one small wrapped blob rather than re-encrypting everything.
 Without this, a required key with no rotation path means changing it is unrecoverable, and rotation is far cheaper to build now than to retrofit.
 
-The existing implementation in `boating-accident/internal/vault/crypto.go` is the reference: `deriveKEK`, `seal`, `open` over AES-GCM.
+AES-GCM throughout, with a key derivation step for the master key.
 
 ### The chart never generates the key
 

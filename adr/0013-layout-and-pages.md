@@ -41,7 +41,7 @@ A block is a typed query, not a placed widget.
 title: Home
 blocks:
   - type: entities
-    query: kind:service runs_on:mini-2
+    query: kind:service runs_on:prod-2
   - type: drift
   - type: recent-notes
     limit: 10

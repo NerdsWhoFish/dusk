@@ -44,7 +44,7 @@ The Dusk release workflow, after tagging and pushing the image, writes the chart
 That cross-repo write uses a **GitHub App token scoped to the charts repository**, minted per run via `actions/create-github-app-token`, rather than a personal access token.
 It reaches exactly one repository and expires within the hour, where a PAT would sit in settings until somebody remembered to rotate it.
 
-This is the same mechanism `ollie-hooks` uses to publish its Homebrew tap, for the same reasons.
+This is the standard mechanism for a cross-repository write from CI, and it is preferred to a long-lived token for the same reasons everywhere else.
 
 ### A chart-only fix still gets a full version
 

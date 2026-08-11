@@ -169,7 +169,7 @@ An `attributes` map is the escape hatch, and recurring attributes get promoted t
 
 **Declaration and observation are different layers, not competing claims.**
 `dusk.md` declares intent, ingesters observe reality, and an entity carries both facets.
-Divergence is surfaced as **drift**, which is a feature: "your `dusk.md` says mini-1, the ingester found mini-2."
+Divergence is surfaced as **drift**, which is a feature: "your `dusk.md` says prod-1, the ingester found prod-2."
 
 Published as `v1alpha`, with no stability promised until the three in-house ingesters have shipped.
 

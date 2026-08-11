@@ -78,27 +78,15 @@ This tracks implementation against it.
 
 ---
 
-## Deployed
-
-Running on mini-2 as of 2026-08-11.
-
-- Image `ghcr.io/fetchhq/dusk`, multi-arch, public on GHCR.
-- Chart `oci://ghcr.io/fetchhq/charts/dusk`, published by its own repository.
-- Internal at `https://dusk.stout.zone`.
-- Public webhooks at `https://dusk.theoutdoorprogrammer.com/webhooks`, forwarded by kube-repeater on mini-1. Only that prefix is exposed; the UI and setup stay on the LAN.
-- Flux image automation is live and tracks stable tags, excluding prereleases.
-- `DUSK_ENCRYPTION_KEY` is sealed with SOPS in the flux repo and held in 1Password.
-
 ## Next
 
-1. Run onboarding against real GitHub, which is the only way to confirm the manifest flow behaves as [ADR-0005](../adr/0005-github-app-and-access-modes.md) assumes.
-2. The reconciler over a single local repo, with no App, webhooks, or UI involved.
-3. Storage and the graph.
+1. The reconciler over a single local repo, with no App, webhooks, or UI involved.
+2. Storage and the graph.
+3. The MCP surface.
 
 ## Known gaps
 
-- Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
-- `internal/nextversion` exists but no release has been cut, so the pipeline is untested against a real tag.
-- Onboarding has only been exercised against fakes. Nothing has talked to real GitHub yet.
-- `dusk.theoutdoorprogrammer.com` does not resolve yet. The Cloudflare change is merged but its Spacelift stack has `auto_deploy = false` pending a state migration, so webhooks cannot arrive until that is applied.
 - Deliveries are verified and acknowledged but not yet acted on, because the reconciler does not exist. The poll floor in [0006](../adr/0006-reconcile-triggering.md) means nothing is lost meanwhile.
+- Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
+- The GitHub App manifest is validated against the real API, but the code exchange and installation path have not been exercised against a live App.
+- Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.

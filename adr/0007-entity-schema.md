@@ -54,13 +54,13 @@ For source disagreement:
 There is no conflict resolution, because declarations and observations are not competing claims about the same field.
 
 `dusk.md` **declares** intent: this service exists, it is owned by X, it depends on Y, it should run on Z.
-An ingester **observes** reality: there is a Deployment named `foo`, three replicas, image `x`, on cluster `mini-2`.
+An ingester **observes** reality: there is a Deployment named `foo`, three replicas, image `x`, on cluster `prod-2`.
 
 This is the spec and status split from Kubernetes.
 An entity carries both facets, and neither overwrites the other.
 
 Divergence between them is surfaced as **drift**, which is a feature rather than a data-merging problem.
-"Your `dusk.md` says this runs on mini-1, and the ingester found it on mini-2" is useful information, and silently merging it away would destroy the most valuable thing the two sources produce together.
+"Your `dusk.md` says this runs on prod-1, and the ingester found it on prod-2" is useful information, and silently merging it away would destroy the most valuable thing the two sources produce together.
 
 ### Versioning
 
