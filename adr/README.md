@@ -33,6 +33,7 @@ That is what stops the same argument happening again in six months.
 | [0022](0022-credential-encryption.md) | Credentials encrypted at rest with a required external key | No unencrypted mode. Envelope encryption so the key can rotate, and the chart never generates it |
 | [0023](0023-plugin-configuration.md) | Plugins declare typed config; sensitive values never enter git | Non-sensitive config is markdown in the config repo, secrets are referenced from the encrypted store and are write-only |
 | [0024](0024-charts-publishes-charts.md) | The charts repository publishes its own charts | Supersedes half of 0019. Chart version and appVersion are independent, so no App and no cross-repo write |
+| [0025](0025-responsive-ui.md) | Mobile and desktop are both first class | A fixed viewport matrix is the definition, tests assert no overflow and touch target size, screenshot diffing is rejected |
 
 ## Writing one
 

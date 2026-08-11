@@ -1,0 +1,147 @@
+package config_test
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/FetchHQ/dusk/internal/config"
+	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/FetchHQ/dusk/pkg/vault"
+)
+
+func env(kv map[string]string) func(string) string {
+	return func(k string) string { return kv[k] }
+}
+
+func validKey(t *testing.T) string {
+	t.Helper()
+	k, err := vault.NewKey()
+	if err != nil {
+		t.Fatalf("NewKey: %v", err)
+	}
+	return k
+}
+
+func TestLoad(t *testing.T) {
+	key := validKey(t)
+
+	tests := []struct {
+		name        string
+		env         map[string]string
+		wantErrs    []string
+		wantAddr    string
+		wantDataDir string
+		wantURL     string
+	}{
+		{
+			name:        "a complete environment loads",
+			env:         map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key},
+			wantAddr:    config.DefaultAddr,
+			wantDataDir: config.DefaultDataDir,
+			wantURL:     "https://dusk.example.com",
+		},
+		{
+			name: "addr and data dir override their defaults",
+			env: map[string]string{
+				"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key,
+				"DUSK_ADDR": "127.0.0.1:9000", "DUSK_DATA_DIR": "/data",
+			},
+			wantAddr: "127.0.0.1:9000", wantDataDir: "/data", wantURL: "https://dusk.example.com",
+		},
+		{
+			name:     "a trailing slash is trimmed so callback URLs never double up",
+			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com/", "DUSK_ENCRYPTION_KEY": key},
+			wantAddr: config.DefaultAddr, wantDataDir: config.DefaultDataDir,
+			wantURL: "https://dusk.example.com",
+		},
+		{
+			name:     "an empty environment reports both required variables at once",
+			env:      map[string]string{},
+			wantErrs: []string{"DUSK_EXTERNAL_URL", "DUSK_ENCRYPTION_KEY"},
+		},
+		{
+			name:     "a non-http external URL is rejected",
+			env:      map[string]string{"DUSK_EXTERNAL_URL": "ftp://dusk.example.com", "DUSK_ENCRYPTION_KEY": key},
+			wantErrs: []string{"must be http or https"},
+		},
+		{
+			name:     "an external URL with no host is rejected",
+			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://", "DUSK_ENCRYPTION_KEY": key},
+			wantErrs: []string{"no host"},
+		},
+		{
+			name:     "a short encryption key is rejected",
+			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": "c2hvcnQ="},
+			wantErrs: []string{"DUSK_ENCRYPTION_KEY is invalid"},
+		},
+		{
+			name:     "a non-base64 encryption key is rejected",
+			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": "not base64!!"},
+			wantErrs: []string{"DUSK_ENCRYPTION_KEY is invalid"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := config.Load(env(tt.env))
+
+			if len(tt.wantErrs) > 0 {
+				if err == nil {
+					t.Fatal("want error, got nil")
+				}
+				for _, want := range tt.wantErrs {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("want error mentioning %q, got:\n%v", want, err)
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Addr != tt.wantAddr {
+				t.Errorf("Addr = %q, want %q", got.Addr, tt.wantAddr)
+			}
+			if got.DataDir != tt.wantDataDir {
+				t.Errorf("DataDir = %q, want %q", got.DataDir, tt.wantDataDir)
+			}
+			if got.ExternalURL != tt.wantURL {
+				t.Errorf("ExternalURL = %q, want %q", got.ExternalURL, tt.wantURL)
+			}
+		})
+	}
+}
+
+// ADR-0022 has no unencrypted mode, so a missing key must stop the process
+// rather than degrade to plaintext with a warning nobody reads.
+func TestADR0022_MissingEncryptionKeyIsFatal(t *testing.T) {
+	_, err := config.Load(env(map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com"}))
+	if err == nil {
+		t.Fatal("Dusk started without an encryption key")
+	}
+	if !strings.Contains(err.Error(), "DUSK_ENCRYPTION_KEY is required") {
+		t.Errorf("error should name the variable, got: %v", err)
+	}
+}
+
+func TestConfigNeverRendersTheKey(t *testing.T) {
+	key := validKey(t)
+	c, err := config.Load(env(map[string]string{
+		"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key,
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	for _, format := range []string{"%v", "%+v", "%#v"} {
+		rendered := fmt.Sprintf(format, *c)
+		if strings.Contains(rendered, key) {
+			t.Errorf("%s leaked the encryption key: %s", format, rendered)
+		}
+		if !strings.Contains(rendered, secret.Redacted) {
+			t.Errorf("%s should show %q, got %s", format, secret.Redacted, rendered)
+		}
+	}
+}
