@@ -15,8 +15,11 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/FetchHQ/dusk/internal/config"
+	"github.com/FetchHQ/dusk/internal/controller"
+	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/server"
 	"github.com/FetchHQ/dusk/internal/store"
+	"github.com/FetchHQ/dusk/pkg/githubapp"
 	"github.com/FetchHQ/dusk/pkg/vault"
 )
 
@@ -54,7 +57,11 @@ func serveCommand() *cli.Command {
                         host. Set it when a forwarder exposes only /webhooks.
   DUSK_ENCRYPTION_KEY   Required. Base64 32-byte key. Generate with 'dusk genkey'.
   DUSK_ADDR             Listen address (default %s)
-  DUSK_DATA_DIR         Where credentials live (default %s)`,
+  DUSK_DATA_DIR         Where credentials and the index live (default %s)
+  DUSK_ALLOWED_ACCOUNTS Comma separated GitHub accounts whose installations may
+                        be reconciled. Defaults to the account the App belongs
+                        to. Anyone who can see an App can install it, so this is
+                        what keeps an uninvited installation out of the catalog.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
@@ -91,7 +98,29 @@ func serve(parent context.Context) error {
 		return err
 	}
 
-	srv, err := server.New(server.Options{Config: cfg, Credentials: credentials, Logger: log})
+	idx, err := index.Open(cfg.IndexPath())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = idx.Close() }()
+
+	catalog, err := controller.New(controller.Options{
+		Index:       idx,
+		Client:      &githubapp.Client{},
+		Credentials: credentials,
+		Accounts:    cfg.AllowedAccounts,
+		Logger:      log,
+	})
+	if err != nil {
+		return err
+	}
+
+	srv, err := server.New(server.Options{
+		Config:      cfg,
+		Credentials: credentials,
+		Controller:  catalog,
+		Logger:      log,
+	})
 	if err != nil {
 		return err
 	}
@@ -104,6 +133,10 @@ func serve(parent context.Context) error {
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// The poll floor runs whether or not webhooks are configured, and it is
+	// what keeps a lost delivery from leaving the catalog quietly stale.
+	go catalog.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

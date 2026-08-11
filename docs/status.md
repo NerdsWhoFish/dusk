@@ -43,10 +43,12 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Source boundary**: no VCS type reaches the reconciler, and the local directory source refuses a path that leaves it ([0005](../adr/0005-github-app-and-access-modes.md))
 - [x] **GitHub source**: `githubapp.Repository`, reading over the API at a commit resolved once, with a tree cache that needs no invalidation ([0029](../adr/0029-reading-repositories.md))
 - [x] **Installation auth**: App assertions and installation tokens, reused until close to expiry ([0005](../adr/0005-github-app-and-access-modes.md))
-- [x] **Storage**: `internal/index`, SQLite keyed by git ref, FTS5 search with ranking and snippets, transactional replace, cheap per-ref garbage collection ([0008](../adr/0008-storage.md))
+- [x] **Storage**: `internal/index`, SQLite partitioned by repository and git ref, FTS5 search with ranking and snippets, transactional replace, cheap per-ref garbage collection ([0008](../adr/0008-storage.md))
 - [~] **Entity graph**: relations and inbound traversal to a bounded depth are built. Drift between declared and observed waits on there being an observed side ([0007](../adr/0007-entity-schema.md))
-- [ ] **Poll floor**: periodic `git ls-remote` reconcile ([0006](../adr/0006-reconcile-triggering.md))
-- [ ] **Sync observability**: last reconcile, what changed, what failed, what is stale
+- [x] **Poll floor**: periodic sweep of every permitted installation, running whether or not webhooks are configured ([0006](../adr/0006-reconcile-triggering.md))
+- [x] **Webhook triggering**: a push reconciles one repository, an installation change triggers a sweep, both answered before the work runs ([0006](../adr/0006-reconcile-triggering.md))
+- [x] **Account allowlist**: only the App's own account by default, checked on both the sweep and the delivery ([0030](../adr/0030-account-allowlist.md))
+- [~] **Sync observability**: per-repository status with commit, counts, and last error is recorded. Nothing surfaces it yet, because there is no UI or API to surface it on
 
 ## Write path
 
@@ -87,12 +89,13 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. Knowing which repositories to reconcile: listing an installation's repositories, and storing which ref each is tracked at.
-2. Wiring the webhook receiver and a poll floor to the reconciler, which closes the first known gap below. Every piece it needs now exists.
-3. The MCP surface, including proof tokens and the commit queue.
+1. The MCP surface, including proof tokens and the commit queue. The read half has everything it needs.
+2. Pull request previews: reconciling a PR head ref as its own view, and garbage collecting it on close.
+3. The HTTP API, which is what finally surfaces sync status to a human.
 
 ## Known gaps
 
-- Deliveries are verified and acknowledged but not yet acted on. The reconciler and a GitHub source both exist now, so what is missing is only the wiring: nothing connects a delivery to a reconcile, and nothing records which repositories to track.
+- Catalog content is fed to agents with no trust boundary of its own. [ADR-0030](../adr/0030-account-allowlist.md) narrows *who* can reach that path but does nothing about a compromised repository inside an allowed account.
+- Two repositories declaring the same entity is undetected. Within one repository it is an error; across repositories the graph keeps both and a read returns whichever sorts first.
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.

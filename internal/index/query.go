@@ -27,11 +27,14 @@ type Dependent struct {
 	Depth int
 }
 
-// Get returns one entity as stored at gitRef.
+// Get returns one entity at gitRef, across every repository contributing to it.
+// Ordering by repository keeps the answer stable when two declare the same
+// entity, a conflict the catalog should surface and does not yet.
 func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error) {
 	var row entityRow
 	err := db.gorm.WithContext(ctx).
 		Where("git_ref = ? AND ref = ?", gitRef, entityRef).
+		Order("repository").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("index: get %q at %q: %w", entityRef, gitRef, ErrNotFound)
@@ -50,7 +53,7 @@ func (db *DB) List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.En
 	}
 
 	var rows []entityRow
-	if err := query.Order("ref").Find(&rows).Error; err != nil {
+	if err := query.Order("repository, ref").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("index: list at %q: %w", gitRef, err)
 	}
 	return entities(rows)
@@ -91,7 +94,9 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 	var results []SearchResult
 	err := db.gorm.WithContext(ctx).Raw(`
 		SELECT ref, kind, title,
-		       snippet(entity_fts, 5, '', '', '...', 12) AS snippet
+		       -- Column 6 is description. snippet() takes a positional index,
+		       -- so adding a column to entity_fts silently moves this.
+		       snippet(entity_fts, 6, '', '', '...', 12) AS snippet
 		  FROM entity_fts
 		 WHERE entity_fts MATCH @match AND git_ref = @gitRef
 		 ORDER BY rank

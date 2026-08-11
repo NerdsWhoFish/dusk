@@ -23,6 +23,13 @@ type credentialStore interface {
 	Configured() bool
 }
 
+// catalogController is the slice of the controller the webhook path needs,
+// declared here so the server does not depend on how reconciling works.
+type catalogController interface {
+	SyncRepository(ctx context.Context, installationID int64, account, owner, name, gitRef string) error
+	Sync(ctx context.Context) error
+}
+
 // appClient exchanges manifest codes. Narrow enough to fake in tests.
 type appClient interface {
 	Convert(ctx context.Context, code string) (*githubapp.Credentials, error)
@@ -33,6 +40,7 @@ type Server struct {
 	cfg         *config.Config
 	credentials credentialStore
 	github      appClient
+	controller  catalogController
 	state       *setupState
 	deliveries  *seenDeliveries
 	log         *slog.Logger
@@ -45,6 +53,7 @@ type Options struct {
 	Config      *config.Config
 	Credentials credentialStore
 	GitHub      appClient
+	Controller  catalogController
 	Logger      *slog.Logger
 	Now         func() time.Time
 }
@@ -62,6 +71,7 @@ func New(opts Options) (*Server, error) {
 		cfg:         opts.Config,
 		credentials: opts.Credentials,
 		github:      opts.GitHub,
+		controller:  opts.Controller,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
 		log:         opts.Logger,

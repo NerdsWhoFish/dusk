@@ -22,7 +22,10 @@ var (
 	_ reconcile.Source = (*githubapp.Repository)(nil)
 )
 
-const mainRef = "refs/heads/main"
+const (
+	mainRef  = "refs/heads/main"
+	testRepo = "example/homelab"
+)
 
 var observedAt = time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
 
@@ -73,7 +76,7 @@ func TestReconcile(t *testing.T) {
 	})
 	ctx := t.Context()
 
-	result, err := reconciler.Reconcile(ctx, mainRef, observedAt)
+	result, err := reconciler.Reconcile(ctx, testRepo, mainRef, observedAt)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -149,7 +152,7 @@ func TestADR0004_OnlyDeclaredPathsAreRead(t *testing.T) {
 
 	recorder := &recordingSource{Source: source}
 	idx := newIndex(t)
-	if _, err := reconcile.New(recorder, idx).Reconcile(t.Context(), mainRef, observedAt); err != nil {
+	if _, err := reconcile.New(recorder, idx).Reconcile(t.Context(), testRepo, mainRef, observedAt); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
@@ -166,7 +169,7 @@ func TestReconcileWithoutARootFile(t *testing.T) {
 	})
 	ctx := t.Context()
 
-	result, err := reconciler.Reconcile(ctx, mainRef, observedAt)
+	result, err := reconciler.Reconcile(ctx, testRepo, mainRef, observedAt)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -219,7 +222,7 @@ func TestReconcileRejectsTwoFilesDeclaringOneEntity(t *testing.T) {
 		"services/copy/dusk.md":     jellyfinFile,
 	})
 
-	_, err := reconciler.Reconcile(t.Context(), mainRef, observedAt)
+	_, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt)
 	if err == nil {
 		t.Fatal("Reconcile succeeded with a duplicated entity, want an error")
 	}
@@ -238,7 +241,7 @@ func TestReconcileReportsEveryBrokenFile(t *testing.T) {
 			"to: host:home/nas", "to: not-a-ref", 1),
 	})
 
-	_, err := reconciler.Reconcile(t.Context(), mainRef, observedAt)
+	_, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt)
 	if err == nil {
 		t.Fatal("Reconcile succeeded with two broken files, want an error")
 	}
@@ -254,7 +257,7 @@ func TestReconcileRejectsABrokenRootFile(t *testing.T) {
 		"dusk.md": "no frontmatter here\n",
 	})
 
-	if _, err := reconciler.Reconcile(t.Context(), mainRef, observedAt); err == nil {
+	if _, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt); err == nil {
 		t.Fatal("Reconcile succeeded with a broken root file, want an error")
 	}
 }
@@ -336,7 +339,7 @@ func newIndex(t *testing.T) *index.DB {
 func reconcileDir(t *testing.T, idx *index.DB, dir string) {
 	t.Helper()
 	source := newDirSource(t, dir)
-	if _, err := reconcile.New(source, idx).Reconcile(t.Context(), mainRef, observedAt); err != nil {
+	if _, err := reconcile.New(source, idx).Reconcile(t.Context(), testRepo, mainRef, observedAt); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 }

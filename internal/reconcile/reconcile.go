@@ -48,6 +48,11 @@ type Source interface {
 
 // Graph is what a repository declares at one git ref.
 type Graph struct {
+	// Repository is the owner/name this graph was read from, and the scope it
+	// is stored under. Many repositories share one catalog, so it partitions
+	// the index alongside GitRef.
+	Repository string
+
 	// GitRef is the ref the graph was read at, and the key it is stored under.
 	GitRef string
 
@@ -214,18 +219,20 @@ func New(source Source, idx *index.DB) *Reconciler {
 // Reconcile reads the repository at gitRef and replaces everything the index
 // holds for it. A repository with no root dusk.md is not an error: it has not
 // opted in, and the previous contents at that ref are cleared.
-func (r *Reconciler) Reconcile(ctx context.Context, gitRef string, observedAt time.Time) (*Graph, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, observedAt time.Time) (*Graph, error) {
 	graph, err := r.loader.Load(ctx, gitRef, observedAt)
 	if err != nil {
 		return nil, err
 	}
+	graph.Repository = repository
+
 	if !graph.Participating {
-		if err := r.index.DropGitRef(ctx, gitRef); err != nil {
+		if err := r.index.DropRepository(ctx, repository, gitRef); err != nil {
 			return nil, err
 		}
 		return graph, nil
 	}
-	if err := r.index.Put(ctx, gitRef, graph.Entities, graph.Relations); err != nil {
+	if err := r.index.Put(ctx, repository, gitRef, graph.Entities, graph.Relations); err != nil {
 		return nil, err
 	}
 	return graph, nil

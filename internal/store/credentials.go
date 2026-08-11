@@ -46,6 +46,10 @@ type Credentials struct {
 	ClientID string     `json:"client_id"`
 	Mode     AccessMode `json:"mode"`
 
+	// Owner is the account the App belongs to. It is the default allowlist:
+	// an installation on any other account is not reconciled.
+	Owner string `json:"owner"`
+
 	PrivateKey    secret.String `json:"private_key"`
 	WebhookSecret secret.String `json:"webhook_secret"`
 	ClientSecret  secret.String `json:"client_secret"`
@@ -60,6 +64,7 @@ func FromGitHub(c *githubapp.Credentials, mode AccessMode) *Credentials {
 		Name:          c.Name,
 		HTMLURL:       c.HTMLURL,
 		ClientID:      c.ClientID,
+		Owner:         c.Owner.Login,
 		PrivateKey:    secret.New(c.PEM),
 		WebhookSecret: secret.New(c.WebhookSecret),
 		ClientSecret:  secret.New(c.ClientSecret),
@@ -162,6 +167,7 @@ type plainCredentials struct {
 	HTMLURL       string `json:"html_url"`
 	ClientID      string `json:"client_id"`
 	Mode          string `json:"mode"`
+	Owner         string `json:"owner"`
 	PrivateKey    string `json:"private_key"`
 	WebhookSecret string `json:"webhook_secret"`
 	ClientSecret  string `json:"client_secret"`
@@ -175,6 +181,7 @@ func revealed(c *Credentials) plainCredentials {
 		HTMLURL:       c.HTMLURL,
 		ClientID:      c.ClientID,
 		Mode:          string(c.Mode),
+		Owner:         c.Owner,
 		PrivateKey:    c.PrivateKey.Reveal(),
 		WebhookSecret: c.WebhookSecret.Reveal(),
 		ClientSecret:  c.ClientSecret.Reveal(),
@@ -187,6 +194,7 @@ func (p plainCredentials) sealedForm() *Credentials {
 		Slug:          p.Slug,
 		Name:          p.Name,
 		HTMLURL:       p.HTMLURL,
+		Owner:         p.Owner,
 		ClientID:      p.ClientID,
 		Mode:          AccessMode(p.Mode),
 		PrivateKey:    secret.New(p.PrivateKey),

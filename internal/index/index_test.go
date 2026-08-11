@@ -15,7 +15,10 @@ import (
 	"github.com/FetchHQ/dusk/internal/index"
 )
 
-const mainRef = "refs/heads/main"
+const (
+	mainRef  = "refs/heads/main"
+	testRepo = "example/homelab"
+)
 
 func TestPutAndGet(t *testing.T) {
 	db := newDB(t)
@@ -24,7 +27,7 @@ func TestPutAndGet(t *testing.T) {
 	want := entity("service:home/jellyfin", "Jellyfin", "Media server, transcoding disabled.")
 	want.Attributes = attributes(t, map[string]any{"backup": "nightly"})
 
-	if err := db.Put(ctx, mainRef, []*duskv1alpha1.Entity{want}, nil); err != nil {
+	if err := db.Put(ctx, testRepo, mainRef, []*duskv1alpha1.Entity{want}, nil); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 
@@ -68,10 +71,10 @@ func TestADR0008_GitRefsAreIsolated(t *testing.T) {
 	ctx := t.Context()
 
 	const prRef = "refs/pull/112/head"
-	mustPut(t, db, mainRef, []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", "Media server."),
 	}, nil)
-	mustPut(t, db, prRef, []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, prRef, []*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", "Media server."),
 		entity("service:home/navidrome", "Navidrome", "Music server, added by the pull request."),
 	}, nil)
@@ -121,8 +124,8 @@ func TestADR0008_DroppingAGitRefLeavesOthersIntact(t *testing.T) {
 	relations := []*duskv1alpha1.Relation{
 		relation("service:home/jellyfin", "host:home/nas", "runs_on"),
 	}
-	mustPut(t, db, mainRef, []*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "Media server.")}, relations)
-	mustPut(t, db, prRef, []*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "Media server.")}, relations)
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "Media server.")}, relations)
+	mustPut(t, db, testRepo, prRef, []*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "Media server.")}, relations)
 
 	if err := db.DropGitRef(ctx, prRef); err != nil {
 		t.Fatalf("DropGitRef: %v", err)
@@ -142,15 +145,78 @@ func TestADR0008_DroppingAGitRefLeavesOthersIntact(t *testing.T) {
 	}
 }
 
+// Many repositories share one catalog, so the index is partitioned by
+// repository as well as ref. Without that, two repositories both tracked at
+// refs/heads/main would overwrite each other.
+func TestRepositoriesShareARefWithoutColliding(t *testing.T) {
+	db := newDB(t)
+	ctx := t.Context()
+
+	const otherRepo = "example/media"
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/nas", "The NAS", "Four bays."),
+	}, []*duskv1alpha1.Relation{relation("service:home/jellyfin", "host:home/nas", "runs_on")})
+	mustPut(t, db, otherRepo, mainRef, []*duskv1alpha1.Entity{
+		entity("service:home/jellyfin", "Jellyfin", "Media server."),
+	}, nil)
+
+	t.Run("writing one repository leaves the other alone", func(t *testing.T) {
+		for _, ref := range []string{"host:home/nas", "service:home/jellyfin"} {
+			if _, err := db.Get(ctx, mainRef, ref); err != nil {
+				t.Errorf("Get(%q): %v", ref, err)
+			}
+		}
+	})
+
+	t.Run("queries span every repository at the ref", func(t *testing.T) {
+		all, err := db.List(ctx, mainRef, "")
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(all) != 2 {
+			t.Errorf("List = %d entities, want 2 across both repositories", len(all))
+		}
+
+		// The edge is declared in one repository and points at an entity owned
+		// by the other, which is the normal cross-repository case.
+		dependents, err := db.Dependents(ctx, mainRef, "host:home/nas", 5)
+		if err != nil {
+			t.Fatalf("Dependents: %v", err)
+		}
+		if len(dependents) != 1 {
+			t.Errorf("Dependents = %v, want the service from the other repository", dependents)
+		}
+	})
+
+	t.Run("re-reading one repository does not disturb the other", func(t *testing.T) {
+		mustPut(t, db, otherRepo, mainRef, nil, nil)
+		if _, err := db.Get(ctx, mainRef, "host:home/nas"); err != nil {
+			t.Errorf("the untouched repository lost its entity: %v", err)
+		}
+		if _, err := db.Get(ctx, mainRef, "service:home/jellyfin"); !errors.Is(err, index.ErrNotFound) {
+			t.Errorf("the re-read repository kept a removed entity: %v", err)
+		}
+	})
+
+	t.Run("dropping one repository leaves the other", func(t *testing.T) {
+		if err := db.DropRepository(ctx, testRepo, mainRef); err != nil {
+			t.Fatalf("DropRepository: %v", err)
+		}
+		if _, err := db.Get(ctx, mainRef, "host:home/nas"); !errors.Is(err, index.ErrNotFound) {
+			t.Errorf("the dropped repository survived: %v", err)
+		}
+	})
+}
+
 func TestPutReplacesTheRefWholesale(t *testing.T) {
 	db := newDB(t)
 	ctx := t.Context()
 
-	mustPut(t, db, mainRef, []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", "Media server."),
 		entity("service:home/retired", "Retired", "Removed in the next commit."),
 	}, nil)
-	mustPut(t, db, mainRef, []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", "Media server."),
 	}, nil)
 
@@ -172,7 +238,7 @@ func TestPutRollsBackOnFailure(t *testing.T) {
 	db := newDB(t)
 	ctx := t.Context()
 
-	mustPut(t, db, mainRef, []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", "Media server."),
 	}, nil)
 
@@ -180,7 +246,7 @@ func TestPutRollsBackOnFailure(t *testing.T) {
 		entity("service:home/navidrome", "Navidrome", "Music server."),
 		entity("service:home/navidrome", "Navidrome", "The same ref twice, which the primary key rejects."),
 	}
-	if err := db.Put(ctx, mainRef, duplicated, nil); err == nil {
+	if err := db.Put(ctx, testRepo, mainRef, duplicated, nil); err == nil {
 		t.Fatal("Put succeeded with a duplicate ref, want a constraint error")
 	}
 
@@ -196,7 +262,7 @@ func TestSearch(t *testing.T) {
 	db := newDB(t)
 	ctx := t.Context()
 
-	mustPut(t, db, mainRef, []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", "Media server. Transcoding is disabled on purpose."),
 		entity("host:home/nas", "The NAS", "Four bays, holds the media library."),
 		entity("service:home/navidrome", "Navidrome", "Music streaming."),
@@ -258,7 +324,7 @@ func TestSearchIsScopedToOneGitRef(t *testing.T) {
 	db := newDB(t)
 	ctx := t.Context()
 
-	mustPut(t, db, "refs/pull/112/head", []*duskv1alpha1.Entity{
+	mustPut(t, db, testRepo, "refs/pull/112/head", []*duskv1alpha1.Entity{
 		entity("service:home/navidrome", "Navidrome", "Music streaming."),
 	}, nil)
 
@@ -274,7 +340,7 @@ func TestSearchIsScopedToOneGitRef(t *testing.T) {
 func TestNeighbors(t *testing.T) {
 	db := newDB(t)
 
-	mustPut(t, db, mainRef, nil, []*duskv1alpha1.Relation{
+	mustPut(t, db, testRepo, mainRef, nil, []*duskv1alpha1.Relation{
 		relation("service:home/jellyfin", "host:home/nas", "runs_on"),
 		relation("service:home/navidrome", "host:home/nas", "runs_on"),
 		relation("service:home/jellyfin", "datastore:home/postgres", "depends_on"),
@@ -301,7 +367,7 @@ func TestDependents(t *testing.T) {
 	db := newDB(t)
 	ctx := t.Context()
 
-	mustPut(t, db, mainRef, nil, []*duskv1alpha1.Relation{
+	mustPut(t, db, testRepo, mainRef, nil, []*duskv1alpha1.Relation{
 		relation("service:home/jellyfin", "datastore:home/postgres", "depends_on"),
 		relation("service:home/dashboard", "service:home/jellyfin", "depends_on"),
 		relation("datastore:home/postgres", "host:home/nas", "runs_on"),
@@ -353,7 +419,7 @@ func TestDependents(t *testing.T) {
 func TestDependentsTerminatesOnACycle(t *testing.T) {
 	db := newDB(t)
 
-	mustPut(t, db, mainRef, nil, []*duskv1alpha1.Relation{
+	mustPut(t, db, testRepo, mainRef, nil, []*duskv1alpha1.Relation{
 		relation("service:home/a", "service:home/b", "depends_on"),
 		relation("service:home/b", "service:home/c", "depends_on"),
 		relation("service:home/c", "service:home/a", "depends_on"),
@@ -384,9 +450,9 @@ func newDB(t *testing.T) *index.DB {
 	return db
 }
 
-func mustPut(t *testing.T, db *index.DB, gitRef string, entities []*duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) {
+func mustPut(t *testing.T, db *index.DB, repository, gitRef string, entities []*duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) {
 	t.Helper()
-	if err := db.Put(t.Context(), gitRef, entities, relations); err != nil {
+	if err := db.Put(t.Context(), repository, gitRef, entities, relations); err != nil {
 		t.Fatalf("Put at %q: %v", gitRef, err)
 	}
 }

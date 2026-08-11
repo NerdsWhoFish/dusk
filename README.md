@@ -23,6 +23,7 @@ Dusk assumes the agents doing the work can also do the documenting, so the catal
 - [adr/](adr/) holds the decision records, including the alternatives that were rejected and why.
 - [docs/dusk-md.md](docs/dusk-md.md) is the reference for the `dusk.md` file a repository uses to join the catalog.
 - [docs/reconcile.md](docs/reconcile.md) covers turning a repository into the graph, and `dusk validate` for checking a checkout locally.
+- [docs/controller.md](docs/controller.md) covers what keeps the catalog current: discovery, the account allowlist, webhooks, and the poll floor.
 - [docs/storage.md](docs/storage.md) covers the materialized graph: how it is keyed, what it stores, and how search works.
 - [docs/philosophy.md](docs/philosophy.md) is the posture behind the design.
 - [docs/status.md](docs/status.md) tracks what is built and what is not.

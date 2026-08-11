@@ -42,6 +42,8 @@ That is what stops the same argument happening again in six months.
 
 | [0029](0029-reading-repositories.md) | Repositories are read over the API, at a pinned commit | Three endpoints instead of a clone, because a reconcile reads one file per repository. The ref is resolved once so a moving branch cannot stitch two commits into one graph, which also makes the tree cache safe |
 
+| [0030](0030-account-allowlist.md) | Only allowlisted accounts are reconciled | Anyone able to see an App can install it, and catalog content reaches agent context, so an uninvited installation is a prompt injection path. Defaults to the App's own account, checked on both the sweep and the webhook |
+
 ## Writing one
 
 Number sequentially and never reuse a number.

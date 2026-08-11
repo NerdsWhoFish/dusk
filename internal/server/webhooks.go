@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -110,9 +112,88 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.log.Info("webhook accepted", "event", event, "delivery", delivery, "bytes", len(body))
+	s.dispatch(r.Context(), event, delivery, body)
 
-	// Accepted rather than processed: reconcile is not built yet, and the poll
-	// floor in ADR-0006 means nothing is lost while it is missing.
+	// Accepted rather than done: GitHub gets a prompt answer and the reconcile
+	// runs behind it, with the poll floor as the safety net if it fails.
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("accepted\n"))
 }
+
+// delivery is the slice of each payload the reconcile path needs. GitHub sends
+// a great deal more, and none of it is trusted beyond these fields.
+type deliveryPayload struct {
+	Ref        string `json:"ref"`
+	Repository struct {
+		Name  string `json:"name"`
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+	} `json:"repository"`
+	Installation struct {
+		ID      int64 `json:"id"`
+		Account struct {
+			Login string `json:"login"`
+		} `json:"account"`
+	} `json:"installation"`
+}
+
+// dispatch turns an accepted delivery into work, off the request goroutine so
+// GitHub is not kept waiting on a reconcile.
+func (s *Server) dispatch(ctx context.Context, event, delivery string, body []byte) {
+	if s.controller == nil {
+		return
+	}
+
+	var payload deliveryPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		s.log.Error("webhook payload could not be read", "event", event, "delivery", delivery, "error", err)
+		return
+	}
+
+	switch event {
+	case "push":
+		s.reconcileRepository(ctx, delivery, payload)
+	case "installation", "installation_repositories":
+		go s.sweep(ctx, delivery)
+	default:
+		s.log.Info("webhook ignored: nothing to do for this event", "event", event, "delivery", delivery)
+	}
+}
+
+func (s *Server) reconcileRepository(ctx context.Context, delivery string, payload deliveryPayload) {
+	owner := payload.Repository.Owner.Login
+	name := payload.Repository.Name
+	if owner == "" || name == "" || payload.Ref == "" || payload.Installation.ID == 0 {
+		s.log.Error("push delivery is missing what a reconcile needs", "delivery", delivery)
+		return
+	}
+
+	// The account is taken from the installation rather than the repository, so
+	// the allowlist is checked against who Dusk trusts rather than who pushed.
+	account := payload.Installation.Account.Login
+	if account == "" {
+		account = owner
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reconcileTimeout)
+		defer cancel()
+		if err := s.controller.SyncRepository(ctx, payload.Installation.ID, account, owner, name, payload.Ref); err != nil {
+			s.log.Error("reconcile from delivery failed", "delivery", delivery, "error", err)
+		}
+	}()
+}
+
+func (s *Server) sweep(ctx context.Context, delivery string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sweepTimeout)
+	defer cancel()
+	if err := s.controller.Sync(ctx); err != nil {
+		s.log.Error("sweep from delivery failed", "delivery", delivery, "error", err)
+	}
+}
+
+const (
+	reconcileTimeout = 2 * time.Minute
+	sweepTimeout     = 15 * time.Minute
+)

@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. Amended, see [Amendments](#amendments).
 
 ## Context and Problem Statement
 
@@ -66,3 +66,19 @@ The driver choice is load-bearing and is not interchangeable with the default.
 - Embedded key-value stores were rejected because they solve persistence and nothing else. Indexes, relation traversal, and full-text search would all be hand-built, which is a large amount of work to reproduce what SQLite already ships.
 - PostgreSQL was rejected because it requires an external service for what is explicitly a disposable cache, and that destroys the run-it-anywhere property for no benefit at this scale.
 - Graph databases were rejected as disproportionate. The workload is thousands of entities, not millions, and the operational weight is not remotely justified.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-11: the partition is a repository and a ref, not a ref alone
+
+This ADR says "`ref` as a column" throughout, which was written with one repository in view.
+Many repositories reconcile into one catalog, so two both tracked at `refs/heads/main` would have overwritten each other.
+
+The partition is now `(repository, git_ref)`, and a write is scoped to one repository so a push to one does not require re-reading the others.
+Queries still take a git ref alone and span every repository contributing to it, which is what makes cross-repository search work.
+
+Garbage collection is unchanged in spirit and gained a second form: dropping a whole ref for a closed pull request, and dropping one repository's contents at a ref for an uninstall.
+
+The decision, SQLite via GORM on a pure-Go driver, is untouched, as is every reason it won.

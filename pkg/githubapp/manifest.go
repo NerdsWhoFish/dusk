@@ -62,6 +62,12 @@ type Credentials struct {
 	WebhookSecret string `json:"webhook_secret"`
 	ClientID      string `json:"client_id"`
 	ClientSecret  string `json:"client_secret"`
+
+	// Owner is the account the App belongs to, and the default account whose
+	// installations Dusk will reconcile.
+	Owner struct {
+		Login string `json:"login"`
+	} `json:"owner"`
 }
 
 // InstallURL is where the user goes to install the App onto repositories.

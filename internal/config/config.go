@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/FetchHQ/dusk/pkg/secret"
@@ -38,7 +39,17 @@ type Config struct {
 	// EncryptionKey is the decoded master key. Required: ADR-0022 has no
 	// unencrypted mode, so an insecure deployment cannot exist.
 	EncryptionKey secret.String
+
+	// AllowedAccounts are the GitHub accounts whose installations may be
+	// reconciled. Empty means the account the App belongs to, and nothing
+	// else, because anyone able to see an App can install it.
+	AllowedAccounts []string
 }
+
+// IndexPath is where the materialized graph lives. It sits beside the
+// credentials because both are derived from the same deployment, and unlike
+// the credentials it can be deleted and rebuilt.
+func (c *Config) IndexPath() string { return filepath.Join(c.DataDir, "index.db") }
 
 // WebhookURL is the delivery URL baked into the GitHub App registration.
 func (c *Config) WebhookURL() string { return c.PublicHost + "/webhooks" }
@@ -61,6 +72,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		DataDir:     orDefault(getenv("DUSK_DATA_DIR"), DefaultDataDir),
 		PrivateHost: normalizeHost(getenv("DUSK_PRIVATE_HOST")),
 		PublicHost:  normalizeHost(getenv("DUSK_PUBLIC_HOST")),
+
+		AllowedAccounts: splitAccounts(getenv("DUSK_ALLOWED_ACCOUNTS")),
 	}
 
 	var problems []error
@@ -130,6 +143,18 @@ func validateHost(name, raw string) error {
 		return fmt.Errorf("%s must be a host, not a path: drop %q", name, u.Path)
 	}
 	return nil
+}
+
+// splitAccounts parses the comma separated allowlist, ignoring blanks so a
+// trailing comma cannot silently allow an empty account name.
+func splitAccounts(raw string) []string {
+	var accounts []string
+	for account := range strings.SplitSeq(raw, ",") {
+		if trimmed := strings.TrimSpace(account); trimmed != "" {
+			accounts = append(accounts, trimmed)
+		}
+	}
+	return accounts
 }
 
 func orDefault(v, fallback string) string {

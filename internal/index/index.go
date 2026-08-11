@@ -35,6 +35,7 @@ type DB struct {
 }
 
 type entityRow struct {
+	Repository  string `gorm:"primaryKey"`
 	GitRef      string `gorm:"primaryKey"`
 	Ref         string `gorm:"primaryKey"`
 	Kind        string `gorm:"index"`
@@ -51,6 +52,7 @@ type entityRow struct {
 func (entityRow) TableName() string { return "entities" }
 
 type relationRow struct {
+	Repository string `gorm:"primaryKey"`
 	GitRef     string `gorm:"primaryKey"`
 	FromRef    string `gorm:"primaryKey"`
 	ToRef      string `gorm:"primaryKey"`
@@ -115,41 +117,43 @@ func (db *DB) migrate() error {
 // cannot forget to keep search in step.
 var ftsSchema = []string{
 	`CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(
-		git_ref UNINDEXED, ref UNINDEXED, kind, name, title, description
+		repository UNINDEXED, git_ref UNINDEXED, ref UNINDEXED, kind, name, title, description
 	)`,
 	`CREATE TRIGGER IF NOT EXISTS entity_fts_insert AFTER INSERT ON entities BEGIN
-		INSERT INTO entity_fts (git_ref, ref, kind, name, title, description)
-		VALUES (new.git_ref, new.ref, new.kind, new.name, new.title, new.description);
+		INSERT INTO entity_fts (repository, git_ref, ref, kind, name, title, description)
+		VALUES (new.repository, new.git_ref, new.ref, new.kind, new.name, new.title, new.description);
 	END`,
 	`CREATE TRIGGER IF NOT EXISTS entity_fts_delete AFTER DELETE ON entities BEGIN
-		DELETE FROM entity_fts WHERE git_ref = old.git_ref AND ref = old.ref;
+		DELETE FROM entity_fts
+		 WHERE repository = old.repository AND git_ref = old.git_ref AND ref = old.ref;
 	END`,
 	`CREATE TRIGGER IF NOT EXISTS entity_fts_update AFTER UPDATE ON entities BEGIN
-		DELETE FROM entity_fts WHERE git_ref = old.git_ref AND ref = old.ref;
-		INSERT INTO entity_fts (git_ref, ref, kind, name, title, description)
-		VALUES (new.git_ref, new.ref, new.kind, new.name, new.title, new.description);
+		DELETE FROM entity_fts
+		 WHERE repository = old.repository AND git_ref = old.git_ref AND ref = old.ref;
+		INSERT INTO entity_fts (repository, git_ref, ref, kind, name, title, description)
+		VALUES (new.repository, new.git_ref, new.ref, new.kind, new.name, new.title, new.description);
 	END`,
 }
 
-// Put replaces everything stored at gitRef, because git already gives the
-// complete picture at a ref. One transaction, so a failed reconcile leaves the
-// previous contents rather than a half-built graph.
-func (db *DB) Put(ctx context.Context, gitRef string, entities []*duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) error {
-	if gitRef == "" {
-		return errors.New("index: put: git ref is required")
+// Put replaces what repository contributes at gitRef, in one transaction, so a
+// failed reconcile leaves the previous contents rather than a half-built graph.
+// Scoping to one repository keeps a push to one from re-reading all the others.
+func (db *DB) Put(ctx context.Context, repository, gitRef string, entities []*duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) error {
+	if repository == "" || gitRef == "" {
+		return errors.New("index: put: a repository and a git ref are both required")
 	}
 
-	entityRows, err := entityRows(gitRef, entities)
+	entityRows, err := entityRows(repository, gitRef, entities)
 	if err != nil {
 		return err
 	}
-	relationRows, err := relationRows(gitRef, relations)
+	relationRows, err := relationRows(repository, gitRef, relations)
 	if err != nil {
 		return err
 	}
 
 	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := deleteGitRef(tx, gitRef); err != nil {
+		if err := deleteScope(tx, repository, gitRef); err != nil {
 			return err
 		}
 		if len(entityRows) > 0 {
@@ -170,22 +174,54 @@ func (db *DB) Put(ctx context.Context, gitRef string, entities []*duskv1alpha1.E
 // bound parameters per statement.
 const batchSize = 200
 
-// DropGitRef removes everything stored at gitRef, which is how a closed pull
-// request's preview is garbage collected.
+// DropGitRef removes every repository's contents at gitRef, which is how a
+// closed pull request's preview is garbage collected.
 func (db *DB) DropGitRef(ctx context.Context, gitRef string) error {
 	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return deleteGitRef(tx, gitRef)
+		return deleteWhere(tx, "git_ref = ?", gitRef)
 	})
 }
 
-func deleteGitRef(tx *gorm.DB, gitRef string) error {
-	if err := tx.Where("git_ref = ?", gitRef).Delete(&relationRow{}).Error; err != nil {
-		return fmt.Errorf("index: drop relations at %q: %w", gitRef, err)
+// DropRepository removes one repository's contents at gitRef, which is what an
+// uninstall or a repository leaving the catalog needs.
+func (db *DB) DropRepository(ctx context.Context, repository, gitRef string) error {
+	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return deleteScope(tx, repository, gitRef)
+	})
+}
+
+func deleteScope(tx *gorm.DB, repository, gitRef string) error {
+	return deleteWhere(tx, "repository = ? AND git_ref = ?", repository, gitRef)
+}
+
+func deleteWhere(tx *gorm.DB, query string, args ...any) error {
+	if err := tx.Where(query, args...).Delete(&relationRow{}).Error; err != nil {
+		return fmt.Errorf("index: drop relations: %w", err)
 	}
-	if err := tx.Where("git_ref = ?", gitRef).Delete(&entityRow{}).Error; err != nil {
-		return fmt.Errorf("index: drop entities at %q: %w", gitRef, err)
+	if err := tx.Where(query, args...).Delete(&entityRow{}).Error; err != nil {
+		return fmt.Errorf("index: drop entities: %w", err)
 	}
 	return nil
+}
+
+// Scope is one materialized partition: a repository at a git ref.
+type Scope struct {
+	Repository string
+	GitRef     string
+}
+
+// Scopes lists every partition currently materialized, which is how a sweep
+// finds contents belonging to a repository it can no longer see.
+func (db *DB) Scopes(ctx context.Context) ([]Scope, error) {
+	var scopes []Scope
+	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
+		Distinct("repository", "git_ref").
+		Order("repository, git_ref").
+		Find(&scopes).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: list scopes: %w", err)
+	}
+	return scopes, nil
 }
 
 // GitRefs lists the git refs currently materialized.
@@ -199,7 +235,7 @@ func (db *DB) GitRefs(ctx context.Context) ([]string, error) {
 	return refs, nil
 }
 
-func entityRows(gitRef string, entities []*duskv1alpha1.Entity) ([]entityRow, error) {
+func entityRows(repository, gitRef string, entities []*duskv1alpha1.Entity) ([]entityRow, error) {
 	rows := make([]entityRow, 0, len(entities))
 	for _, e := range entities {
 		attributes, err := marshalStruct(e.GetAttributes())
@@ -207,6 +243,7 @@ func entityRows(gitRef string, entities []*duskv1alpha1.Entity) ([]entityRow, er
 			return nil, fmt.Errorf("index: entity %q: %w", e.GetRef(), err)
 		}
 		rows = append(rows, entityRow{
+			Repository:  repository,
 			GitRef:      gitRef,
 			Ref:         e.GetRef(),
 			Kind:        e.GetKind(),
@@ -223,7 +260,7 @@ func entityRows(gitRef string, entities []*duskv1alpha1.Entity) ([]entityRow, er
 	return rows, nil
 }
 
-func relationRows(gitRef string, relations []*duskv1alpha1.Relation) ([]relationRow, error) {
+func relationRows(repository, gitRef string, relations []*duskv1alpha1.Relation) ([]relationRow, error) {
 	rows := make([]relationRow, 0, len(relations))
 	for _, r := range relations {
 		attributes, err := marshalStruct(r.GetAttributes())
@@ -231,6 +268,7 @@ func relationRows(gitRef string, relations []*duskv1alpha1.Relation) ([]relation
 			return nil, fmt.Errorf("index: relation %q -> %q: %w", r.GetFrom(), r.GetTo(), err)
 		}
 		rows = append(rows, relationRow{
+			Repository: repository,
 			GitRef:     gitRef,
 			FromRef:    r.GetFrom(),
 			ToRef:      r.GetTo(),
