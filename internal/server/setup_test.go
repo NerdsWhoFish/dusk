@@ -145,15 +145,15 @@ func TestADR0005_ManifestRequestsOnlyWhatTheModeNeeds(t *testing.T) {
 		notWant []string
 	}{
 		{
-			name:    "read mode asks for no write at all",
-			mode:    "read",
-			want:    map[string]string{"contents": "read", "metadata": "read"},
-			notWant: []string{"pull_requests"},
+			name: "read mode grants no write anywhere",
+			mode: "read",
+			want: map[string]string{"contents": "read", "metadata": "read", "pull_requests": "read"},
 		},
 		{
-			name: "proposal mode adds pull request write but not contents write",
-			mode: "proposal",
-			want: map[string]string{"contents": "read", "pull_requests": "write"},
+			name:    "proposal mode adds pull request write but not contents write",
+			mode:    "proposal",
+			want:    map[string]string{"contents": "read", "pull_requests": "write"},
+			notWant: []string{"contents"},
 		},
 		{
 			name: "write mode asks for contents write",
@@ -176,8 +176,45 @@ func TestADR0005_ManifestRequestsOnlyWhatTheModeNeeds(t *testing.T) {
 				}
 			}
 			for _, field := range tt.notWant {
-				if _, present := m.DefaultPermissions[field]; present {
-					t.Errorf("%s mode must not request %q", tt.mode, field)
+				if got := m.DefaultPermissions[field]; got == "write" {
+					t.Errorf("%s mode must not request write on %q", tt.mode, field)
+				}
+			}
+			if tt.mode == "read" {
+				for field, level := range m.DefaultPermissions {
+					if level != "read" {
+						t.Errorf("read mode granted %q on %q, want read only", level, field)
+					}
+				}
+			}
+		})
+	}
+}
+
+// GitHub rejected the first manifest for both of these, and neither is
+// reproducible without talking to the real API.
+func TestADR0005_ManifestSatisfiesGitHubsManifestRules(t *testing.T) {
+	// Events GitHub delivers to every App. Declaring them is invalid.
+	implicit := map[string]bool{"installation": true, "installation_repositories": true}
+
+	// Event to the permission GitHub requires for it.
+	needs := map[string]string{"push": "contents", "pull_request": "pull_requests"}
+
+	for _, mode := range []string{"read", "proposal", "write"} {
+		t.Run(mode, func(t *testing.T) {
+			m := manifestFrom(t, get(t, newServer(t, &fakeStore{}, &fakeGitHub{}), "/setup?mode="+mode).Body.String())
+
+			for _, e := range m.DefaultEvents {
+				if implicit[e] {
+					t.Errorf("event %q is implicit and must not be declared", e)
+				}
+				perm, known := needs[e]
+				if !known {
+					t.Errorf("event %q has no known permission mapping, check it against GitHub", e)
+					continue
+				}
+				if _, granted := m.DefaultPermissions[perm]; !granted {
+					t.Errorf("event %q requires permission %q, which this mode does not request", e, perm)
 				}
 			}
 		})

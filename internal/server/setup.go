@@ -68,8 +68,15 @@ func (s *setupState) consume(token string, now time.Time) (store.AccessMode, boo
 
 // permissionsFor returns only what the chosen mode needs, so the install
 // screen shows the truth and read-only really is read-only.
+//
+// pull_requests is read in every mode because PR previews are a core feature,
+// and GitHub refuses a manifest whose events exceed its permissions.
 func permissionsFor(mode store.AccessMode) map[string]string {
-	perms := map[string]string{"metadata": "read", "contents": "read"}
+	perms := map[string]string{
+		"metadata":      "read",
+		"contents":      "read",
+		"pull_requests": "read",
+	}
 	switch mode {
 	case store.ModeProposal:
 		perms["pull_requests"] = "write"
@@ -78,6 +85,12 @@ func permissionsFor(mode store.AccessMode) map[string]string {
 	case store.ModeRead:
 	}
 	return perms
+}
+
+// defaultEvents omits installation and installation_repositories: GitHub
+// delivers those to every App and rejects a manifest that declares them.
+func defaultEvents() []string {
+	return []string{"push", "pull_request"}
 }
 
 func (s *Server) manifest(mode store.AccessMode) githubapp.Manifest {
@@ -92,7 +105,7 @@ func (s *Server) manifest(mode store.AccessMode) githubapp.Manifest {
 		RedirectURL:        s.cfg.SetupCallbackURL(),
 		CallbackURLs:       []string{s.cfg.AuthCallbackURL()},
 		Public:             false,
-		DefaultEvents:      []string{"push", "pull_request", "installation", "installation_repositories"},
+		DefaultEvents:      defaultEvents(),
 		DefaultPermissions: permissionsFor(mode),
 	}
 }

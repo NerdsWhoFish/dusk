@@ -37,6 +37,7 @@ border-bottom:1px solid var(--line);font-size:.9375rem}
 code{background:var(--bg);border:1px solid var(--line);border-radius:.25rem;
 padding:.125rem .375rem;font-size:.875rem;word-break:break-all}
 .err{color:var(--red)} .warn{color:var(--yellow)}
+.hint{color:var(--muted);font-size:.8125rem;margin:.375rem 0 0}
 .detail{background:var(--bg);border:1px solid var(--line);border-radius:.375rem;
 padding:.75rem;overflow-x:auto;font-size:.875rem;white-space:pre-wrap;word-break:break-word}
 @media(min-width:48rem){body{padding:3rem 1.5rem}h1{font-size:2rem}
@@ -58,8 +59,11 @@ repositories it can see. Nothing is created until you confirm on GitHub.</p>
       <option value="proposal"{{if eq .Mode "proposal"}} selected{{end}}>Propose changes as pull requests</option>
       <option value="write"{{if eq .Mode "write"}} selected{{end}}>Write directly</option>
     </select>
-    <label for="org">Organization (leave blank for your personal account)</label>
+    <label for="org">Owner (leave blank for your personal account)</label>
     <input id="org" name="org" value="{{.Org}}" placeholder="my-org" autocapitalize="off" autocorrect="off">
+    <p class="hint">The App is created private to this owner. To use Dusk across
+    several orgs, make the App public in its GitHub settings afterwards and
+    install it wherever you need. You do not have to decide now.</p>
     <noscript><button type="submit">Apply</button></noscript>
   </div>
 </form>
@@ -75,8 +79,11 @@ repositories it can see. Nothing is created until you confirm on GitHub.</p>
 </form>
 
 <h2>Before you continue</h2>
-<p class="sub">GitHub will send you back to <code>{{.Base}}/setup/callback</code>.
-If that is not how you reach Dusk, fix <code>DUSK_EXTERNAL_URL</code> first, or the
+{{if .SplitHosts}}<p class="sub">GitHub will deliver webhooks to
+<code>{{.WebhookURL}}</code> and send your browser back to
+<code>{{.Base}}/setup/callback</code>. Those are deliberately different hosts.</p>
+{{end}}<p class="sub">GitHub will send you back to <code>{{.Base}}/setup/callback</code>.
+If that is not how you reach Dusk, fix <code>DUSK_PRIVATE_HOST</code> first, or the
 callback will fail. Setup must finish within an hour.</p>
 {{template "foot"}}{{end}}
 
