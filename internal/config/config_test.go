@@ -36,7 +36,7 @@ func TestLoad(t *testing.T) {
 	}{
 		{
 			name:        "a complete environment loads",
-			env:         map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key},
+			env:         map[string]string{"DUSK_PRIVATE_HOST": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key},
 			wantAddr:    config.DefaultAddr,
 			wantDataDir: config.DefaultDataDir,
 			wantURL:     "https://dusk.example.com",
@@ -44,40 +44,40 @@ func TestLoad(t *testing.T) {
 		{
 			name: "addr and data dir override their defaults",
 			env: map[string]string{
-				"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key,
+				"DUSK_PRIVATE_HOST": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key,
 				"DUSK_ADDR": "127.0.0.1:9000", "DUSK_DATA_DIR": "/data",
 			},
 			wantAddr: "127.0.0.1:9000", wantDataDir: "/data", wantURL: "https://dusk.example.com",
 		},
 		{
 			name:     "a trailing slash is trimmed so callback URLs never double up",
-			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com/", "DUSK_ENCRYPTION_KEY": key},
+			env:      map[string]string{"DUSK_PRIVATE_HOST": "https://dusk.example.com/", "DUSK_ENCRYPTION_KEY": key},
 			wantAddr: config.DefaultAddr, wantDataDir: config.DefaultDataDir,
 			wantURL: "https://dusk.example.com",
 		},
 		{
 			name:     "an empty environment reports both required variables at once",
 			env:      map[string]string{},
-			wantErrs: []string{"DUSK_EXTERNAL_URL", "DUSK_ENCRYPTION_KEY"},
+			wantErrs: []string{"DUSK_PRIVATE_HOST", "DUSK_ENCRYPTION_KEY"},
 		},
 		{
 			name:     "a non-http external URL is rejected",
-			env:      map[string]string{"DUSK_EXTERNAL_URL": "ftp://dusk.example.com", "DUSK_ENCRYPTION_KEY": key},
+			env:      map[string]string{"DUSK_PRIVATE_HOST": "ftp://dusk.example.com", "DUSK_ENCRYPTION_KEY": key},
 			wantErrs: []string{"must be http or https"},
 		},
 		{
 			name:     "an external URL with no host is rejected",
-			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://", "DUSK_ENCRYPTION_KEY": key},
+			env:      map[string]string{"DUSK_PRIVATE_HOST": "https://", "DUSK_ENCRYPTION_KEY": key},
 			wantErrs: []string{"no host"},
 		},
 		{
 			name:     "a short encryption key is rejected",
-			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": "c2hvcnQ="},
+			env:      map[string]string{"DUSK_PRIVATE_HOST": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": "c2hvcnQ="},
 			wantErrs: []string{"DUSK_ENCRYPTION_KEY is invalid"},
 		},
 		{
 			name:     "a non-base64 encryption key is rejected",
-			env:      map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": "not base64!!"},
+			env:      map[string]string{"DUSK_PRIVATE_HOST": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": "not base64!!"},
 			wantErrs: []string{"DUSK_ENCRYPTION_KEY is invalid"},
 		},
 	}
@@ -107,8 +107,8 @@ func TestLoad(t *testing.T) {
 			if got.DataDir != tt.wantDataDir {
 				t.Errorf("DataDir = %q, want %q", got.DataDir, tt.wantDataDir)
 			}
-			if got.ExternalURL != tt.wantURL {
-				t.Errorf("ExternalURL = %q, want %q", got.ExternalURL, tt.wantURL)
+			if got.PrivateHost != tt.wantURL {
+				t.Errorf("PrivateHost = %q, want %q", got.PrivateHost, tt.wantURL)
 			}
 		})
 	}
@@ -117,7 +117,7 @@ func TestLoad(t *testing.T) {
 // ADR-0022 has no unencrypted mode, so a missing key must stop the process
 // rather than degrade to plaintext with a warning nobody reads.
 func TestADR0022_MissingEncryptionKeyIsFatal(t *testing.T) {
-	_, err := config.Load(env(map[string]string{"DUSK_EXTERNAL_URL": "https://dusk.example.com"}))
+	_, err := config.Load(env(map[string]string{"DUSK_PRIVATE_HOST": "https://dusk.example.com"}))
 	if err == nil {
 		t.Fatal("Dusk started without an encryption key")
 	}
@@ -129,7 +129,7 @@ func TestADR0022_MissingEncryptionKeyIsFatal(t *testing.T) {
 func TestConfigNeverRendersTheKey(t *testing.T) {
 	key := validKey(t)
 	c, err := config.Load(env(map[string]string{
-		"DUSK_EXTERNAL_URL": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key,
+		"DUSK_PRIVATE_HOST": "https://dusk.example.com", "DUSK_ENCRYPTION_KEY": key,
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)

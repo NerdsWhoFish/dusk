@@ -60,16 +60,28 @@ func (f *fakeGitHub) Convert(_ context.Context, code string) (*githubapp.Credent
 
 func newServer(t *testing.T, cs *fakeStore, gh *fakeGitHub) http.Handler {
 	t.Helper()
+	return build(t, cs, gh, externalURL, "")
+}
+
+// newServerWithHosts covers the split-host deployment, where GitHub reaches a
+// public forwarder and browsers reach a private hostname.
+func newServerWithHosts(t *testing.T, private, public string) http.Handler {
+	t.Helper()
+	return build(t, &fakeStore{}, &fakeGitHub{}, private, public)
+}
+
+func build(t *testing.T, cs *fakeStore, gh *fakeGitHub, private, public string) http.Handler {
+	t.Helper()
 
 	key, err := vault.NewKey()
 	if err != nil {
 		t.Fatalf("NewKey: %v", err)
 	}
-	cfg, err := config.Load(func(k string) string {
-		return map[string]string{
-			"DUSK_EXTERNAL_URL": externalURL, "DUSK_ENCRYPTION_KEY": key,
-		}[k]
-	})
+	env := map[string]string{"DUSK_PRIVATE_HOST": private, "DUSK_ENCRYPTION_KEY": key}
+	if public != "" {
+		env["DUSK_PUBLIC_HOST"] = public
+	}
+	cfg, err := config.Load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
@@ -332,7 +344,7 @@ func githubCreds() *githubapp.Credentials {
 	return &githubapp.Credentials{
 		ID: 999, Slug: "dusk-example", Name: "Dusk",
 		HTMLURL: "https://github.com/apps/dusk-example",
-		PEM:     "BEGIN TEST KEY", WebhookSecret: "hook-secret", ClientSecret: "client-secret",
+		PEM:     "BEGIN TEST KEY", WebhookSecret: webhookSecret, ClientSecret: "client-secret",
 	}
 }
 

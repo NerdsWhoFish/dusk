@@ -34,6 +34,7 @@ type Server struct {
 	credentials credentialStore
 	github      appClient
 	state       *setupState
+	deliveries  *seenDeliveries
 	log         *slog.Logger
 	now         func() time.Time
 	tmpl        *template.Template
@@ -62,6 +63,7 @@ func New(opts Options) (*Server, error) {
 		credentials: opts.Credentials,
 		github:      opts.GitHub,
 		state:       newSetupState(),
+		deliveries:  newSeenDeliveries(),
 		log:         opts.Logger,
 		now:         opts.Now,
 	}
@@ -104,6 +106,8 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ready\n"))
 	})
 
+	mux.HandleFunc("POST /webhooks", s.handleWebhook)
+
 	mux.HandleFunc("GET /setup", s.handleSetup)
 	mux.HandleFunc("GET /setup/callback", s.handleSetupCallback)
 	mux.HandleFunc("GET /setup/done", s.handleSetupDone)
@@ -123,6 +127,8 @@ func (s *Server) Handler() http.Handler {
 
 type setupPage struct {
 	Base        string
+	WebhookURL  string
+	SplitHosts  bool
 	Mode        string
 	Org         string
 	Action      string

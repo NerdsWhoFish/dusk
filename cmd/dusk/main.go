@@ -29,7 +29,10 @@ Usage:
   dusk version   Print the version
 
 Environment:
-  DUSK_EXTERNAL_URL     Required. Base URL browsers and GitHub reach Dusk at.
+  DUSK_PRIVATE_HOST     Required. Where you reach the UI, and where GitHub
+                        returns your browser during setup.
+  DUSK_PUBLIC_HOST      Where GitHub delivers webhooks. Defaults to the private
+                        host. Set it when a forwarder exposes only /webhooks.
   DUSK_ENCRYPTION_KEY   Required. Base64 32-byte key. Generate with 'dusk genkey'.
   DUSK_ADDR             Listen address (default %s)
   DUSK_DATA_DIR         Where credentials live (default %s)
@@ -108,11 +111,13 @@ func serve() error {
 	go func() {
 		log.Info("dusk listening",
 			"addr", cfg.Addr,
-			"external_url", cfg.ExternalURL,
+			"private_host", cfg.PrivateHost,
+			"public_host", cfg.PublicHost,
+			"webhook_url", cfg.WebhookURL(),
 			"onboarded", credentials.Configured(),
 			"version", version)
 		if !credentials.Configured() {
-			log.Info("not onboarded yet", "setup", cfg.ExternalURL+"/setup")
+			log.Info("not onboarded yet", "setup", cfg.PrivateHost+"/setup")
 		}
 		errc <- httpServer.ListenAndServe()
 	}()

@@ -31,7 +31,7 @@ This tracks implementation against it.
 - [x] **Setup handlers**: first-boot detection, manifest POST page, callback with replay protection, install redirect
 - [x] **`cmd/dusk`**: `serve`, `genkey`, structured logs, graceful shutdown
 - [x] **Least-privilege manifest**: permissions generated per chosen access mode ([0005](../adr/0005-github-app-and-access-modes.md))
-- [ ] **Webhook receiver**: HMAC validation and replay protection ([0006](../adr/0006-reconcile-triggering.md))
+- [x] **Webhook receiver**: HMAC validation, replay rejection, body cap ([0006](../adr/0006-reconcile-triggering.md))
 
 ## Core
 
@@ -89,4 +89,4 @@ This tracks implementation against it.
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - `internal/nextversion` exists but no release has been cut, so the pipeline is untested against a real tag.
 - Onboarding has only been exercised against fakes. Nothing has talked to real GitHub yet.
-- The webhook endpoint is declared in the App manifest but not implemented, so deliveries will 404 until it exists.
+- Deliveries are verified and acknowledged but not yet acted on, because the reconciler does not exist. The poll floor in [0006](../adr/0006-reconcile-triggering.md) means nothing is lost meanwhile.

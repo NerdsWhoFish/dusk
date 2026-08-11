@@ -81,17 +81,16 @@ func permissionsFor(mode store.AccessMode) map[string]string {
 }
 
 func (s *Server) manifest(mode store.AccessMode) githubapp.Manifest {
-	base := s.cfg.ExternalURL
 	return githubapp.Manifest{
 		Name:        "Dusk",
-		URL:         base,
+		URL:         s.cfg.PrivateHost,
 		Description: "A service catalog that maintains itself.",
 		HookAttributes: githubapp.HookAttributes{
-			URL:    base + "/webhooks",
+			URL:    s.cfg.WebhookURL(),
 			Active: true,
 		},
-		RedirectURL:        base + "/setup/callback",
-		CallbackURLs:       []string{base + "/auth/callback"},
+		RedirectURL:        s.cfg.SetupCallbackURL(),
+		CallbackURLs:       []string{s.cfg.AuthCallbackURL()},
 		Public:             false,
 		DefaultEvents:      []string{"push", "pull_request", "installation", "installation_repositories"},
 		DefaultPermissions: permissionsFor(mode),
@@ -127,7 +126,9 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "setup", setupPage{
-		Base:        s.cfg.ExternalURL,
+		Base:        s.cfg.PrivateHost,
+		WebhookURL:  s.cfg.WebhookURL(),
+		SplitHosts:  s.cfg.SplitHosts(),
 		Mode:        string(mode),
 		Org:         org,
 		Action:      action,
