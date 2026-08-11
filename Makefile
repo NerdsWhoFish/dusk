@@ -1,13 +1,18 @@
-.PHONY: test vet check build clean
+.PHONY: test lint nocgo check build clean
 
 # What CI runs on every PR and push to main.
 test:
 	go test -race ./...
 
-vet:
-	go vet ./...
+lint:
+	golangci-lint run
 
-check: vet test
+# Enforces ADR-0017: no cgo without an ADR. A cgo dependency usually arrives
+# transitively and unnoticed; this build is what makes it fail loudly instead.
+nocgo:
+	CGO_ENABLED=0 go build ./...
+
+check: lint nocgo test
 
 build:
 	go build ./...

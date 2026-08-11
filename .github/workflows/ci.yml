@@ -20,5 +20,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: make vet
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - run: make nocgo
       - run: make test

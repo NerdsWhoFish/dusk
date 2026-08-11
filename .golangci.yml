@@ -1,0 +1,40 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - errorlint
+    - cyclop
+    - misspell
+    - unconvert
+    - wastedassign
+    - nilerr
+    - bodyclose
+    - contextcheck
+
+  settings:
+    cyclop:
+      # A function over this either gets decomposed or gets a comment saying
+      # why it is genuinely irreducible.
+      max-complexity: 12
+
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: error-strings
+        - name: error-return
+        - name: context-as-argument
+        - name: indent-error-flow
+        - name: early-return
+
+  exclusions:
+    rules:
+      # Table-driven tests are long by nature and that is the point.
+      - path: _test\.go$
+        linters: [cyclop]
+
+formatters:
+  enable:
+    - gofmt
