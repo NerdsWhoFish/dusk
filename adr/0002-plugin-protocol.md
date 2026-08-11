@@ -29,12 +29,18 @@ So the boundary is decided now, while the surface is kept as small as possible.
 
 ## Decision Outcome
 
-Chosen: **a two-tier model combining options 4 and 5.**
+Chosen: **one protobuf schema, two transports**, combining options 4 and 5.
 
-- **Tier 1, ingesters.** The host execs a binary, the binary writes schema-versioned entity JSON on stdout, the host ingests it. Stateless and batch. Ships first.
-- **Tier 2, interactive plugins.** A protobuf service over gRPC on a unix socket provided by the host, which owns process lifecycle. Added when a plugin genuinely needs to be long-lived or bidirectional.
+The `.proto` is the single source of truth for entity types, versioning, and validation.
+There is one contract, expressed two ways:
 
-The `.proto` and the entity JSON schema are published artifacts covered by the project license.
+- **Tier 1, ingesters.** The host execs a binary, the binary writes **protojson** (protobuf's canonical JSON mapping) on stdout, the host ingests it. Stateless and batch. Ships first.
+- **Tier 2, interactive plugins.** The identical messages over gRPC on a unix socket provided by the host, which owns process lifecycle. Added when a plugin genuinely needs to be long-lived or bidirectional.
+
+Because protojson is ordinary JSON, a Tier 1 plugin can still be a shell script and is still testable with `./my-plugin | jq`, while validating against the same schema a Tier 2 plugin compiles against.
+A plugin can graduate from Tier 1 to Tier 2 without changing its data model.
+
+The `.proto` is a published artifact covered by the project license.
 
 Three real ingesters (Kubernetes, Flux, GitHub) will be written in-house before the contract is declared stable, so that the protocol is derived from actual use rather than imagined use.
 
@@ -51,7 +57,7 @@ Three real ingesters (Kubernetes, Flux, GitHub) will be written in-house before 
 #### Bad
 
 - Subprocess exec has real per-invocation overhead, which matters if ingesters are run frequently.
-- Two tiers means two contracts to document, version, and support.
+- Two transports still means two code paths to implement and test, even though they share one schema.
 - Tier 2 requires the host to manage process lifecycle, health, and cleanup, which is meaningful work that Tier 1 avoids.
 - Publishing a `.proto` early creates a compatibility obligation that arrives before the design is fully proven.
 

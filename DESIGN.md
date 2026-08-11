@@ -32,16 +32,17 @@ Everything below is in service of it.
 
 ## Non-goals
 
-- **Not a Backstage fork.** You never fork Dusk. You run it and point it at a repo. See [ADR-0001](adr/0001-git-as-source-of-truth.md).
+- **Not a Backstage fork.** You never fork Dusk. You run it and point it at repos. See [ADR-0001](adr/0001-git-as-source-of-truth.md).
 - **Not a database-backed wiki.** Content in a DB is content agents cannot read natively and git cannot diff.
 - **Not an org chart tool.** Ownership is a field, not a feature.
 - **Not a dashboard.** Live state is surfaced next to entities, but Dusk is not replacing Grafana or Glance.
+- **Not multi-VCS on day one.** GitHub first, behind an interface that keeps GitHub types out of the core.
 
 ## Architecture
 
 Four layers. That is the entire system.
 
-1. **Sources**: git repos containing markdown with frontmatter, plus whatever ingester plugins emit.
+1. **Sources**: repos containing a `dusk.md` at the root, plus whatever ingester plugins emit.
 2. **Reconciler**: reads sources at a given git ref, builds the typed entity graph.
 3. **Serving**: the MCP server (agents) and the web UI (humans), both reading the same materialized graph.
 4. **Write path**: MCP and UI writes become file edits, which become commits, which reconcile back in.
@@ -64,6 +65,33 @@ Deferring it means rewriting the storage layer later.
 
 Full reasoning: [ADR-0001](adr/0001-git-as-source-of-truth.md).
 
+### A repo opts in by containing `dusk.md`
+
+A repo participates in the catalog if and only if `dusk.md` exists at its root.
+That file is the sole entry point: Dusk reads it and nothing else in the repo, unless `dusk.md` explicitly points at other paths.
+
+No repo is crawled without consent, and consent is expressed by a file rather than by central registration.
+Cold start is solved by installation, since granting access to repos that already contain `dusk.md` populates the catalog immediately.
+
+Write routing falls out of this for free.
+An entity's home repo is wherever its `dusk.md` lives.
+
+Full reasoning: [ADR-0004](adr/0004-dusk-md-convention.md).
+
+### Everything catalog-shaped is markdown
+
+The config repo contains markdown and nothing else.
+A source, a plugin's configuration, layout, theme: each is a markdown file whose frontmatter carries the settings and whose prose explains what the thing is and why it exists.
+
+This is a deliberate constraint rather than an aesthetic one.
+Config that is forced to document itself stays understandable, and agents handle markdown better than they handle bare YAML.
+
+Frontmatter is schema-validated, with errors that name the file, the field, and the expectation.
+
+**The carve-out**: boot configuration is not catalog content.
+Listen address, storage path, credentials, and which repos to track are how the process starts, not something the catalog describes.
+That stays in `dusk.yaml` or the environment.
+
 ### PR previews are a primitive, not a feature
 
 Because the index is ref-keyed, any open PR can be rendered as the catalog *as it would be after merge*.
@@ -76,26 +104,53 @@ Two things fall out for free:
 This is also the trust story.
 An agent proposes, a PR opens, the bot summarizes, a human reviews the *rendered result* rather than a diff, and merges.
 
-### One write path
+### One write path, three access modes
 
 MCP writes, UI edits, and a human editing a file by hand all take the same route: file edit, commit, reconcile.
 
-Two commit modes, one engine:
+Access mode is chosen at install time and is changeable later:
 
-- **Direct**: commit straight to the branch. Correct for a single operator.
-- **Proposal**: open a PR for review. Correct for a team that would never let an agent write to main.
+- **Read**: Dusk never writes to source repos. Proposed changes surface in the UI and go no further.
+- **Proposal**: Dusk opens pull requests against the repo that owns the entity, so that repo's own owners review changes to their own catalog entry.
+- **Write**: Dusk commits directly.
 
 Because writes are file edits, existing review gates, `git diff`, and `git log` all work unchanged.
 No new trust model is required, which is the point.
 
-### Plugins are processes, not a linked API
+### Credentials are a GitHub App, registered for the user
 
-Two tiers:
+Dusk registers its own GitHub App via the App Manifest flow.
+It POSTs a manifest, GitHub redirects back with a temporary code, and Dusk exchanges that code for the app id, private key, and a GitHub-generated webhook secret.
 
-- **Tier 1, ingesters.** Exec a binary, it writes entities as JSON on stdout, Dusk ingests. Schema-versioned. Any language, testable with `./my-plugin | jq`, and a plugin can be a shell script.
-- **Tier 2, interactive plugins.** Protobuf service over a gRPC connection on a unix socket the host provides. Host owns lifecycle.
+The user's only manual step is accepting and installing it.
+There is no personal access token path, because the manifest flow removes the onboarding friction that would justify one.
 
-Tier 1 ships first, and most plugins will never need Tier 2.
+All GitHub interaction goes through a single internal source interface, and no GitHub type crosses that boundary into the reconciler.
+
+Full reasoning: [ADR-0005](adr/0005-github-app-and-access-modes.md).
+
+### Reconcile is webhook-triggered with a poll floor
+
+Webhook deliveries trigger immediate reconcile.
+A periodic poll runs regardless, on a slow interval, comparing refs with `git ls-remote`.
+
+Poll-only is a fully supported configuration for anyone without a public endpoint, not a degraded one.
+
+The poll floor is load-bearing.
+Webhook deliveries are lost in normal operation, and a system with no poll underneath goes silently stale with no signal, which for this product is the worst available bug.
+
+Full reasoning: [ADR-0006](adr/0006-reconcile-triggering.md).
+
+### Plugins are subprocesses over one schema
+
+The `.proto` is the single source of truth for entity types, versioning, and validation.
+One contract, two transports:
+
+- **Tier 1, ingesters.** Exec a binary, it writes protojson on stdout, Dusk ingests. Any language, testable with `./my-plugin | jq`, and a plugin can be a shell script. Ships first.
+- **Tier 2, interactive plugins.** The identical messages over gRPC on a host-provided unix socket. Host owns lifecycle.
+
+Ingesters are how the catalog covers infrastructure that has no repo of its own.
+They are not discovery: an ingester is explicitly configured, and then declares in bulk whatever it finds.
 
 Explicitly **not** `hashicorp/go-plugin`, despite it being the proven pattern.
 Its handshake is Go-host-centric, and writing a non-Go plugin against it is painful enough to quietly falsify the language-agnostic promise.
@@ -108,12 +163,7 @@ Backstage's fatal flaw is that it is a source distribution.
 You clone `create-app`, own a Node monorepo forever, and every upgrade is a merge conflict.
 
 Dusk ships as a binary and a container.
-You point it at a config repo and it reconciles.
-
-The config repo stays **small**: which sources to watch, which plugins to run, layout, theme.
-Entities are *discovered* from frontmatter in the repos they describe, and config only overrides.
-
-The failure mode to avoid is Backstage's, where "point it at a repo" degrades into four hundred lines of declarative YAML per service.
+You install the App, point it at repos, and it reconciles.
 
 ### Sync observability from day one
 
@@ -131,30 +181,35 @@ Full reasoning: [ADR-0003](adr/0003-license.md).
 
 ## Look and feel
 
-Dark by default, using the **Dracula Pro** palette.
-The name is the theme: dusk is the hour owls hunt, and Dusk is a tool for finding things you cannot clearly see.
+**Dark only.** There is no light mode.
 
-Light mode exists but is not the identity.
+The name is the theme: dusk is the hour owls hunt, and Dusk is a tool for finding things you cannot clearly see.
+The palette is **Dracula Pro**.
+
+CSS is authored with custom properties so that custom themes are possible, but Dusk ships exactly one palette and maintains exactly one palette.
 
 ## Open questions
 
 These are genuinely undecided and should be resolved before the code that depends on them is written.
 
-### Does the reconciler pull, or do sources push?
+### What is the entity schema?
 
-Pull (polling watched repos) is simpler and matches Flux.
-Push (webhooks) is faster and is a pattern already proven in `perch`.
+Which entity types exist, which relations are first class, and what is merely a field.
+This is the highest-leverage remaining decision, because the `.proto` becomes a compatibility obligation the moment it is published.
 
-Leaning pull first, with push as an optimization.
+### Who wins when an ingester and a `dusk.md` disagree?
 
-### How much of the catalog is discovered versus declared?
+A Kubernetes ingester and a hand-written `dusk.md` can describe the same service and conflict.
+Options include last-writer-wins, declared-beats-ingested, an explicit precedence field, or surfacing the conflict as a first-class thing to resolve.
 
-Full discovery is magic when it works and infuriating when it guesses wrong.
-Leaning discover-by-default with an explicit override file, but this knob shapes how the entire product feels.
+Surfacing it is probably right, since a conflict is usually a real problem rather than a data-merging inconvenience.
 
-### Where do agent writes land?
+### How does a monorepo owning many entities express that?
 
-When an agent learns a fact about a service whose docs live in a different repo than the config, which repo receives the commit?
+`dusk.md` pointing at other paths is the escape hatch, but the shape of that indirection needs to stay minimal.
+If it grows expressive it becomes a second config language, which is the failure mode this design is built to avoid.
 
-An entity must declare its home and writes must follow it.
-Getting this wrong means everything piles into one repo and the duplication problem is recreated inside Dusk.
+### What stores the materialized graph?
+
+The index is disposable and rebuildable, which keeps this decision reversible.
+It still needs to support several live refs at once, fast relation traversal, and cheap garbage collection when a PR closes.
