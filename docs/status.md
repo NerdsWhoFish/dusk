@@ -40,8 +40,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 - [x] **`dusk.md` schema and parser**: `pkg/duskmd`, one entity per file with its prose as the description, derived refs, outbound relations only, and includes that cannot escape the repository ([0004](../adr/0004-dusk-md-convention.md), [0026](../adr/0026-dusk-md-schema.md))
 - [ ] **Reconciler**: `reconcile(ref)` expanding includes against a tree and reading the result into a graph ([0001](../adr/0001-git-as-source-of-truth.md), [0004](../adr/0004-dusk-md-convention.md))
-- [ ] **Storage**: SQLite, ref as a column, FTS5 ([0008](../adr/0008-storage.md))
-- [ ] **Entity graph**: relations, traversal, drift between declared and observed ([0007](../adr/0007-entity-schema.md))
+- [x] **Storage**: `internal/index`, SQLite keyed by git ref, FTS5 search with ranking and snippets, transactional replace, cheap per-ref garbage collection ([0008](../adr/0008-storage.md))
+- [~] **Entity graph**: relations and inbound traversal to a bounded depth are built. Drift between declared and observed waits on there being an observed side ([0007](../adr/0007-entity-schema.md))
 - [ ] **Poll floor**: periodic `git ls-remote` reconcile ([0006](../adr/0006-reconcile-triggering.md))
 - [ ] **Sync observability**: last reconcile, what changed, what failed, what is stale
 
@@ -84,8 +84,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. Storage: the SQLite schema keyed by ref, with FTS5 and cheap garbage collection of a ref.
-2. The reconciler, over a single local repository with no App, webhooks, or UI involved: expand includes against a tree, parse, upsert at a ref, prune what is gone. Wiring the existing webhook receiver to it closes the first known gap below.
+1. The reconciler, over a single local repository with no App, webhooks, or UI involved: expand a root `dusk.md`'s includes against a tree, parse each file, and put the result at a git ref. The parser and the index are both built, so this is the seam between them.
+2. Wiring the webhook receiver and a poll floor to that reconciler, which closes the first known gap below.
 3. The MCP surface.
 
 ## Known gaps
