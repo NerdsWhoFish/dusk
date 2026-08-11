@@ -46,7 +46,7 @@ func sampleCredentials() *store.Credentials {
 	return store.FromGitHub(&githubapp.Credentials{
 		ID: 12345, Slug: "dusk-example", Name: "Dusk", HTMLURL: testHTMLURL,
 		ClientID: "Iv1.abc", PEM: testPEM, WebhookSecret: testHook, ClientSecret: testClient,
-	})
+	}, store.ModeProposal)
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {

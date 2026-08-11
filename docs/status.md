@@ -28,9 +28,9 @@ This tracks implementation against it.
 - [x] **Envelope encryption**: `pkg/vault`, seal, open, and master key rotation ([0022](../adr/0022-credential-encryption.md))
 - [x] **Boot configuration**: `internal/config`, fails closed without an encryption key ([0022](../adr/0022-credential-encryption.md))
 - [x] **Credential store**: `internal/store`, encrypted at rest, atomic writes ([0022](../adr/0022-credential-encryption.md))
-- [ ] **Setup handlers**: first-boot detection, manifest POST page, callback, install redirect
-- [ ] **`cmd/dusk`**: `serve` and `genkey`
-- [ ] **Least-privilege manifest**: permissions generated per chosen access mode ([0005](../adr/0005-github-app-and-access-modes.md))
+- [x] **Setup handlers**: first-boot detection, manifest POST page, callback with replay protection, install redirect
+- [x] **`cmd/dusk`**: `serve`, `genkey`, structured logs, graceful shutdown
+- [x] **Least-privilege manifest**: permissions generated per chosen access mode ([0005](../adr/0005-github-app-and-access-modes.md))
 - [ ] **Webhook receiver**: HMAC validation and replay protection ([0006](../adr/0006-reconcile-triggering.md))
 
 ## Core
@@ -80,7 +80,7 @@ This tracks implementation against it.
 
 ## Next
 
-1. Setup handlers and `cmd/dusk`, which makes the App flow runnable end to end and turns CI green.
+1. Run onboarding against real GitHub, which is the only way to confirm the manifest flow behaves as [ADR-0005](../adr/0005-github-app-and-access-modes.md) assumes.
 2. The reconciler over a single local repo, with no App, webhooks, or UI involved.
 3. Storage and the graph.
 
@@ -88,4 +88,5 @@ This tracks implementation against it.
 
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - `internal/nextversion` exists but no release has been cut, so the pipeline is untested against a real tag.
-- The `Dockerfile` has only been built against a stub `cmd/dusk`.
+- Onboarding has only been exercised against fakes. Nothing has talked to real GitHub yet.
+- The webhook endpoint is declared in the App manifest but not implemented, so deliveries will 404 until it exists.

@@ -25,7 +25,7 @@ func TestADR0022_SecretsNeverRenderThemselves(t *testing.T) {
 		{"String()", func() string { return s.String() }},
 		{"fmt %v", func() string { return fmt.Sprintf("%v", s) }},
 		// Exercising the %s verb is the point, so String() is not equivalent.
-		{"fmt %s", func() string { return fmt.Sprintf("%s", s) }}, //nolint:gosimple,staticcheck
+		{"fmt %s", func() string { return fmt.Sprintf("%s", s) }}, //nolint:staticcheck
 		{"fmt %q", func() string { return fmt.Sprintf("%q", s) }},
 		{"fmt %#v", func() string { return fmt.Sprintf("%#v", s) }},
 		{"inside a struct", func() string { return fmt.Sprintf("%v", struct{ Token secret.String }{s}) }},

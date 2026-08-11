@@ -20,14 +20,31 @@ const CredentialsFile = "credentials.enc"
 // first boot, not a failure.
 var ErrNotConfigured = errors.New("store: no credentials, Dusk is not onboarded")
 
+// AccessMode is how much Dusk may do to the repositories it watches.
+type AccessMode string
+
+// The three modes from ADR-0005. The App is registered with only the
+// permissions its mode needs, so read-only genuinely means read-only.
+const (
+	ModeRead     AccessMode = "read"
+	ModeProposal AccessMode = "proposal"
+	ModeWrite    AccessMode = "write"
+)
+
+// Valid reports whether m is a known mode.
+func (m AccessMode) Valid() bool {
+	return m == ModeRead || m == ModeProposal || m == ModeWrite
+}
+
 // Credentials are the App's durable secrets. The sensitive fields are
 // secret.String so they cannot reach a log line or an API response.
 type Credentials struct {
-	AppID    int64  `json:"app_id"`
-	Slug     string `json:"slug"`
-	Name     string `json:"name"`
-	HTMLURL  string `json:"html_url"`
-	ClientID string `json:"client_id"`
+	AppID    int64      `json:"app_id"`
+	Slug     string     `json:"slug"`
+	Name     string     `json:"name"`
+	HTMLURL  string     `json:"html_url"`
+	ClientID string     `json:"client_id"`
+	Mode     AccessMode `json:"mode"`
 
 	PrivateKey    secret.String `json:"private_key"`
 	WebhookSecret secret.String `json:"webhook_secret"`
@@ -35,8 +52,9 @@ type Credentials struct {
 }
 
 // FromGitHub converts the manifest exchange result into stored form.
-func FromGitHub(c *githubapp.Credentials) *Credentials {
+func FromGitHub(c *githubapp.Credentials, mode AccessMode) *Credentials {
 	return &Credentials{
+		Mode:          mode,
 		AppID:         c.ID,
 		Slug:          c.Slug,
 		Name:          c.Name,
@@ -143,6 +161,7 @@ type plainCredentials struct {
 	Name          string `json:"name"`
 	HTMLURL       string `json:"html_url"`
 	ClientID      string `json:"client_id"`
+	Mode          string `json:"mode"`
 	PrivateKey    string `json:"private_key"`
 	WebhookSecret string `json:"webhook_secret"`
 	ClientSecret  string `json:"client_secret"`
@@ -155,6 +174,7 @@ func revealed(c *Credentials) plainCredentials {
 		Name:          c.Name,
 		HTMLURL:       c.HTMLURL,
 		ClientID:      c.ClientID,
+		Mode:          string(c.Mode),
 		PrivateKey:    c.PrivateKey.Reveal(),
 		WebhookSecret: c.WebhookSecret.Reveal(),
 		ClientSecret:  c.ClientSecret.Reveal(),
@@ -168,6 +188,7 @@ func (p plainCredentials) sealedForm() *Credentials {
 		Name:          p.Name,
 		HTMLURL:       p.HTMLURL,
 		ClientID:      p.ClientID,
+		Mode:          AccessMode(p.Mode),
 		PrivateKey:    secret.New(p.PrivateKey),
 		WebhookSecret: secret.New(p.WebhookSecret),
 		ClientSecret:  secret.New(p.ClientSecret),
