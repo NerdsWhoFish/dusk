@@ -4,7 +4,10 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. The release-coordination half is **superseded by [ADR-0024](0024-charts-publishes-charts.md)**.
+
+The decision to give the chart its own repository stands.
+The decision to drive its release from the Dusk repository does not: chart version and `appVersion` are independent, and each repository publishes what it owns.
 
 ## Context and Problem Statement
 

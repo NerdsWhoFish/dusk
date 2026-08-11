@@ -1,7 +1,8 @@
 name: release
 
-# Dusk publishes a container image and a Helm chart, not archives, so this
-# drives `docker buildx` and `helm` directly. GoReleaser would only wrap them,
+# Dusk publishes a container image, not archives, so this drives `docker
+# buildx` directly. The Helm chart is released by FetchHQ/charts on its own
+# schedule. GoReleaser would only wrap buildx,
 # and a service with no binaries or tap leaves it nothing else to do.
 
 on:
@@ -38,10 +39,6 @@ permissions:
 
 env:
   IMAGE: ghcr.io/fetchhq/dusk
-  # The chart lives in FetchHQ/charts, one directory per chart.
-  CHART_REPO: ${{ github.repository_owner }}/charts
-  # `helm push` appends the chart name, landing at ghcr.io/fetchhq/charts/dusk.
-  CHART_REGISTRY: oci://ghcr.io/fetchhq/charts
   PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
@@ -93,8 +90,6 @@ jobs:
           go-version-file: go.mod
 
       # Pinned rather than taken from the runner image: OCI push needs 3.8+.
-      - uses: azure/setup-helm@v4
-
       - name: Work out the version
         id: version
         run: |
@@ -134,38 +129,6 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ github.sha }}
 
-      # Publishing the chart reads another repo, which this job's own token
-      # cannot reach. An App token is scoped to that one repo and expires in an
-      # hour, unlike a PAT that lives in settings until someone rotates it.
-      - name: Token for the chart repo
-        id: charts_token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.CHARTS_APP_ID }}
-          private-key: ${{ secrets.CHARTS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: charts
-
-      - uses: actions/checkout@v5
-        with:
-          repository: ${{ env.CHART_REPO }}
-          token: ${{ steps.charts_token.outputs.token }}
-          path: charts-repo
-
-      # Packaging is side-effect free, so a chart that will not build fails
-      # before a tag exists. The edits are never committed: the chart repo keeps
-      # its own version, and this pins the published copy to the image.
-      - name: Dry run the chart
-        run: |
-          yq -i '.image.tag = "${{ steps.version.outputs.version }}"' \
-            charts-repo/dusk/values.yaml
-          helm lint --strict charts-repo/dusk
-          helm package charts-repo/dusk \
-            --version '${{ steps.version.outputs.version }}' \
-            --app-version '${{ steps.version.outputs.version }}' \
-            --destination dist
-          helm template dusk dist/dusk-${{ steps.version.outputs.version }}.tgz > /dev/null
-
       - name: Tag ${{ steps.version.outputs.next }}
         id: tag
         run: |
@@ -195,22 +158,6 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ github.sha }}
 
-      # The image is already public by now. If this fails the chart is a version
-      # behind, which is loud and re-runnable; unpublishing an image is neither,
-      # so nothing here rolls the image back.
-      - name: Push the chart
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          helm registry login ghcr.io \
-            --username '${{ github.actor }}' \
-            --password-stdin <<< "$GH_TOKEN"
-          helm push \
-            'dist/dusk-${{ steps.version.outputs.version }}.tgz' \
-            "$CHART_REGISTRY"
-
-      # Marking a candidate as a prerelease keeps it off the "latest release"
-      # the README and the install docs point at.
       - name: Release ${{ steps.version.outputs.next }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
