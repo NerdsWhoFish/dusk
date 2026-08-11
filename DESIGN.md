@@ -157,6 +157,37 @@ Its handshake is Go-host-centric, and writing a non-Go plugin against it is pain
 
 Full reasoning: [ADR-0002](adr/0002-plugin-protocol.md).
 
+### The entity schema is small, with open kinds
+
+Four message types: **Entity** (with an open `kind` field), **Relation** (typed edges), **Note** (the "how do I do this again" unit), and **Observation** (ingester-emitted status).
+
+Four rules keep the `.proto` from becoming a trap.
+Kinds and relation types are open strings rather than closed enums, so the taxonomy grows without a release.
+Every entity has a stable `ref` of the form `kind:namespace/name`, which is the correlation key.
+Every message carries `source` and `observed_at`.
+An `attributes` map is the escape hatch, and recurring attributes get promoted to real fields.
+
+**Declaration and observation are different layers, not competing claims.**
+`dusk.md` declares intent, ingesters observe reality, and an entity carries both facets.
+Divergence is surfaced as **drift**, which is a feature: "your `dusk.md` says mini-1, the ingester found mini-2."
+
+Published as `v1alpha`, with no stability promised until the three in-house ingesters have shipped.
+
+Full reasoning: [ADR-0007](adr/0007-entity-schema.md).
+
+### The graph is stored in SQLite
+
+One database file, `ref` as a column, WAL mode.
+Garbage collection on PR close is `DELETE WHERE ref = ?`.
+Relation traversal uses recursive CTEs and search uses FTS5, both as raw SQL.
+
+Accessed through GORM on the **`github.com/glebarez/sqlite`** driver.
+That driver choice is load-bearing: the default `gorm.io/driver/sqlite` requires cgo, which would break cross-compilation, distroless images, and arm64 builds.
+
+FTS5 is the strongest argument here, because search is a core product requirement and this puts it in the storage layer rather than in a service added later.
+
+Full reasoning: [ADR-0008](adr/0008-storage.md).
+
 ### GitOps, never a fork
 
 Backstage's fatal flaw is that it is a source distribution.
@@ -190,26 +221,26 @@ CSS is authored with custom properties so that custom themes are possible, but D
 
 ## Open questions
 
-These are genuinely undecided and should be resolved before the code that depends on them is written.
+The architectural decisions are settled and recorded in [adr/](adr/).
+What remains is undecided but does not block starting.
 
-### What is the entity schema?
+### What does the MCP server actually expose?
 
-Which entity types exist, which relations are first class, and what is merely a field.
-This is the highest-leverage remaining decision, because the `.proto` becomes a compatibility obligation the moment it is published.
+Which tools, at what granularity.
+Too fine and an agent burns a dozen calls answering one question; too coarse and it cannot ask anything specific.
+This shapes how good Dusk feels to the primary consumer, so it deserves real thought rather than a mechanical mapping of the schema.
 
-### Who wins when an ingester and a `dusk.md` disagree?
+### How does an agent curate the layout?
 
-A Kubernetes ingester and a hand-written `dusk.md` can describe the same service and conflict.
-Options include last-writer-wins, declared-beats-ingested, an explicit precedence field, or surfacing the conflict as a first-class thing to resolve.
+Layout is markdown in the config repo, so an agent can already edit it.
+What is undecided is how much structure that markdown carries, and how a layout change is reviewed before it lands.
 
-Surfacing it is probably right, since a conflict is usually a real problem rather than a data-merging inconvenience.
+### How are ingesters scheduled?
 
-### How does a monorepo owning many entities express that?
+Ingesters are configured as markdown, but their cadence, concurrency, failure handling, and API budget are not specified.
+Rich ingesters are where REST quota actually burns, per [ADR-0006](adr/0006-reconcile-triggering.md), so this needs a real answer before the second ingester ships.
 
-`dusk.md` pointing at other paths is the escape hatch, but the shape of that indirection needs to stay minimal.
-If it grows expressive it becomes a second config language, which is the failure mode this design is built to avoid.
+### Who can view Dusk?
 
-### What stores the materialized graph?
-
-The index is disposable and rebuildable, which keeps this decision reversible.
-It still needs to support several live refs at once, fast relation traversal, and cheap garbage collection when a PR closes.
+The GitHub App governs what Dusk can read and write, not who can read Dusk.
+A private catalog rendered on a public URL needs its own authentication story, and it is not yet designed.
