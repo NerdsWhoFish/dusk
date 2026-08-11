@@ -37,6 +37,15 @@ func (d *Dir) Close() error {
 	return nil
 }
 
+// Resolve reports the ref this directory serves. A working tree has no commits,
+// so there is nothing to resolve to and the ref stands in for one.
+func (d *Dir) Resolve(_ context.Context, gitRef string) (string, error) {
+	if err := d.check(gitRef); err != nil {
+		return "", err
+	}
+	return gitRef, nil
+}
+
 // ReadFile returns the contents of filePath from within the directory.
 func (d *Dir) ReadFile(_ context.Context, gitRef, filePath string) ([]byte, error) {
 	if err := d.check(gitRef); err != nil {

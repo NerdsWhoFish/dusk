@@ -8,7 +8,6 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/FetchHQ/dusk/internal/reconcile"
-	"github.com/FetchHQ/dusk/pkg/duskmd"
 )
 
 // validateCommand checks a checkout with no server, index, or network. It reads
@@ -45,10 +44,7 @@ func validate(ctx context.Context, cmd *cli.Command) error {
 	}
 	defer func() { _ = source.Close() }()
 
-	graph, err := reconcile.NewLoader(source).Load(ctx, gitRef, duskmd.Provenance{
-		Version:    gitRef,
-		ObservedAt: time.Now(),
-	})
+	graph, err := reconcile.NewLoader(source).Load(ctx, gitRef, time.Now())
 	if err != nil {
 		return err
 	}

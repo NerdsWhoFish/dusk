@@ -40,6 +40,8 @@ That is what stops the same argument happening again in six months.
 
 | [0028](0028-amending-adrs.md) | ADRs are amended in place, and retired rather than deleted | Any part may be corrected where it stands, disclosed in a dated section; a wholesale rewrite supersedes instead. A dead decision is `Retired`, and no ADR is ever deleted |
 
+| [0029](0029-reading-repositories.md) | Repositories are read over the API, at a pinned commit | Three endpoints instead of a clone, because a reconcile reads one file per repository. The ref is resolved once so a moving branch cannot stitch two commits into one graph, which also makes the tree cache safe |
+
 ## Writing one
 
 Number sequentially and never reuse a number.

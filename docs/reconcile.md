@@ -26,15 +26,32 @@ Validation that ran different code from reconcile would answer a different quest
 A relation pointing at an entity that does not exist is **not** an error.
 Entities live in the repositories that own them, so an edge routinely points across a repository boundary at something this reconcile cannot see.
 
+## Every read is pinned to one commit
+
+A ref is not a fixed thing.
+`refs/heads/main` means a different tree after every push, so a reconcile that resolved the ref separately for each file could assemble a graph from two commits, silently.
+
+So a `Source` resolves the ref to a commit **once**, and every read in that reconcile is made against the commit.
+The commit is recorded as provenance, so a claim in the catalog traces to the exact tree that produced it.
+
+This is also why the GitHub source can cache a tree listing with no invalidation logic: a commit's tree cannot change.
+Reasoning in [ADR-0029](../adr/0029-reading-repositories.md).
+
 ## Sources
 
-A `Source` reads files at a git ref, and it is the boundary [ADR-0005](../adr/0005-github-app-and-access-modes.md) requires: no GitHub type crosses it, so the reconciler is identical over a local directory and a remote repository.
+A `Source` reads files at a commit, and it is the boundary [ADR-0005](../adr/0005-github-app-and-access-modes.md) requires: no GitHub type crosses it, so the reconciler is identical over a local directory and a remote repository.
 
-`Dir` is the local implementation.
+**`reconcile.Dir`** is the local implementation, for a checkout.
 A directory has no refs, so it serves exactly one and refuses any other rather than quietly returning the same tree whatever it is asked for.
+It has no commits either, so `Resolve` returns the ref name in place of one.
 
 Reads go through `os.Root`, so a path leaving the directory fails at the filesystem rather than relying on the caller having sanitised it.
 The parser rejecting `..` in an include pattern is the first line of defence; this is the second.
+
+**`githubapp.Repository`** is the remote implementation, reading over three API endpoints rather than cloning, because a repository typically contributes one file and a clone fetches all of history to deliver it.
+It authenticates with an installation token, minted from the App's key and reused until it is close to expiring.
+
+A repository too large for GitHub to list in one response is an error rather than a partial read, because a truncated listing would drop catalog files and produce a catalog that is confidently incomplete.
 
 ## Include patterns
 

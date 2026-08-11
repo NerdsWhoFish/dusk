@@ -41,6 +41,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **`dusk.md` schema and parser**: `pkg/duskmd`, one entity per file with its prose as the description, derived refs, outbound relations only, and includes that cannot escape the repository ([0004](../adr/0004-dusk-md-convention.md), [0026](../adr/0026-dusk-md-schema.md))
 - [x] **Reconciler**: `internal/reconcile`, expanding includes against a tree into the graph, with reading split from storing so a checkout can be validated with no index. `dusk validate` is the local command ([0001](../adr/0001-git-as-source-of-truth.md), [0004](../adr/0004-dusk-md-convention.md))
 - [x] **Source boundary**: no VCS type reaches the reconciler, and the local directory source refuses a path that leaves it ([0005](../adr/0005-github-app-and-access-modes.md))
+- [x] **GitHub source**: `githubapp.Repository`, reading over the API at a commit resolved once, with a tree cache that needs no invalidation ([0029](../adr/0029-reading-repositories.md))
+- [x] **Installation auth**: App assertions and installation tokens, reused until close to expiry ([0005](../adr/0005-github-app-and-access-modes.md))
 - [x] **Storage**: `internal/index`, SQLite keyed by git ref, FTS5 search with ranking and snippets, transactional replace, cheap per-ref garbage collection ([0008](../adr/0008-storage.md))
 - [~] **Entity graph**: relations and inbound traversal to a bounded depth are built. Drift between declared and observed waits on there being an observed side ([0007](../adr/0007-entity-schema.md))
 - [ ] **Poll floor**: periodic `git ls-remote` reconcile ([0006](../adr/0006-reconcile-triggering.md))
@@ -85,12 +87,12 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. A GitHub source behind the existing `Source` boundary, so reconcile runs against a real repository at a real ref rather than a checkout.
-2. Wiring the webhook receiver and a poll floor to the reconciler, which closes the first known gap below.
+1. Knowing which repositories to reconcile: listing an installation's repositories, and storing which ref each is tracked at.
+2. Wiring the webhook receiver and a poll floor to the reconciler, which closes the first known gap below. Every piece it needs now exists.
 3. The MCP surface, including proof tokens and the commit queue.
 
 ## Known gaps
 
-- Deliveries are verified and acknowledged but not yet acted on. The reconciler now exists, but nothing connects a delivery to it and there is no source that can read a repository from GitHub.
+- Deliveries are verified and acknowledged but not yet acted on. The reconciler and a GitHub source both exist now, so what is missing is only the wiring: nothing connects a delivery to a reconcile, and nothing records which repositories to track.
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.

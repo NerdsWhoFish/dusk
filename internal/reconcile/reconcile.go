@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"path"
 	"slices"
+	"time"
 
 	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
@@ -32,18 +33,27 @@ const RootFile = "dusk.md"
 // requires: no GitHub type crosses it, so the reconciler is identical over a
 // local directory and a remote repository.
 type Source interface {
-	// ReadFile returns the contents of filePath at gitRef. A file that is not
-	// there yields an error satisfying errors.Is(err, fs.ErrNotExist).
-	ReadFile(ctx context.Context, gitRef, filePath string) ([]byte, error)
+	// Resolve returns the commit a ref points at. Every read in one reconcile
+	// is then made against that commit, so a branch moving partway through
+	// cannot stitch two commits into one graph.
+	Resolve(ctx context.Context, gitRef string) (string, error)
 
-	// Glob returns the paths at gitRef matching pattern, in lexical order.
-	Glob(ctx context.Context, gitRef, pattern string) ([]string, error)
+	// ReadFile returns the contents of filePath at commit. A file that is not
+	// there yields an error satisfying errors.Is(err, fs.ErrNotExist).
+	ReadFile(ctx context.Context, commit, filePath string) ([]byte, error)
+
+	// Glob returns the paths at commit matching pattern, in lexical order.
+	Glob(ctx context.Context, commit, pattern string) ([]string, error)
 }
 
 // Graph is what a repository declares at one git ref.
 type Graph struct {
-	// GitRef is the ref the graph was read at.
+	// GitRef is the ref the graph was read at, and the key it is stored under.
 	GitRef string
+
+	// Commit is what GitRef resolved to. It is recorded as provenance, so a
+	// claim in the catalog can be traced to the exact tree that made it.
+	Commit string
 
 	// Participating is false when the repository has no root dusk.md, which is
 	// how it declines to be in the catalog rather than an error.
@@ -67,22 +77,30 @@ func NewLoader(source Source) *Loader {
 	return &Loader{source: source}
 }
 
-// Load reads the repository at gitRef and returns what it declares.
-func (l *Loader) Load(ctx context.Context, gitRef string, provenance duskmd.Provenance) (*Graph, error) {
-	root, err := l.readRoot(ctx, gitRef, provenance)
+// Load reads the repository at gitRef and returns what it declares. The ref is
+// resolved once and every file read at the resulting commit, so a branch moving
+// partway through cannot produce a graph stitched from two trees.
+func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) (*Graph, error) {
+	commit, err := l.source.Resolve(ctx, gitRef)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: resolve %q: %w", gitRef, err)
+	}
+	provenance := duskmd.Provenance{Version: commit, ObservedAt: observedAt}
+
+	root, err := l.readRoot(ctx, commit, provenance)
 	if err != nil {
 		return nil, err
 	}
 	if root == nil {
-		return &Graph{GitRef: gitRef, Participating: false}, nil
+		return &Graph{GitRef: gitRef, Commit: commit, Participating: false}, nil
 	}
 
-	files, err := l.collect(ctx, gitRef, root, provenance)
+	files, err := l.collect(ctx, commit, root, provenance)
 	if err != nil {
 		return nil, err
 	}
 
-	graph := &Graph{GitRef: gitRef, Participating: true, Files: make([]string, 0, len(files))}
+	graph := &Graph{GitRef: gitRef, Commit: commit, Participating: true, Files: make([]string, 0, len(files))}
 	if err := graph.merge(files); err != nil {
 		return nil, err
 	}
@@ -90,25 +108,25 @@ func (l *Loader) Load(ctx context.Context, gitRef string, provenance duskmd.Prov
 }
 
 // readRoot returns nil when the repository has no root dusk.md.
-func (l *Loader) readRoot(ctx context.Context, gitRef string, provenance duskmd.Provenance) (*duskmd.File, error) {
-	data, err := l.source.ReadFile(ctx, gitRef, RootFile)
+func (l *Loader) readRoot(ctx context.Context, commit string, provenance duskmd.Provenance) (*duskmd.File, error) {
+	data, err := l.source.ReadFile(ctx, commit, RootFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("reconcile: read %s at %q: %w", RootFile, gitRef, err)
+		return nil, fmt.Errorf("reconcile: read %s at %q: %w", RootFile, commit, err)
 	}
 
 	root, err := duskmd.ParseRoot(RootFile, data, provenance)
 	if err != nil {
-		return nil, fmt.Errorf("reconcile: %q: %w", gitRef, err)
+		return nil, fmt.Errorf("reconcile: %q: %w", commit, err)
 	}
 	return root, nil
 }
 
 // collect returns the root file followed by everything its includes reach.
-func (l *Loader) collect(ctx context.Context, gitRef string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, error) {
-	paths, err := l.expand(ctx, gitRef, root.Include)
+func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, error) {
+	paths, err := l.expand(ctx, commit, root.Include)
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +136,9 @@ func (l *Loader) collect(ctx context.Context, gitRef string, root *duskmd.File, 
 
 	var problems []error
 	for _, filePath := range paths {
-		data, err := l.source.ReadFile(ctx, gitRef, filePath)
+		data, err := l.source.ReadFile(ctx, commit, filePath)
 		if err != nil {
-			problems = append(problems, fmt.Errorf("reconcile: read %q at %q: %w", filePath, gitRef, err))
+			problems = append(problems, fmt.Errorf("reconcile: read %q at %q: %w", filePath, commit, err))
 			continue
 		}
 		included, err := duskmd.ParseIncluded(filePath, data, root.Entity.GetNamespace(), provenance)
@@ -139,14 +157,14 @@ func (l *Loader) collect(ctx context.Context, gitRef string, root *duskmd.File, 
 // expand resolves include patterns to a sorted, deduplicated path list. The
 // root file is excluded so that a pattern matching it cannot declare its entity
 // twice.
-func (l *Loader) expand(ctx context.Context, gitRef string, patterns []string) ([]string, error) {
+func (l *Loader) expand(ctx context.Context, commit string, patterns []string) ([]string, error) {
 	seen := map[string]bool{RootFile: true}
 	var paths []string
 
 	for _, pattern := range patterns {
-		matches, err := l.source.Glob(ctx, gitRef, pattern)
+		matches, err := l.source.Glob(ctx, commit, pattern)
 		if err != nil {
-			return nil, fmt.Errorf("reconcile: expand %q at %q: %w", pattern, gitRef, err)
+			return nil, fmt.Errorf("reconcile: expand %q at %q: %w", pattern, commit, err)
 		}
 		for _, match := range matches {
 			match = path.Clean(match)
@@ -196,8 +214,8 @@ func New(source Source, idx *index.DB) *Reconciler {
 // Reconcile reads the repository at gitRef and replaces everything the index
 // holds for it. A repository with no root dusk.md is not an error: it has not
 // opted in, and the previous contents at that ref are cleared.
-func (r *Reconciler) Reconcile(ctx context.Context, gitRef string, provenance duskmd.Provenance) (*Graph, error) {
-	graph, err := r.loader.Load(ctx, gitRef, provenance)
+func (r *Reconciler) Reconcile(ctx context.Context, gitRef string, observedAt time.Time) (*Graph, error) {
+	graph, err := r.loader.Load(ctx, gitRef, observedAt)
 	if err != nil {
 		return nil, err
 	}
