@@ -7,6 +7,8 @@ This tracks implementation against it.
 
 **Keep this current in the same change that moves an item.** A status document that lags is worse than none, because it is read as truth.
 
+This tracks the product. It deliberately says nothing about any particular deployment.
+
 ## Legend
 
 `[x]` built and tested · `[~]` partially built · `[ ]` not started
@@ -32,6 +34,7 @@ This tracks implementation against it.
 - [x] **`cmd/dusk`**: `serve`, `genkey`, structured logs, graceful shutdown
 - [x] **Least-privilege manifest**: permissions generated per chosen access mode ([0005](../adr/0005-github-app-and-access-modes.md))
 - [x] **Webhook receiver**: HMAC validation, replay rejection, body cap ([0006](../adr/0006-reconcile-triggering.md))
+- [x] **Verified against real GitHub**: an App was registered through the manifest flow, credentials exchanged and stored encrypted, and signed `ping` and `installation` deliveries were verified and accepted. The onboarding path is proven, not just tested.
 
 ## Core
 
@@ -88,5 +91,4 @@ This tracks implementation against it.
 
 - Deliveries are verified and acknowledged but not yet acted on, because the reconciler does not exist. The poll floor in [0006](../adr/0006-reconcile-triggering.md) means nothing is lost meanwhile.
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
-- The GitHub App manifest is validated against the real API, but the code exchange and installation path have not been exercised against a live App.
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.

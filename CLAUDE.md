@@ -5,8 +5,9 @@ Read [DESIGN.md](DESIGN.md) before writing code, and [docs/philosophy.md](docs/p
 
 ## Before you change anything
 
-1. **Read [`adr/README.md`](adr/README.md).** Eighteen decisions are already settled, with the rejected alternatives recorded. Most "why is it like this" questions are answered there.
-2. **Read [ADR-0017](adr/0017-engineering-policy.md).** It is the engineering policy: Go conventions, package layout, testing, documentation, and the cgo rule.
+1. **Read [`docs/status.md`](docs/status.md).** It is the checklist of what is built and what is not, and it is the fastest way to know where the work stopped.
+2. **Read [`adr/README.md`](adr/README.md).** Twenty-five decisions are already settled, with the rejected alternatives recorded. Most "why is it like this" questions are answered there.
+3. **Read [ADR-0017](adr/0017-engineering-policy.md).** It is the engineering policy: Go conventions, package layout, testing, documentation, and the cgo rule.
 
 If something looks wrong, check whether an ADR already argued it before proposing a change.
 Settled decisions are not re-litigated without new information.
@@ -46,3 +47,5 @@ make test    # go test -race ./...
 - **Comment implementation with restraint.** Documentation and commentary are different things: a missing doc comment is a defect, an inline comment restating the code is noise.
 - **`internal/` needs a reason.** Default to a real package in `pkg/` that another caller could use.
 - Commit as you go, in atomic commits with conventional messages. Do not push or tag without being asked.
+- **Update [`docs/status.md`](docs/status.md) in the same change that moves an item.**
+- **This repository is public.** Never commit anything about a particular person's deployment: hostnames, cluster names, domains, or the names of private repositories. Examples use `example.com` and generic names.
