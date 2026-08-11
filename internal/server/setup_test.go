@@ -111,8 +111,8 @@ func TestHealthAndReadiness(t *testing.T) {
 		{name: "health is up before onboarding", path: "/healthz", wantStatus: http.StatusOK, wantBody: "ok"},
 		{name: "health is up after onboarding", path: "/healthz", onboarded: true, wantStatus: http.StatusOK, wantBody: "ok"},
 		{
-			name: "readiness is false before onboarding, and says where to go",
-			path: "/readyz", wantStatus: http.StatusServiceUnavailable, wantBody: "/setup",
+			name: "readiness is true before onboarding, and says where to go",
+			path: "/readyz", wantStatus: http.StatusOK, wantBody: "/setup",
 		},
 		{name: "readiness is true once onboarded", path: "/readyz", onboarded: true, wantStatus: http.StatusOK, wantBody: "ready"},
 	}
@@ -286,6 +286,19 @@ func TestSetupCallbackFailures(t *testing.T) {
 				t.Errorf("page should mention %q, got:\n%s", tt.wantText, rec.Body.String())
 			}
 		})
+	}
+}
+
+// An unready pod gets no Service endpoints, so /setup becomes unreachable and
+// onboarding can never happen. Readiness must not depend on being onboarded.
+func TestReadinessDoesNotDeadlockOnboarding(t *testing.T) {
+	h := newServer(t, &fakeStore{}, &fakeGitHub{})
+
+	if rec := get(t, h, "/readyz"); rec.Code != http.StatusOK {
+		t.Fatalf("/readyz = %d before onboarding, want 200. An unready pod cannot be onboarded.", rec.Code)
+	}
+	if rec := get(t, h, "/setup"); rec.Code != http.StatusOK {
+		t.Errorf("/setup = %d, want 200", rec.Code)
 	}
 }
 

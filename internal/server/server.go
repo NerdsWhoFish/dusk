@@ -94,16 +94,16 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	// Readiness is false until onboarding completes, so a load balancer does
-	// not send real traffic to an instance that cannot answer anything.
+	// Ready means "can serve HTTP", NOT "is onboarded". Gating readiness on
+	// onboarding deadlocks: an unready pod gets no Service endpoints, so /setup
+	// is unreachable, so it can never become onboarded.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if !s.credentials.Configured() {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("not onboarded: visit /setup\n"))
+		w.WriteHeader(http.StatusOK)
+		if s.credentials.Configured() {
+			_, _ = w.Write([]byte("ready\n"))
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready\n"))
+		_, _ = w.Write([]byte("ready, not onboarded: visit /setup\n"))
 	})
 
 	mux.HandleFunc("POST /webhooks", s.handleWebhook)
