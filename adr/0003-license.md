@@ -63,6 +63,6 @@ Amendment policy: [ADR-0028](0028-amending-adrs.md).
 The opening sentence named "platform teams inside companies" as the intended adopters.
 [ADR-0027](0027-design-target.md) settled the design target as a single operator and their agents, so that sentence now names people running their own infrastructure, and states separately the argument it had been carrying implicitly: a license has to stay unobjectionable to a contributor's employer.
 
-The decision outcome is untouched, and so is the rejected-options reasoning.
-"AGPL would kill the target audience" still argues from corporate adoption, and that is left exactly as accepted.
-It remains a true reason to avoid the AGPL, and rewriting an argument to match a later decision is precisely what ADR-0028 forbids.
+The decision outcome is untouched.
+So is the rejected-options reasoning: "AGPL would kill the target audience" still argues from corporate adoption, and it is left exactly as accepted because it is still true.
+Many companies do ban the AGPL outright, and that is a real reason to avoid it whoever Dusk is aimed at.

@@ -19,9 +19,10 @@ Technical decisions are written as [MADR](https://adr.github.io/madr/) records i
 The value is not the decision, it is the **rejected alternatives** and the reasoning.
 That is what stops the same argument happening again in six months.
 
-A reversed decision gets a new ADR that supersedes the old one. A decision is never rewritten.
+An ADR that has gone stale is amended in place, recorded in a dated section at the bottom of the file.
+Rewriting it wholesale is a new ADR that supersedes the old one, and a decision that no longer applies is retired ([ADR-0028](../adr/0028-amending-adrs.md)).
 
-Wording that has gone stale may be amended in place, recorded in a dated section at the bottom of the file, but the decision and the reasoning behind it are never touched ([ADR-0028](../adr/0028-amending-adrs.md)).
+Nothing is ever deleted, because the rejected alternatives outlive the decision.
 
 ## 3. Anomalies are surfaced, never silenced
 
