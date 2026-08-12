@@ -34,8 +34,13 @@ type Kubernetes struct {
 	client kubernetes.Interface
 }
 
-// DefaultSkip leaves out the namespaces every cluster has and nobody means.
-var DefaultSkip = []string{"kube-system", "kube-public", "kube-node-lease"}
+// DefaultSkip leaves out the cluster's own machinery, which nobody writes a
+// catalog entry for and which buries the services somebody does want to
+// describe. Override Skip to catalogue them anyway.
+var DefaultSkip = []string{
+	"kube-system", "kube-public", "kube-node-lease",
+	"flux-system", "cnpg-system", "cert-manager", "local-path-storage",
+}
 
 // NewKubernetes connects to a cluster. An empty kubeconfig means in-cluster
 // credentials, which is how Dusk observes the cluster it is deployed to.
@@ -136,7 +141,7 @@ func (k *Kubernetes) Observe(ctx context.Context) (*Observation, error) {
 	}
 
 	for _, service := range services.Items {
-		if k.skipped(service.Namespace) || service.Spec.ClusterIP == corev1.ClusterIPNone {
+		if k.skipped(service.Namespace) || k.plumbing(service) {
 			continue
 		}
 
@@ -166,6 +171,21 @@ func (k *Kubernetes) namespace() string {
 		return slug(k.Namespace)
 	}
 	return slug(k.Cluster)
+}
+
+// plumbing reports a Service that exists to make another Service work: a
+// headless one backing a StatefulSet, an ExternalName aliasing something
+// already catalogued, or the API itself. None is worth writing down.
+func (k *Kubernetes) plumbing(service corev1.Service) bool {
+	switch {
+	case service.Spec.ClusterIP == corev1.ClusterIPNone:
+		return true
+	case service.Spec.Type == corev1.ServiceTypeExternalName:
+		return true
+	case service.Namespace == "default" && service.Name == "kubernetes":
+		return true
+	}
+	return false
 }
 
 func (k *Kubernetes) skipped(namespace string) bool {

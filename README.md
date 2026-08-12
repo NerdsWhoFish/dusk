@@ -26,6 +26,7 @@ Dusk assumes the agents doing the work can also do the documenting, so the catal
 - [docs/mcp.md](docs/mcp.md) is the agent-facing surface: the tools, how to connect, and what is not built yet.
 - [docs/controller.md](docs/controller.md) covers what keeps the catalog current: discovery, the account allowlist, webhooks, the poll floor, and the API budget.
 - [docs/storage.md](docs/storage.md) covers the materialized graph: how it is keyed, what it stores, and how search works.
+- [docs/ingest.md](docs/ingest.md) covers the half of the catalog nobody types: what an ingester promises, why a failure never deletes, and what the Kubernetes one leaves out.
 - [docs/packages.md](docs/packages.md) maps every package to its job, and the rules for adding one. Read it before writing anything new.
 - [docs/philosophy.md](docs/philosophy.md) is the posture behind the design.
 - [docs/status.md](docs/status.md) tracks what is built and what is not.
