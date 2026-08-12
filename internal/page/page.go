@@ -105,14 +105,17 @@ type Catalog interface {
 // to be good enough that declaring is optional (ADR-0013): a catalog that only
 // looks presentable once everyone does homework is the failure Dusk avoids.
 func Default() Page {
+	// The order pairs a tall block with a short one. Two columns with one
+	// non-wide block in a row leaves half the row empty, which reads as a
+	// missing panel rather than a deliberate layout.
 	return Page{
 		Title: "Home",
 		Blocks: []Block{
 			{Type: TypeKinds},
-			{Type: TypeDrift, Title: "Drifted", Limit: 8},
-			{Type: TypeNotes, Title: "Recent notes", Limit: 5, Wide: true},
-			{Type: TypeIntegrity, Title: "Problems"},
+			{Type: TypeDrift, Title: "Drifted", Limit: 6},
 			{Type: TypeReads, Title: "What Dusk has read"},
+			{Type: TypeNotes, Title: "Recent notes", Limit: 5, Wide: true},
+			{Type: TypeIntegrity, Title: "Problems", Wide: true},
 		},
 	}
 }

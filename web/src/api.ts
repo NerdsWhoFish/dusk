@@ -69,7 +69,55 @@ export type Overview = {
   repositories: RepositoryStatus[];
 };
 
+export type Drift = {
+  Kind: "declared_not_observed" | "observed_not_declared";
+  Ref: string;
+  Title: string;
+  Declared: string;
+  Observed: string;
+  Detail: string;
+};
+
+export type Problem = {
+  Kind: string;
+  Ref: string;
+  Detail: string;
+  Where: string[];
+};
+
+export type Read = {
+  repository: string;
+  entities: number;
+  error?: string;
+  observed?: boolean;
+};
+
+// ResolvedBlock is one declared query with its result. The server runs the
+// query (ADR-0035), so the browser only decides how a result looks.
+export type ResolvedBlock = {
+  type: "entities" | "recent-notes" | "drift" | "integrity" | "kinds" | "reads";
+  title: string;
+  wide?: boolean;
+  entities?: Entity[];
+  notes?: Note[];
+  drift?: Drift[];
+  problems?: Problem[];
+  kinds?: KindCount[];
+  reads?: Read[];
+  truncated?: boolean;
+  error?: string;
+};
+
+export type Home = {
+  title: string;
+  prose: string;
+  blocks: ResolvedBlock[];
+  problem?: string;
+};
+
 export const api = {
+  home: () => get<Home>("/home"),
+  drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),
   entities: (kind?: string) =>
     get<{ entities: Entity[] }>(

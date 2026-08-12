@@ -285,6 +285,61 @@ a {
   color: var(--red);
 }
 
+.seen {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid rgb(128 255 234 / 0.3);
+  border-radius: 1rem;
+  color: var(--cyan);
+  font-family: var(--sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0.03em;
+}
+
+/* Drift and problems ------------------------------------------------- */
+
+/* The two halves of drift are different work, so they do not look alike:
+   one is cleanup, the other is a documentation queue. */
+.tag.gone {
+  color: var(--red);
+  border-color: rgb(255 85 85 / 0.4);
+}
+
+.tag.unknown {
+  color: var(--cyan);
+  border-color: rgb(128 255 234 / 0.35);
+}
+
+.problems {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.problems li {
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.problems li:last-child {
+  border-bottom: 0;
+}
+
+.problems .quiet {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.where {
+  margin: 0.375rem 0 0;
+  opacity: 0.75;
+}
+
+.more {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+}
+
 /* Rows ---------------------------------------------------------------- */
 
 .rows {
