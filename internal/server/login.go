@@ -49,13 +49,15 @@ func (s *Server) renderLogin(w http.ResponseWriter, _ *http.Request, status int,
 	// already frozen and the browser gets text/plain.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := s.tmpl.ExecuteTemplate(w, "login", loginPage{Problem: problem}); err != nil {
+	page := loginPage{Problem: problem, GitHub: s.oauth.Configured()}
+	if err := s.tmpl.ExecuteTemplate(w, "login", page); err != nil {
 		s.log.Error("could not render the login page", "error", err)
 	}
 }
 
 type loginPage struct {
 	Problem string
+	GitHub  bool
 }
 
 // safeNext keeps a redirect inside this site. A returned path from a query

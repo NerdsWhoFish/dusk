@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Unauthorized } from "./api";
+import { api, Unauthorized } from "./api";
+import type { Viewer } from "./api";
 import { EntityView } from "./EntityView";
 import { Landing } from "./Landing";
 
@@ -12,11 +13,16 @@ function refFromPath(path: string): string | null {
 
 export function App() {
   const [ref, setRef] = useState(() => refFromPath(location.pathname));
+  const [viewer, setViewer] = useState<Viewer | null>(null);
 
   useEffect(() => {
     const onPop = () => setRef(refFromPath(location.pathname));
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    api.viewer().then(setViewer).catch(() => setViewer(null));
   }, []);
 
   const open = useCallback((next: string | null) => {
@@ -38,11 +44,20 @@ export function App() {
         >
           Dusk
         </a>
-        <form method="post" action="/logout">
-          <button className="signout" type="submit">
-            Sign out
-          </button>
-        </form>
+        <div className="who">
+          {/* A filtered view that says nothing looks like an empty catalog,
+              which is how every silent permission system confuses people. */}
+          {viewer?.restricted && (
+            <span className="viewer" title={`${viewer.readable} repositories readable`}>
+              {viewer.login} · showing what you can read
+            </span>
+          )}
+          <form method="post" action="/logout">
+            <button className="signout" type="submit">
+              Sign out
+            </button>
+          </form>
+        </div>
       </header>
 
       {ref ? <EntityView entityRef={ref} onOpen={open} /> : <Landing onOpen={open} />}

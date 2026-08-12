@@ -115,7 +115,16 @@ export type Home = {
   problem?: string;
 };
 
+export type Viewer = {
+  signed_in: boolean;
+  login?: string;
+  restricted: boolean;
+  readable?: number;
+  github: boolean;
+};
+
 export const api = {
+  viewer: () => get<Viewer>("/viewer"),
   home: () => get<Home>("/home"),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),

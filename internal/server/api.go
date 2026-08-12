@@ -29,6 +29,7 @@ type Catalog interface {
 	Scopes(ctx context.Context) ([]index.Scope, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
+	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
 }
 
 // entityJSON is the wire shape, written by hand rather than through protojson,
@@ -124,13 +125,23 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	visible, err := s.visible(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 
 	kind := r.URL.Query().Get("kind")
 	out := make([]index.SearchResult, 0, len(results))
 	for _, result := range results {
-		if kind == "" || strings.EqualFold(result.Kind, kind) {
-			out = append(out, result)
+		if kind != "" && !strings.EqualFold(result.Kind, kind) {
+			continue
 		}
+		// A note is visible with the entity it is about; an entity by itself.
+		if result.Type == "entity" && !visible(result.Ref) {
+			continue
+		}
+		out = append(out, result)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": out, "query": query})
 }
@@ -141,8 +152,16 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
 
+	visible, err := s.visible(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
 	entity, err := s.catalog.Get(r.Context(), "", ref)
-	if errors.Is(err, index.ErrNotFound) {
+	// Not-visible answers exactly as not-found. Telling somebody an entity
+	// exists but is none of their business leaks the thing being protected.
+	if errors.Is(err, index.ErrNotFound) || (err == nil && !visible(ref)) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such entity", "ref": ref})
 		return
 	}
@@ -196,11 +215,40 @@ func (s *Server) handleAPIEntities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	visible, err := s.visible(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
 	out := make([]entityJSON, 0, len(entities))
 	for _, entity := range entities {
-		out = append(out, asEntity(entity))
+		if visible(entity.GetRef()) {
+			out = append(out, asEntity(entity))
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entities": out})
+}
+
+// visible returns a predicate for what this request may see. Filtering after
+// the query rather than inside it keeps one code path: an unrestricted viewer,
+// which is every single-operator deployment, pays nothing.
+func (s *Server) visible(r *http.Request) (func(ref string) bool, error) {
+	visibility := s.visibilityFor(r)
+	if !visibility.Restricted() {
+		return func(string) bool { return true }, nil
+	}
+
+	refs, err := s.catalog.VisibleTo(r.Context(), "", visibility)
+	if err != nil {
+		return nil, err
+	}
+
+	allowed := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		allowed[ref] = true
+	}
+	return func(ref string) bool { return allowed[ref] }, nil
 }
 
 // handleAPIOverview answers GET /api/overview: everything the portal shows
@@ -247,6 +295,28 @@ func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
 		"declaring":    len(declaring),
 		"notes":        asNotes(notes),
 		"repositories": repositories,
+	})
+}
+
+// handleAPIViewer answers who this browser is and whether what it sees was
+// filtered. A restricted view that says nothing looks like an empty catalog.
+func (s *Server) handleAPIViewer(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.signedInAs(r)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"signed_in":  false,
+			"restricted": false,
+			"github":     s.oauth.Configured(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"signed_in":  true,
+		"login":      identity.Login,
+		"restricted": true,
+		"readable":   len(identity.Readable),
+		"github":     true,
 	})
 }
 

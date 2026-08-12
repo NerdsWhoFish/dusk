@@ -58,6 +58,17 @@ type Config struct {
 	// most of the catalog lives beside the code it describes (ADR-0031).
 	ConfigRepository string
 
+	// OAuthClientID and OAuthClientSecret enable signing in with GitHub, which
+	// derives what a viewer may see from what GitHub says they can read
+	// (ADR-0012). Unset means the shared token is the only way in.
+	OAuthClientID     string
+	OAuthClientSecret secret.String
+
+	// ShowObservedToEveryone lets signed-in viewers see entities no repository
+	// backs. ADR-0012 requires this to be a decision: those entities have no
+	// natural access control, and silent over-sharing is the worse failure.
+	ShowObservedToEveryone bool
+
 	// Clusters are the Kubernetes clusters to observe. Empty means none, so
 	// ingestion is opt in and Dusk never reaches for credentials it was not
 	// pointed at.
@@ -114,6 +125,13 @@ func Load(getenv func(string) string) (*Config, error) {
 		TrustedNetwork:   strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
 		ConfigRepository: strings.Trim(strings.TrimSpace(getenv("DUSK_CONFIG_REPOSITORY")), "/"),
 		Clusters:         splitClusters(getenv("DUSK_KUBERNETES")),
+
+		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
+		ShowObservedToEveryone: strings.EqualFold(
+			strings.TrimSpace(getenv("DUSK_OBSERVED_VISIBLE_TO_ALL")), "true"),
+	}
+	if s := strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_SECRET")); s != "" {
+		c.OAuthClientSecret = secret.New(s)
 	}
 	if token := strings.TrimSpace(getenv("DUSK_MCP_TOKEN")); token != "" {
 		c.MCPToken = secret.New(token)
@@ -124,6 +142,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	problems = append(problems, c.readAgentAccess()...)
 	problems = append(problems, c.readConfigRepository()...)
 	problems = append(problems, c.readClusters()...)
+	problems = append(problems, c.readOAuth()...)
 
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
@@ -196,6 +215,29 @@ func (c *Config) readClusters() []error {
 		seen[cluster.Name] = true
 	}
 	return problems
+}
+
+// SignInURL is where GitHub returns the browser after an OAuth sign-in.
+func (c *Config) SignInURL() string { return c.PrivateHost + "/auth/callback" }
+
+// OAuthConfigured reports whether signing in with GitHub is available.
+func (c *Config) OAuthConfigured() bool {
+	return c.OAuthClientID != "" && !c.OAuthClientSecret.IsZero()
+}
+
+// readOAuth refuses half a configuration. One of the pair without the other is
+// a sign-in that fails at the moment somebody tries it rather than at boot.
+func (c *Config) readOAuth() []error {
+	if c.OAuthClientID == "" && c.OAuthClientSecret.IsZero() {
+		return nil
+	}
+	if c.OAuthClientID == "" {
+		return []error{errors.New("DUSK_GITHUB_CLIENT_SECRET is set without DUSK_GITHUB_CLIENT_ID")}
+	}
+	if c.OAuthClientSecret.IsZero() {
+		return []error{errors.New("DUSK_GITHUB_CLIENT_ID is set without DUSK_GITHUB_CLIENT_SECRET")}
+	}
+	return nil
 }
 
 // readConfigRepository checks the shape only. Whether the repository exists and

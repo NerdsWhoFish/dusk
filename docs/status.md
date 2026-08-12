@@ -78,7 +78,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Browser auth**: a session cookie exchanged for the same token agents present, so one policy covers both surfaces
 - [~] **Pages**: entity pages and a portal landing composed of blocks are built. The blocks are fixed rather than declared as queries in a markdown file, which is what [0013](../adr/0013-layout-and-pages.md) actually asks for
 - [ ] **PR previews**: render at an unmerged ref, semantic diff, comment bot ([0001](../adr/0001-git-as-source-of-truth.md))
-- [ ] **Viewing auth**: GitHub OAuth against repo access. The session cookie answers "may you read", not "what may you read" ([0012](../adr/0012-viewing-auth.md))
+- [x] **Viewing auth**: sign in with GitHub, visibility derived from repository access, observed entities hidden unless allowed ([0012](../adr/0012-viewing-auth.md), [0036](../adr/0036-deriving-what-a-viewer-sees.md))
 - [ ] **Admin**: plugin configuration forms, sensitive fields write-only ([0023](../adr/0023-plugin-configuration.md))
 - [~] **Responsive layouts**: mobile first, one breakpoint, wide content scrolls inside its own container. Nothing yet does the table-to-card or graph-to-list transform, because neither exists ([0025](../adr/0025-responsive-ui.md))
 - [ ] **Viewport matrix tests**: five viewports, no overflow, touch target minimums. **The matrix has never been run**: neither browser tool available could actually change the viewport, so the responsive layout is written but unverified ([0025](../adr/0025-responsive-ui.md))
@@ -116,4 +116,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - Ingested entities are stored under a reserved `ingester:` scope that occupies the repository slot. Anything treating a repository as clonable has to check `index.IsObserved` first.
 - A rate limit is recognised and logged but not waited out. A sweep that exhausts the budget gives up until the next one rather than resuming when the limit resets.
 - The UI's responsive behaviour is unverified. It is written mobile first against [0025](../adr/0025-responsive-ui.md)'s rules, but the viewport matrix has never actually been run against it.
-- A browser session is a bearer token in a cookie by another name: it grants the whole catalog and cannot be revoked short of rotating `DUSK_MCP_TOKEN`, which signs it.
+- A browser session is a bearer token in a cookie by another name: it grants the whole catalog and cannot be revoked short of rotating `DUSK_MCP_TOKEN`, which signs it. Signing in with GitHub narrows a view; it does not close this path ([0036](../adr/0036-deriving-what-a-viewer-sees.md)).
+- A restricted viewer's drift, integrity and kind counts are not filtered, so those blocks can count things the viewer cannot open.
+- OAuth sign-in requests `repo` scope, which is far more than listing repository names needs. GitHub offers nothing narrower that still sees private repositories.
+- Identity sessions live in memory, so a restart signs everybody out.

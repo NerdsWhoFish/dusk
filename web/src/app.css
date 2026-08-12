@@ -89,6 +89,17 @@ a {
   box-shadow: 0 0 12px rgb(189 147 249 / 0.35);
 }
 
+.who {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.viewer {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
 .signout {
   min-height: 44px;
   padding: 0 0.75rem;

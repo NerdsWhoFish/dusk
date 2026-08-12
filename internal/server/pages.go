@@ -40,6 +40,8 @@ padding:.125rem .375rem;font-size:.875rem;word-break:break-all}
 .hint{color:var(--muted);font-size:.8125rem;margin:.375rem 0 0}
 .detail{background:var(--bg);border:1px solid var(--line);border-radius:.375rem;
 padding:.75rem;overflow-x:auto;font-size:.875rem;white-space:pre-wrap;word-break:break-word}
+.btn.secondary{background:none;color:var(--fg);border:1px solid var(--line)}
+.or{text-align:center;margin:1.25rem 0 0}
 @media(min-width:48rem){body{padding:3rem 1.5rem}h1{font-size:2rem}
 button,.btn{width:auto;min-width:14rem}}
 </style></head><body><main>{{end}}
@@ -129,6 +131,13 @@ Sign in once and this browser stays signed in.</p>
   </div>
   <button type="submit">Sign in</button>
 </form>
+
+{{if .GitHub}}
+<p class="sub or">or</p>
+<a class="btn secondary" href="/auth/github">Sign in with GitHub</a>
+<p class="hint">Signing in with GitHub shows you only what the repositories you
+can read have declared, rather than the whole catalog.</p>
+{{end}}
 {{template "foot"}}{{end}}
 
 `

@@ -85,7 +85,15 @@ func serveCommand() *cli.Command {
   DUSK_KUBERNETES       Clusters to observe, comma separated. A bare name uses
                         in-cluster credentials; name=/path/to/kubeconfig uses
                         that file. For example: mini-2,mini-1=/etc/dusk/mini-1
-                        Unset means Dusk observes nothing and only reads git.`,
+                        Unset means Dusk observes nothing and only reads git.
+  DUSK_GITHUB_CLIENT_ID, DUSK_GITHUB_CLIENT_SECRET
+                        An OAuth app, enabling sign-in with GitHub. A viewer
+                        then sees only what the repositories they can read
+                        declared. The bearer token still sees everything.
+  DUSK_OBSERVED_VISIBLE_TO_ALL
+                        Set to true to show entities no repository backs to
+                        every signed-in viewer. They have no natural access
+                        control, so they are hidden unless you say this.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}

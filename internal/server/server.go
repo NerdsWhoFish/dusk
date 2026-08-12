@@ -47,6 +47,7 @@ type Server struct {
 	syncs       Syncs
 	pages       Pages
 	access      *access.Policy
+	oauth       *access.OAuth
 	mcp         http.Handler
 	state       *setupState
 	deliveries  *seenDeliveries
@@ -122,6 +123,17 @@ func New(opts Options) (*Server, error) {
 	s.access = access.New(s.cfg.MCPToken, s.cfg.TrustedNetwork,
 		strings.HasPrefix(s.cfg.PrivateHost, "https://"))
 
+	s.oauth = &access.OAuth{
+		ClientID:     s.cfg.OAuthClientID,
+		ClientSecret: s.cfg.OAuthClientSecret,
+		Callback:     s.cfg.SignInURL(),
+		Policy:       s.access,
+		GitHub: &access.Client{
+			ClientID:     s.cfg.OAuthClientID,
+			ClientSecret: s.cfg.OAuthClientSecret,
+		},
+	}
+
 	tmpl, err := template.New("").Parse(pages)
 	if err != nil {
 		return nil, err
@@ -167,6 +179,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.handleLogin)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
+	// Signing in with GitHub is what makes authorization derived rather than
+	// configured (ADR-0012). Both routes sit outside the gate they open.
+	mux.HandleFunc("GET /auth/github", s.handleSignIn)
+	mux.HandleFunc("GET /auth/callback", s.handleAuthCallback)
+
 	if s.catalog != nil {
 		mux.Handle("GET /api/", s.access.API(http.StripPrefix("/api", s.apiRoutes())))
 
@@ -202,6 +219,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /integrity", s.handleAPIIntegrity)
 	api.HandleFunc("GET /drift", s.handleAPIDrift)
 	api.HandleFunc("GET /home", s.handleAPIHome)
+	api.HandleFunc("GET /viewer", s.handleAPIViewer)
 	return api
 }
 
