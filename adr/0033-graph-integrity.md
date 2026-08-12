@@ -75,3 +75,18 @@ Making it a read means an agent can ask before trusting an answer, and the UI ca
 - **Option 1** was rejected because it cannot distinguish a typo from a repository Dusk has not been shown, and would therefore block the incremental adoption the whole convention is built for.
 - **Option 2** was rejected because it punishes a repository for a problem that may not be its own, and because [ADR-0011](0011-ingester-scheduling.md)'s rule that a failure must never look like a deletion applies with equal force here.
 - **Option 4** was rejected because it had already been chosen once by default, and produced three documented gaps that no user would ever find on their own.
+
+## Amendments
+
+### 2026-08-12: a duplicate needs two sources of equal standing
+
+Duplicate detection grouped every row sharing a ref, which was written before [ADR-0034](0034-ingesters-in-tree-first.md) put observations in the same table.
+The result was that declaring an entity at the ref an ingester already reports, the exact thing an operator should do, was reported as a problem.
+
+It is not one.
+`Get` orders on `observed` before `repository`, so a human declaration beats an ingester's observation deterministically, and the pair is agreement rather than a coin toss.
+The grouping now includes `observed`, which leaves the two real cases: two repositories declaring one ref, and two ingesters observing one ref.
+Neither has a tiebreak beyond sort order.
+
+This also corrects the third Bad consequence above.
+`Get` is no longer arbitrary between a declaration and an observation; it is arbitrary only among sources that rank equally, which is what is now reported.

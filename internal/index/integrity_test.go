@@ -56,6 +56,39 @@ func TestIntegrityFindsADuplicateDeclaration(t *testing.T) {
 	}
 }
 
+// Writing down the thing an ingester found is the whole point, so the two
+// landing on one ref has to read as agreement. Reporting it as a conflict
+// punishes the operator for doing the right thing.
+func TestIntegrityAcceptsADeclarationOverItsOwnObservation(t *testing.T) {
+	db := newDB(t)
+	node := entity("host:prod/node-1", "node-1", "")
+
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{node}, nil)
+	observe(t, db, "kubernetes", node)
+
+	if problems := integrityOf(t, db, index.ProblemDuplicate); len(problems) != 0 {
+		t.Errorf("declaring an observed entity reported %d problems: %+v", len(problems), problems)
+	}
+}
+
+// Two ingesters landing on one ref has no tiebreak at all, so the silence
+// above must not extend to it.
+func TestIntegrityFindsOneRefObservedByTwoIngesters(t *testing.T) {
+	db := newDB(t)
+	node := entity("host:prod/node-1", "node-1", "")
+
+	observe(t, db, "kubernetes", node)
+	observe(t, db, "nomad", node)
+
+	problems := integrityOf(t, db, index.ProblemDuplicate)
+	if len(problems) != 1 {
+		t.Fatalf("found %d duplicates, want 1: %+v", len(problems), problems)
+	}
+	if !strings.Contains(problems[0].Detail, "observed") {
+		t.Errorf("Detail = %q, want it to say these were observed", problems[0].Detail)
+	}
+}
+
 // A relation to nothing makes the graph look connected when it is not.
 func TestIntegrityFindsADanglingRelation(t *testing.T) {
 	db := newDB(t)

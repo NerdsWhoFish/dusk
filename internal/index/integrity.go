@@ -25,8 +25,9 @@ type Problem struct {
 }
 
 const (
-	// ProblemDuplicate is one ref declared by more than one file. A read
-	// returns whichever sorts first, which is a coin toss dressed as an answer.
+	// ProblemDuplicate is one ref written down twice by sources of equal
+	// standing, where a read is a coin toss dressed as an answer. A declaration
+	// over its own observation is not this: ADR-0034 says which wins.
 	ProblemDuplicate = "duplicate_declaration"
 
 	// ProblemDanglingRelation is a relation pointing at an entity nobody
@@ -63,25 +64,27 @@ func (db *DB) Integrity(ctx context.Context, gitRef string) ([]Problem, error) {
 }
 
 type duplicateRow struct {
-	Ref    string
-	Places string
-	Copies int
+	Ref      string
+	Places   string
+	Copies   int
+	Observed bool
 }
 
-// duplicates finds refs declared in more than one place. Two repositories
-// describing the same service is a real situation and a real problem: the
-// catalog has to pick one, and picking silently is what this stops.
+// duplicates finds refs written down twice by sources that rank equally.
+// Grouping on observed excludes a declaration over its own observation, which
+// is the good case and has a winner. Two repositories do not, nor do two
+// ingesters.
 func (db *DB) duplicates(ctx context.Context, gitRef string) ([]Problem, error) {
 	clause, args := scopeClause("", gitRef)
 
 	var rows []duplicateRow
 	err := db.gorm.WithContext(ctx).
 		Model(&entityRow{}).
-		Select("ref, count(*) as copies, group_concat(repository || ' at ' || path, char(10)) as places").
+		Select("ref, observed, count(*) as copies, group_concat(repository || ' at ' || path, char(10)) as places").
 		Where(clause, args...).
-		Group("ref").
+		Group("ref, observed").
 		Having("count(*) > 1").
-		Order("ref").
+		Order("ref, observed").
 		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: find duplicate declarations: %w", err)
@@ -89,10 +92,14 @@ func (db *DB) duplicates(ctx context.Context, gitRef string) ([]Problem, error) 
 
 	problems := make([]Problem, 0, len(rows))
 	for _, row := range rows {
+		wrote := "declared"
+		if row.Observed {
+			wrote = "observed"
+		}
 		problems = append(problems, Problem{
 			Kind:   ProblemDuplicate,
 			Ref:    row.Ref,
-			Detail: fmt.Sprintf("declared %d times. A read returns whichever sorts first, so the catalog is answering with one of them arbitrarily", row.Copies),
+			Detail: fmt.Sprintf("%s %d times. A read returns whichever sorts first, so the catalog is answering with one of them arbitrarily", wrote, row.Copies),
 			Where:  splitOn(row.Places, "\n"),
 		})
 	}

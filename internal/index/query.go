@@ -37,8 +37,8 @@ type Dependent struct {
 }
 
 // Get returns one entity at gitRef, across every repository contributing to it.
-// Ordering by repository keeps the answer stable when two declare the same
-// entity, a conflict the catalog should surface and does not yet.
+// Ordering keeps the answer stable when more than one source has the ref, and
+// Integrity reports the cases where that ordering is the only tiebreak.
 func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error) {
 	var row entityRow
 	err := scoped(db.gorm.WithContext(ctx), gitRef).
