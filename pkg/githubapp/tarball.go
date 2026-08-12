@@ -119,7 +119,7 @@ func extract(body io.Reader, limits Limits) (*Tree, error) {
 		}
 
 		name, ok := repoPath(header.Name)
-		if !ok || !isMarkdown(name) {
+		if !ok || !IsMarkdown(name) {
 			continue
 		}
 		if header.Size > limits.MaxFile {
@@ -156,6 +156,9 @@ func repoPath(name string) (string, bool) {
 	return rest, true
 }
 
-func isMarkdown(name string) bool {
+// IsMarkdown reports whether a path is kept by an extraction. It is exported
+// because a Tree holds only these, and anything listing a repository by other
+// means has to apply the same rule to agree with one.
+func IsMarkdown(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".md")
 }

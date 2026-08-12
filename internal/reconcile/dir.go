@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+
+	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
 
 // Dir is a Source backed by a directory on disk. A directory has no refs, so it
@@ -58,14 +60,37 @@ func (d *Dir) ReadFile(_ context.Context, gitRef, filePath string) ([]byte, erro
 	return data, nil
 }
 
-// Glob returns the paths matching pattern, in lexical order. Patterns are
-// path.Match syntax, so `*` does not cross a separator and there is no `**`:
-// reaching deeper means naming another pattern.
+// Glob returns the markdown paths matching pattern, in lexical order. It walks
+// rather than calling fs.Glob so `**`, `.git` and non-markdown behave as they
+// do reading a tarball, since a local check that disagrees is worse than none.
 func (d *Dir) Glob(_ context.Context, gitRef, pattern string) ([]string, error) {
 	if err := d.check(gitRef); err != nil {
 		return nil, err
 	}
-	matches, err := fs.Glob(d.root.FS(), pattern)
+
+	var matches []string
+	err := fs.WalkDir(d.root.FS(), ".", func(candidate string, entry fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case entry.IsDir():
+			if candidate == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		case !githubapp.IsMarkdown(candidate):
+			return nil
+		}
+
+		ok, err := match(pattern, candidate)
+		if err != nil {
+			return err
+		}
+		if ok {
+			matches = append(matches, candidate)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: glob %q: %w", pattern, err)
 	}
