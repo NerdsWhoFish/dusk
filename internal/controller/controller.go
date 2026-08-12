@@ -495,6 +495,17 @@ func (c *Controller) prune(ctx context.Context, seen map[index.Scope]bool) error
 		if seen[scope] {
 			continue
 		}
+		// An ingester's scope occupies the repository slot but is not one, so
+		// a sweep never sees it and would drop everything observed on every
+		// pass. Only the ingester that owns it may replace it (ADR-0034).
+		if index.IsObserved(scope.Repository) {
+			continue
+		}
+		// A pull request preview is keyed by ref and torn down when the pull
+		// request closes, not by a sweep that has never heard of it.
+		if strings.HasPrefix(scope.GitRef, "refs/pull/") {
+			continue
+		}
 		if err := c.opts.Index.DropRepository(ctx, scope.Repository, scope.GitRef); err != nil {
 			return err
 		}

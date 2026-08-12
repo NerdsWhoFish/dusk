@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
 	"github.com/FetchHQ/dusk/internal/controller"
 	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/store"
@@ -380,6 +382,43 @@ func TestAnIrrelevantPushCostsNothing(t *testing.T) {
 
 	if fake.total() == before {
 		t.Fatal("no request was made by any case, so this test proves nothing")
+	}
+}
+
+// An ingester's scope occupies the repository slot but is not one, so a sweep
+// never sees it and pruning it deletes every observation. This shipped, and
+// wiped a real catalog's observations a minute after the first sweep.
+func TestASweepDoesNotPruneObservationsOrPreviews(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id: 10, account: "example",
+		repos: map[string]string{"example/homelab": rootFile("jellyfin")},
+	}}}
+	c, idx := newController(t, fake, "example", controller.Options{})
+
+	observed := index.ObservedScope("kubernetes:mini-2")
+	seed := []index.Declaration{{Path: "observed", Entity: &duskv1alpha1.Entity{
+		Ref: "service:cluster/seen", Kind: "service", Namespace: "cluster", Name: "seen",
+	}}}
+	if err := idx.Put(t.Context(), observed, "refs/dusk/observed", seed, nil, nil); err != nil {
+		t.Fatalf("Put observed: %v", err)
+	}
+
+	preview := []index.Declaration{{Path: "dusk.md", Entity: &duskv1alpha1.Entity{
+		Ref: "service:home/proposed", Kind: "service", Namespace: "home", Name: "proposed",
+	}}}
+	if err := idx.Put(t.Context(), "example/homelab", "refs/pull/7/head", preview, nil, nil); err != nil {
+		t.Fatalf("Put preview: %v", err)
+	}
+
+	if err := c.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if _, err := idx.Get(t.Context(), "refs/dusk/observed", "service:cluster/seen"); err != nil {
+		t.Errorf("a sweep deleted what an ingester observed: %v", err)
+	}
+	if _, err := idx.Get(t.Context(), "refs/pull/7/head", "service:home/proposed"); err != nil {
+		t.Errorf("a sweep deleted a pull request preview: %v", err)
 	}
 }
 
