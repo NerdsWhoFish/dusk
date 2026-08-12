@@ -88,3 +88,32 @@ Walking an extracted directory has no such limit, and `**` globs become a direct
 
 - **Option 1** was rejected because its founding premise is gone. It remains the cheapest way to read exactly one file, and if Dusk only ever read `dusk.md` it would still be correct.
 - **Option 2** was rejected on lifecycle and dependency weight rather than on transfer volume, where it wins. It becomes right when repositories are large enough or change often enough that full-tree transfers dominate, and the `Source` boundary means adopting it is one implementation rather than a change to the reconciler.
+
+## Amendments
+
+### 2026-08-11: what ADR-0004 promises, narrowed
+
+This decision changed the scope of [ADR-0004](0004-dusk-md-convention.md)'s central promise and did not say so.
+
+That ADR reads "the root file plus whatever it explicitly points at, and nothing else in the repository is ever read".
+Under a tarball that is no longer literally true: every markdown file in a participating repository is transferred, and the include list decides what is *parsed* out of it.
+The named test asserting the rule was written against the old reading and passed only because the old reader made one request per declared path.
+
+The promise still holds where it matters, and the narrowing is stated here rather than left implicit:
+
+- **Consent is unchanged.** A repository still opts in by containing a `dusk.md`, and one that does not is never downloaded at all.
+- **What Dusk publishes is unchanged.** Only declared paths are parsed, indexed, searched, or served to an agent. An undeclared file is discarded when the reconcile ends.
+- **What crosses the wire is wider.** A participating repository's other markdown is transferred and held in memory for the duration of one reconcile.
+
+The test is now `TestADR0004_OnlyDeclaredPathsEnterTheCatalog` and asserts the graph rather than the transfer, which is the guarantee that survives.
+
+An operator who needs the stricter reading needs option 2, whose delta transfer is the only shape that gives it back.
+
+### 2026-08-11: one implementation of the file semantics
+
+The `Source` interface asked each reader for `ReadFile` and `Glob`, so each carried its own matching.
+Three existed and they disagreed: two supported `**` and filtered to markdown, the third did neither, so `dusk validate` and the server resolved the same `include` differently and a repository could pass locally and be read wrong in production.
+
+`Source` now asks only for `Resolve` and `Tree`.
+Matching, reading and the markdown rule live on the tree in `pkg/catalogfs`, so a reader's whole job is producing one and no reader can drift from the spec.
+The API-based reader is deleted rather than left as a fourth.

@@ -1,0 +1,111 @@
+# Packages
+
+What each package is for, what it is deliberately not for, and the rules for adding one.
+
+Read this before writing something new.
+The most expensive mistake in this codebase is a second implementation of something that already exists, because nothing fails: the two copies just drift until they disagree, and then a local check passes while production reads it wrong.
+That has already happened here twice, which is why this file exists.
+
+## The rule that matters most
+
+**Assume what you need already exists, and go look.**
+
+If you are about to write a matcher, a parser, a path rule, a client, or a "small helper", find the package below whose job it is and put it there, or use what is already in it.
+If nothing owns it, that is a signal worth acting on: either it belongs in an existing package whose scope you should widen deliberately, or it is a new package and the rules at the bottom apply.
+
+The question to ask is never "where is it convenient to put this".
+It is **"whose job is this?"**
+
+## Layout
+
+`pkg/` is a promise, `internal/` is a fence, `cmd/` is thin ([ADR-0017](../adr/0017-engineering-policy.md)).
+
+Dependencies run one way: `cmd` → `internal` → `pkg`.
+A `pkg/` package must never import an `internal/` one, and the compiler will not stop you noticing this too late, because `internal/` is only invisible from *outside* the module.
+
+```mermaid
+graph TD
+  CMD["cmd/dusk"] --> SRV["internal/server"]
+  CMD --> CTL["internal/controller"]
+  SRV --> MCP["internal/mcp"]
+  CTL --> REC["internal/reconcile"]
+  MCP --> IDX["internal/index"]
+  MCP --> WRI["internal/write"]
+  REC --> IDX
+  REC --> CFS["pkg/catalogfs"]
+  REC --> MD["pkg/duskmd"]
+  WRI --> GH["pkg/githubapp"]
+  WRI --> PRF["pkg/proof"]
+  GH --> CFS
+```
+
+## `pkg/`: reusable, no Dusk deployment assumed
+
+| Package | Its job | Not its job |
+| --- | --- | --- |
+| `catalogfs` | The file semantics of a catalog repository: what counts as a catalog file, how `include` patterns match, and the in-memory tree a reconcile reads from | Fetching anything. It has no network, no disk, and no idea where the files came from |
+| `duskmd` | Parsing and formatting `dusk.md` and note files, with errors that name file, line, field and expectation | Deciding *which* files to parse, or what a graph means. It sees one file at a time |
+| `githubapp` | Everything that talks to GitHub: the App manifest flow, installation tokens, tarball downloads, commits, and the API rate-limit budget | Interpreting what it fetched. It returns a `catalogfs.Tree`, never a parsed entity |
+| `proof` | The read-before-write gate: issuing tokens for what a read returned, and refusing a write whose token is missing, stale, or never saw the thing | Performing the write, or knowing what an entity is |
+| `secret` | A string type that refuses to render itself in logs, errors, or `%v` | Encrypting anything |
+| `vault` | Envelope encryption for credentials at rest | Deciding what is worth encrypting, or where it is stored |
+
+## `internal/`: this deployment's logic
+
+| Package | Its job | Not its job |
+| --- | --- | --- |
+| `config` | Reading and validating boot configuration, reporting every problem at once | Reaching the network to check whether a configured thing exists. Shape only; existence is checked at use |
+| `index` | The materialized graph in SQLite, partitioned by `(repository, git ref)`, and every query over it | Deciding what to store. It is disposable by contract and rebuilt from git |
+| `reconcile` | Turning a repository at a ref into a graph: resolving a commit, expanding includes, parsing what they reach | Talking to GitHub, and matching paths. A `Source` produces a tree; `catalogfs` matches over it |
+| `controller` | Keeping the catalog in step with GitHub: the sweep, the poll floor, webhook-driven reconciles, retries, and the API budget | Parsing, storing, or serving. It decides *when* to reconcile, not how |
+| `write` | Turning an agent's declaration or note into a commit, and routing it to the file that owns it | Deciding whether the agent may write. That is `proof` |
+| `mcp` | The agent surface: tools, markdown answers, and the proof token appended to every read | Any catalog logic. Every tool is a thin call into `index` or `write` |
+| `server` | HTTP: onboarding, health, webhooks, and mounting the agent surface | Doing the work behind a request. A handler validates, dispatches, and answers |
+| `store` | Persisting the GitHub App credentials, encrypted | Choosing the encryption. That is `vault` |
+| `nextversion` | Release tooling ([ADR-0021](../adr/0021-release-tooling.md)) | Anything the running service does |
+
+## Where things commonly want to go, and where they belong
+
+These are the calls that have actually been got wrong.
+
+| You are writing | It goes in |
+| --- | --- |
+| A path or glob rule | `catalogfs`. Never in a reader |
+| "Is this file worth reading" | `catalogfs.IsCatalogFile`. There is exactly one answer to this |
+| Anything that parses frontmatter | `duskmd` |
+| A new GitHub endpoint call | `githubapp` |
+| Interpretation of a GitHub error | `githubapp`, as a typed error the caller can match with `errors.Is` |
+| A new way to read a repository | A `reconcile.Source`. Its only job is producing a `catalogfs.Tree` |
+| A new query over the catalog | `index`, as a method. Not assembled from several queries in `mcp` |
+| A rule about when to reconcile | `controller` |
+| A rule about whether a write is allowed | `proof` |
+| A new agent tool | `mcp`, as a thin call into `index` or `write` |
+
+## Adding a package
+
+Adding one is cheap; adding the *wrong* one is not, because it splits a concept in half and both halves start growing.
+
+**Add a package when it has a job you can name in one sentence without using "and".**
+`catalogfs` earned its place as "the file semantics of a catalog repository". A package that needs "and" in its description is two packages, or it is a piece of one that already exists.
+
+Before adding one, in order:
+
+1. **Find the package whose job this already is.** Most new code is a method on something that exists.
+2. **If nothing owns it, ask whether an existing package's scope should widen.** Widening a scope deliberately is better than a new package that will be missed by the next person searching.
+3. **Only then add one.** `pkg/` if another program could plausibly use it, `internal/` if it genuinely should not be imported and you can say why. "I have not thought about reuse" is not a reason for `internal/`.
+
+Rules that hold whatever you decide:
+
+- **No `util`, `common`, `helpers`, or `misc`.** Those are where code goes to avoid being named, and they become the place nobody searches.
+- **A package name says what it provides**, not what layer it sits in.
+- **One concept, one owner.** If two packages could each plausibly own a rule, one of them must, and the other imports it. Two plausible owners is how the glob divergence happened.
+- **A `pkg/` package cannot import `internal/`.** If it needs to, it is not reusable and belongs in `internal/`.
+- **A second repository depending on a `pkg/` package promotes it to its own module** ([ADR-0017](../adr/0017-engineering-policy.md)), because importing it otherwise drags the whole `dusk` module along.
+- **Update this file in the same change.** A stale map sends the next person to reimplement something.
+
+## Deleting one
+
+A package whose job moved elsewhere is deleted, not left as a thin wrapper.
+
+`githubapp` kept a per-file reader after [ADR-0032](../adr/0032-tarball-reads.md) replaced it, and because it still satisfied the `Source` interface it stayed a live second implementation of include matching, silently wrong, for as long as it existed.
+Dead code that still compiles against a live interface is not dead.

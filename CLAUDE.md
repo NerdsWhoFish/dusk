@@ -6,8 +6,9 @@ Read [DESIGN.md](DESIGN.md) before writing code, and [docs/philosophy.md](docs/p
 ## Before you change anything
 
 1. **Read [`docs/status.md`](docs/status.md).** It is the checklist of what is built and what is not, and it is the fastest way to know where the work stopped.
-2. **Read [`adr/README.md`](adr/README.md).** Twenty-five decisions are already settled, with the rejected alternatives recorded. Most "why is it like this" questions are answered there.
+2. **Read [`adr/README.md`](adr/README.md).** The decisions are already settled, with the rejected alternatives recorded. Most "why is it like this" questions are answered there.
 3. **Read [ADR-0017](adr/0017-engineering-policy.md).** It is the engineering policy: Go conventions, package layout, testing, documentation, and the cgo rule.
+4. **Read [`docs/packages.md`](docs/packages.md) before writing anything new.** It says what each package is for, what it is *not* for, and where a given kind of code belongs. Reach for it every time you are about to add a helper, a rule, or a package.
 
 If something looks wrong, check whether an ADR already argued it before proposing a change.
 Settled decisions are not re-litigated without new information.
@@ -36,6 +37,7 @@ These are the ones most likely to be broken by accident.
 - **Every write needs a proof token.** You cannot write what you have not read ([ADR-0009](adr/0009-proof-tokens.md)).
 - **State the API cost of anything that touches GitHub.** An installation gets ~5,000 requests an hour for every repository it can see, most of which declare nothing. Per-file reads, ungated sweeps, and anything scaling with how much a repository declares are the failure mode. Exhausting the budget makes the catalog *wrong*, not slow ([ADR-0017](adr/0017-engineering-policy.md)).
 - **Plugins normalize; Dusk never re-derives** ([ADR-0018](adr/0018-normalization-at-the-edge.md)).
+- **One concept, one owner.** Before writing a rule, a matcher, a parser, or a helper, find the package whose job it already is in [`docs/packages.md`](docs/packages.md). A second implementation never fails loudly; it drifts until a local check disagrees with production, which has happened here twice.
 
 ## Working here
 
@@ -48,6 +50,7 @@ make test    # go test -race ./...
 - **Document in `docs/`**, one markdown file per subsystem, one sentence per line. Doc comments on every exported identifier.
 - **Comment implementation with restraint.** Documentation and commentary are different things: a missing doc comment is a defect, an inline comment restating the code is noise.
 - **`internal/` needs a reason.** Default to a real package in `pkg/` that another caller could use.
+- **Adding, renaming, deleting, or meaningfully rescoping a package updates [`docs/packages.md`](docs/packages.md) in the same change.** A stale map sends the next person to reimplement something that exists.
 - Commit as you go, in atomic commits with conventional messages. Do not push or tag without being asked.
 - **Update [`docs/status.md`](docs/status.md) in the same change that moves an item.**
 - **Anything deferred gets a line in [`docs/status.md`](docs/status.md), in the change that defers it.** Choosing not to build something now is fine. Leaving no trace of the choice is not, because "later" and "forgotten" look identical from outside. A `[ ]` item, a `[~]` with what is missing, or a Known gaps entry: whichever fits, but one of them, written while the decision is fresh enough to explain.

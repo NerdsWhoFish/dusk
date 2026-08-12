@@ -39,24 +39,36 @@ Reasoning in [ADR-0029](../adr/0029-reading-repositories.md).
 
 ## Sources
 
-A `Source` reads files at a commit, and it is the boundary [ADR-0005](../adr/0005-github-app-and-access-modes.md) requires: no GitHub type crosses it, so the reconciler is identical over a local directory and a remote repository.
+A `Source` is the boundary [ADR-0005](../adr/0005-github-app-and-access-modes.md) requires: no GitHub type crosses it, so the reconciler is identical over a local directory and a remote repository.
+
+It has exactly two jobs.
+`Resolve` turns a ref into a commit, and `Tree` returns the catalog files at that commit as a `catalogfs.Tree`.
+
+**Everything else is on the tree, not on the source.**
+Matching an include pattern, reading a file, and deciding what counts as a catalog file all live in [`pkg/catalogfs`](packages.md), shared by every reader.
+This is not tidiness: three readers once carried their own matching, two grew `**` and a markdown filter while the third grew neither, and the result was `dusk validate` resolving an include differently from the server.
+A source that only produces a tree cannot drift from the spec.
 
 **`reconcile.Dir`** is the local implementation, for a checkout.
 A directory has no refs, so it serves exactly one and refuses any other rather than quietly returning the same tree whatever it is asked for.
 It has no commits either, so `Resolve` returns the ref name in place of one.
 
-Reads go through `os.Root`, so a path leaving the directory fails at the filesystem rather than relying on the caller having sanitised it.
+It walks through `os.Root`, so a path leaving the directory fails at the filesystem rather than relying on the caller having sanitised it.
 The parser rejecting `..` in an include pattern is the first line of defence; this is the second.
+Because the tree only ever holds paths the walk produced, an escaping path cannot be expressed at all rather than being caught at read time.
 
-**`githubapp.Repository`** is the remote implementation, reading over three API endpoints rather than cloning, because a repository typically contributes one file and a clone fetches all of history to deliver it.
-It authenticates with an installation token, minted from the App's key and reused until it is close to expiring.
-
-A repository too large for GitHub to list in one response is an error rather than a partial read, because a truncated listing would drop catalog files and produce a catalog that is confidently incomplete.
+**`reconcile.Tarball`** is the remote implementation ([ADR-0032](../adr/0032-tarball-reads.md)).
+It probes for a root `dusk.md` in one request and downloads the tree only if the repository has opted in, so the majority that hold nothing for Dusk are never transferred.
+Both the resolve and the download are memoized, so the controller and the loader asking the same question cost one call rather than two.
 
 ## Include patterns
 
-Patterns are `path.Match` syntax.
-`*` does not cross a directory separator and there is no `**`, so reaching deeper means naming another pattern.
+Patterns support `*`, which does not cross a directory separator, and `**`, which matches any number of directories including none.
+`docs/**/*.md` therefore matches `docs/a.md` as well as `docs/deep/b.md`, because requiring an intermediate directory surprises everybody who writes it.
+
+Only markdown is matchable.
+A tree holds nothing else, so a pattern cannot reach a repository's source or build output whatever it says.
+Git's own directory is excluded too, since a packfile can hold a name ending in `.md` and is never catalog content.
 
 ```yaml
 include:
@@ -71,9 +83,12 @@ $ dusk validate .
   dusk.md                     host:home/nas
   services/jellyfin/dusk.md   service:home/jellyfin
   services/navidrome/dusk.md  service:home/navidrome
+  .dusk/transcoding.md        note/gotcha
 
-. is valid: 3 entities, 2 relations, from 3 files
+. is valid: 3 entities, 2 relations, 1 notes, from 4 files
 ```
+
+Notes are listed alongside entities, because a repository whose notes all failed to parse would otherwise report clean here and fail on the server.
 
 A repository with problems reports all of them and exits non-zero:
 

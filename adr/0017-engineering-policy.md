@@ -243,7 +243,7 @@ The rate-limit headers are read and logged rather than ignored, because an insta
 
 ## Amendments
 
-### 2026-08-11 — the API budget is a policy concern
+### 2026-08-11: the API budget is a policy concern
 
 Added "The GitHub API budget is a design constraint, not an implementation detail".
 
