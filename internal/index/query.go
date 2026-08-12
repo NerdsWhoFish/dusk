@@ -32,8 +32,8 @@ type Dependent struct {
 // entity, a conflict the catalog should surface and does not yet.
 func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error) {
 	var row entityRow
-	err := db.gorm.WithContext(ctx).
-		Where("git_ref = ? AND ref = ?", gitRef, entityRef).
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Where("ref = ?", entityRef).
 		Order("repository").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -47,7 +47,7 @@ func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.
 
 // List returns every entity at gitRef, optionally narrowed to one kind.
 func (db *DB) List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error) {
-	query := db.gorm.WithContext(ctx).Where("git_ref = ?", gitRef)
+	query := scoped(db.gorm.WithContext(ctx), gitRef)
 	if kind != "" {
 		query = query.Where("kind = ?", kind)
 	}
@@ -62,8 +62,8 @@ func (db *DB) List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.En
 // Neighbors returns every relation with entityRef at either end.
 func (db *DB) Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error) {
 	var rows []relationRow
-	err := db.gorm.WithContext(ctx).
-		Where("git_ref = ? AND (from_ref = ? OR to_ref = ?)", gitRef, entityRef, entityRef).
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Where("from_ref = ? OR to_ref = ?", entityRef, entityRef).
 		Order("from_ref, to_ref, type").
 		Find(&rows).Error
 	if err != nil {
@@ -91,6 +91,10 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		limit = defaultSearchLimit
 	}
 
+	scope, scopeArgs := scopeClause("", gitRef)
+	args := append([]any{match}, scopeArgs...)
+	args = append(args, limit)
+
 	var results []SearchResult
 	err := db.gorm.WithContext(ctx).Raw(`
 		SELECT ref, kind, title,
@@ -98,10 +102,9 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		       -- so adding a column to entity_fts silently moves this.
 		       snippet(entity_fts, 6, '', '', '...', 12) AS snippet
 		  FROM entity_fts
-		 WHERE entity_fts MATCH @match AND git_ref = @gitRef
+		 WHERE entity_fts MATCH ? AND `+scope+`
 		 ORDER BY rank
-		 LIMIT @limit`,
-		map[string]any{"match": match, "gitRef": gitRef, "limit": limit},
+		 LIMIT ?`, args...,
 	).Scan(&results).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: search %q at %q: %w", query, gitRef, err)
@@ -118,23 +121,30 @@ func (db *DB) Dependents(ctx context.Context, gitRef, entityRef string, maxDepth
 		return nil, fmt.Errorf("index: dependents: max depth must be at least 1, got %d", maxDepth)
 	}
 
+	seed, seedArgs := scopeClause("", gitRef)
+	walk, walkArgs := scopeClause("r", gitRef)
+
+	args := append([]any{}, seedArgs...)
+	args = append(args, entityRef)
+	args = append(args, walkArgs...)
+	args = append(args, maxDepth)
+
 	var dependents []Dependent
 	err := db.gorm.WithContext(ctx).Raw(`
 		WITH RECURSIVE reached(ref, depth) AS (
 			SELECT from_ref, 1
 			  FROM relations
-			 WHERE git_ref = @gitRef AND to_ref = @ref
+			 WHERE `+seed+` AND to_ref = ?
 			UNION
 			SELECT r.from_ref, reached.depth + 1
 			  FROM relations r
 			  JOIN reached ON r.to_ref = reached.ref
-			 WHERE r.git_ref = @gitRef AND reached.depth < @maxDepth
+			 WHERE `+walk+` AND reached.depth < ?
 		)
 		SELECT ref, MIN(depth) AS depth
 		  FROM reached
 		 GROUP BY ref
-		 ORDER BY depth, ref`,
-		map[string]any{"gitRef": gitRef, "ref": entityRef, "maxDepth": maxDepth},
+		 ORDER BY depth, ref`, args...,
 	).Scan(&dependents).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: dependents of %q at %q: %w", entityRef, gitRef, err)

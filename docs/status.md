@@ -48,7 +48,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Poll floor**: periodic sweep of every permitted installation, running whether or not webhooks are configured ([0006](../adr/0006-reconcile-triggering.md))
 - [x] **Webhook triggering**: a push reconciles one repository, an installation change triggers a sweep, both answered before the work runs ([0006](../adr/0006-reconcile-triggering.md))
 - [x] **Account allowlist**: only the App's own account by default, checked on both the sweep and the delivery ([0030](../adr/0030-account-allowlist.md))
-- [~] **Sync observability**: per-repository status with commit, counts, and last error is recorded. Nothing surfaces it yet, because there is no UI or API to surface it on
+- [x] **Sync observability**: per-repository status with commit, counts, and last error, surfaced to agents through the MCP `changes` tool. No human-facing surface yet
 
 ## Write path
 
@@ -60,9 +60,9 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## MCP
 
-- [ ] **Read tools**: `search`, `get`, `neighbors`, `changes` ([0010](../adr/0010-mcp-surface.md))
+- [x] **Read tools**: `search`, `get`, `neighbors`, `changes` over streamable HTTP at `/mcp`, answering in markdown ([0010](../adr/0010-mcp-surface.md))
 - [ ] **Write tools**: `declare`, `note`, `relate`, `mintKind`, `push` ([0010](../adr/0010-mcp-surface.md))
-- [ ] **Context injection**: `instructions`, `dusk_context`, client hook ([0014](../adr/0014-agent-context-injection.md))
+- [~] **Context injection**: the MCP `instructions` field is served. `dusk_context` and the client hook are not built ([0014](../adr/0014-agent-context-injection.md))
 
 ## UI
 
@@ -89,13 +89,14 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. The MCP surface, including proof tokens and the commit queue. The read half has everything it needs.
-2. Pull request previews: reconciling a PR head ref as its own view, and garbage collecting it on close.
-3. The HTTP API, which is what finally surfaces sync status to a human.
+1. The write path: proof tokens, the commit queue, and the MCP write tools. This is the half that makes the catalog maintain itself.
+2. Notes, which need a home in `dusk.md` before `search` can cover them alongside entities.
+3. Viewing auth, because the MCP surface is currently unauthenticated.
 
 ## Known gaps
 
 - Catalog content is fed to agents with no trust boundary of its own. [ADR-0030](../adr/0030-account-allowlist.md) narrows *who* can reach that path but does nothing about a compromised repository inside an allowed account.
 - Two repositories declaring the same entity is undetected. Within one repository it is an error; across repositories the graph keeps both and a read returns whichever sorts first.
+- The MCP surface has no authentication. Anyone able to reach the private host can read the whole catalog ([0012](../adr/0012-viewing-auth.md)).
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.

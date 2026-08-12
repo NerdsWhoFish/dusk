@@ -102,7 +102,7 @@ func (db *DB) migrate() error {
 	if err := db.gorm.Exec(`PRAGMA foreign_keys=ON`).Error; err != nil {
 		return fmt.Errorf("index: enable foreign keys: %w", err)
 	}
-	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}); err != nil {
+	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &defaultView{}); err != nil {
 		return fmt.Errorf("index: migrate: %w", err)
 	}
 	for _, stmt := range ftsSchema {
@@ -202,6 +202,49 @@ func deleteWhere(tx *gorm.DB, query string, args ...any) error {
 		return fmt.Errorf("index: drop entities: %w", err)
 	}
 	return nil
+}
+
+// defaultView records which ref is a repository's default branch. Repositories
+// disagree about that, so no single ref means "the catalog as it stands" and a
+// query given no ref spans these rows instead.
+type defaultView struct {
+	Repository string `gorm:"primaryKey"`
+	GitRef     string
+}
+
+func (defaultView) TableName() string { return "default_views" }
+
+// SetDefaultView records repository's default branch as part of the default
+// view. Calling it with a different ref replaces the previous one.
+func (db *DB) SetDefaultView(ctx context.Context, repository, gitRef string) error {
+	if repository == "" || gitRef == "" {
+		return errors.New("index: default view: a repository and a git ref are both required")
+	}
+	err := db.gorm.WithContext(ctx).Save(&defaultView{Repository: repository, GitRef: gitRef}).Error
+	if err != nil {
+		return fmt.Errorf("index: record default view for %q: %w", repository, err)
+	}
+	return nil
+}
+
+// scopeClause confines a query to one ref, or to the default view when gitRef
+// is empty. The alias is the table it applies to, which the recursive traversal
+// needs and the rest leave blank.
+func scopeClause(alias, gitRef string) (string, []any) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	if gitRef != "" {
+		return prefix + "git_ref = ?", []any{gitRef}
+	}
+	return "(" + prefix + "repository, " + prefix + "git_ref) IN (SELECT repository, git_ref FROM default_views)", nil
+}
+
+// scoped applies scopeClause to a GORM query.
+func scoped(tx *gorm.DB, gitRef string) *gorm.DB {
+	clause, args := scopeClause("", gitRef)
+	return tx.Where(clause, args...)
 }
 
 // Scope is one materialized partition: a repository at a git ref.

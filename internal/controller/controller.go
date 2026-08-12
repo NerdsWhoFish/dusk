@@ -213,6 +213,14 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 		gitRef := "refs/heads/" + repository.DefaultBranch
 		seen[index.Scope{Repository: repository.Slug(), GitRef: gitRef}] = true
 
+		// Repositories disagree about what the default branch is called, so a
+		// catalog-wide query needs to be told which ref each one contributes.
+		if err := c.opts.Index.SetDefaultView(ctx, repository.Slug(), gitRef); err != nil {
+			c.opts.Logger.Error("could not record the default view",
+				"repository", repository.Slug(), "ref", gitRef, "error", err)
+			complete = false
+			continue
+		}
 		if err := c.reconcile(ctx, install, repository.Slug(), gitRef); err != nil {
 			complete = false
 		}

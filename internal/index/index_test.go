@@ -208,6 +208,63 @@ func TestRepositoriesShareARefWithoutColliding(t *testing.T) {
 	})
 }
 
+// Repositories disagree about what their default branch is called, so there is
+// no single ref meaning "the catalog as it stands". A query with no ref has to
+// span each repository's own default, or a repository on master goes missing.
+func TestDefaultViewSpansEachRepositorysOwnBranch(t *testing.T) {
+	db := newDB(t)
+	ctx := t.Context()
+
+	const onMaster = "example/legacy"
+	const masterRef = "refs/heads/master"
+
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/nas", "The NAS", "Four bays."),
+	}, nil)
+	mustPut(t, db, onMaster, masterRef, []*duskv1alpha1.Entity{
+		entity("service:home/jellyfin", "Jellyfin", "Media server on an older repository."),
+	}, nil)
+
+	for _, scope := range []struct{ repo, ref string }{{testRepo, mainRef}, {onMaster, masterRef}} {
+		if err := db.SetDefaultView(ctx, scope.repo, scope.ref); err != nil {
+			t.Fatalf("SetDefaultView: %v", err)
+		}
+	}
+
+	t.Run("a query with no ref finds both", func(t *testing.T) {
+		all, err := db.List(ctx, "", "")
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(all) != 2 {
+			t.Errorf("List = %d entities, want both branches represented", len(all))
+		}
+		if _, err := db.Get(ctx, "", "service:home/jellyfin"); err != nil {
+			t.Errorf("the repository on master was invisible: %v", err)
+		}
+	})
+
+	t.Run("search spans them too", func(t *testing.T) {
+		results, err := db.Search(ctx, "", "media", 10)
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		if len(results) != 1 || results[0].Ref != "service:home/jellyfin" {
+			t.Errorf("Search = %v, want the entity on master", results)
+		}
+	})
+
+	t.Run("an explicit ref still reads that ref alone", func(t *testing.T) {
+		onMain, err := db.List(ctx, mainRef, "")
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(onMain) != 1 {
+			t.Errorf("List(%q) = %d, want only that ref", mainRef, len(onMain))
+		}
+	})
+}
+
 func TestPutReplacesTheRefWholesale(t *testing.T) {
 	db := newDB(t)
 	ctx := t.Context()

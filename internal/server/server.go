@@ -41,6 +41,7 @@ type Server struct {
 	credentials credentialStore
 	github      appClient
 	controller  catalogController
+	mcp         http.Handler
 	state       *setupState
 	deliveries  *seenDeliveries
 	log         *slog.Logger
@@ -54,8 +55,12 @@ type Options struct {
 	Credentials credentialStore
 	GitHub      appClient
 	Controller  catalogController
-	Logger      *slog.Logger
-	Now         func() time.Time
+
+	// MCP serves the agent-facing surface. Optional, so a deployment can run
+	// without it and so tests need not stand one up.
+	MCP    http.Handler
+	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 // New builds a Server.
@@ -72,6 +77,7 @@ func New(opts Options) (*Server, error) {
 		credentials: opts.Credentials,
 		github:      opts.GitHub,
 		controller:  opts.Controller,
+		mcp:         opts.MCP,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
 		log:         opts.Logger,
@@ -117,6 +123,11 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /webhooks", s.handleWebhook)
+
+	if s.mcp != nil {
+		mux.Handle("/mcp", s.mcp)
+		mux.Handle("/mcp/", s.mcp)
+	}
 
 	mux.HandleFunc("GET /setup", s.handleSetup)
 	mux.HandleFunc("GET /setup/callback", s.handleSetupCallback)

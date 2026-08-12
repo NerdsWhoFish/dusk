@@ -17,6 +17,7 @@ import (
 	"github.com/FetchHQ/dusk/internal/config"
 	"github.com/FetchHQ/dusk/internal/controller"
 	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/FetchHQ/dusk/internal/mcp"
 	"github.com/FetchHQ/dusk/internal/server"
 	"github.com/FetchHQ/dusk/internal/store"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
@@ -120,10 +121,17 @@ func serve(parent context.Context) error {
 		return err
 	}
 
+	agents := mcp.New(mcp.Options{
+		Catalog: idx,
+		Syncs:   syncStatus{catalog},
+		Version: version,
+	})
+
 	srv, err := server.New(server.Options{
 		Config:      cfg,
 		Credentials: credentials,
 		Controller:  catalog,
+		MCP:         agents.Handler(),
 		Logger:      log,
 	})
 	if err != nil {
@@ -170,4 +178,23 @@ func serve(parent context.Context) error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// syncStatus adapts the controller's status to what the MCP surface reports,
+// so neither package has to know the other's shape.
+type syncStatus struct{ controller *controller.Controller }
+
+func (s syncStatus) Status() []mcp.SyncStatus {
+	from := s.controller.Status()
+	out := make([]mcp.SyncStatus, 0, len(from))
+	for _, status := range from {
+		out = append(out, mcp.SyncStatus{
+			Repository: status.Repository,
+			Commit:     status.Commit,
+			Entities:   status.Entities,
+			Relations:  status.Relations,
+			Error:      status.Error,
+		})
+	}
+	return out
 }
