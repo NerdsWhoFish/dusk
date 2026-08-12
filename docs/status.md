@@ -77,7 +77,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **React app**: React 19 and TypeScript, built by Vite, embedded via `go:embed`, dark only, Dracula Pro
 - [x] **Browser auth**: a session cookie exchanged for the same token agents present, so one policy covers both surfaces
 - [~] **Pages**: entity pages and a portal landing composed of blocks are built. The blocks are fixed rather than declared as queries in a markdown file, which is what [0013](../adr/0013-layout-and-pages.md) actually asks for
-- [ ] **PR previews**: render at an unmerged ref, semantic diff, comment bot ([0001](../adr/0001-git-as-source-of-truth.md))
+- [x] **PR previews**: the catalog rendered at an unmerged ref, a semantic diff, and one comment edited in place ([0001](../adr/0001-git-as-source-of-truth.md), [0037](../adr/0037-pull-request-previews.md))
 - [x] **Viewing auth**: sign in with GitHub, visibility derived from repository access, observed entities hidden unless allowed ([0012](../adr/0012-viewing-auth.md), [0036](../adr/0036-deriving-what-a-viewer-sees.md))
 - [ ] **Admin**: plugin configuration forms, sensitive fields write-only ([0023](../adr/0023-plugin-configuration.md))
 - [~] **Responsive layouts**: mobile first, one breakpoint, wide content scrolls inside its own container. Nothing yet does the table-to-card or graph-to-list transform, because neither exists ([0025](../adr/0025-responsive-ui.md))
@@ -120,3 +120,5 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - A restricted viewer's drift, integrity and kind counts are not filtered, so those blocks can count things the viewer cannot open.
 - OAuth sign-in requests `repo` scope, which is far more than listing repository names needs. GitHub offers nothing narrower that still sees private repositories.
 - Identity sessions live in memory, so a restart signs everybody out.
+- Every open pull request holds a partition of the index, rebuilt on every push to its branch. Nothing prunes an abandoned one until it closes ([0037](../adr/0037-pull-request-previews.md)).
+- A preview's drift and integrity are unfiltered for a restricted viewer, so those counts can include entities they cannot open.

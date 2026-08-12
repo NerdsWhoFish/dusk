@@ -30,6 +30,7 @@ type Catalog interface {
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
 	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
+	Diff(ctx context.Context, base, head string) ([]index.Change, error)
 }
 
 // entityJSON is the wire shape, written by hand rather than through protojson,
@@ -120,7 +121,7 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := s.catalog.Search(r.Context(), "", query, limit)
+	results, err := s.catalog.Search(r.Context(), refOf(r), query, limit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -158,7 +159,7 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entity, err := s.catalog.Get(r.Context(), "", ref)
+	entity, err := s.catalog.Get(r.Context(), refOf(r), ref)
 	// Not-visible answers exactly as not-found. Telling somebody an entity
 	// exists but is none of their business leaks the thing being protected.
 	if errors.Is(err, index.ErrNotFound) || (err == nil && !visible(ref)) {
@@ -170,12 +171,12 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relations, err := s.catalog.Neighbors(r.Context(), "", ref)
+	relations, err := s.catalog.Neighbors(r.Context(), refOf(r), ref)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	notes, err := s.catalog.NotesFor(r.Context(), "", ref)
+	notes, err := s.catalog.NotesFor(r.Context(), refOf(r), ref)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -199,7 +200,7 @@ func (s *Server) handleAPIDependents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	dependents, err := s.catalog.Dependents(r.Context(), "", ref, depth)
+	dependents, err := s.catalog.Dependents(r.Context(), refOf(r), ref, depth)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -209,7 +210,7 @@ func (s *Server) handleAPIDependents(w http.ResponseWriter, r *http.Request) {
 
 // handleAPIEntities answers GET /api/entities?kind=
 func (s *Server) handleAPIEntities(w http.ResponseWriter, r *http.Request) {
-	entities, err := s.catalog.List(r.Context(), "", r.URL.Query().Get("kind"))
+	entities, err := s.catalog.List(r.Context(), refOf(r), r.URL.Query().Get("kind"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -230,6 +231,17 @@ func (s *Server) handleAPIEntities(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entities": out})
 }
 
+// refOf reads which ref to show, which is how a preview is browsed. Only a
+// preview ref is accepted: letting a query string name any ref would let a
+// reader wander into whatever happened to be indexed.
+func refOf(r *http.Request) string {
+	ref := r.URL.Query().Get("ref")
+	if strings.HasPrefix(ref, "refs/pull/") && strings.HasSuffix(ref, "/head") {
+		return ref
+	}
+	return ""
+}
+
 // visible returns a predicate for what this request may see. Filtering after
 // the query rather than inside it keeps one code path: an unrestricted viewer,
 // which is every single-operator deployment, pays nothing.
@@ -239,7 +251,7 @@ func (s *Server) visible(r *http.Request) (func(ref string) bool, error) {
 		return func(string) bool { return true }, nil
 	}
 
-	refs, err := s.catalog.VisibleTo(r.Context(), "", visibility)
+	refs, err := s.catalog.VisibleTo(r.Context(), refOf(r), visibility)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +308,25 @@ func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
 		"notes":        asNotes(notes),
 		"repositories": repositories,
 	})
+}
+
+// handleAPIDiff answers GET /api/diff?ref=refs/pull/N/head: what merging that
+// pull request would do to the catalog.
+func (s *Server) handleAPIDiff(w http.ResponseWriter, r *http.Request) {
+	ref := refOf(r)
+	if ref == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "pass ref=refs/pull/<number>/head to compare a pull request",
+		})
+		return
+	}
+
+	changes, err := s.catalog.Diff(r.Context(), "", ref)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ref": ref, "changes": changes})
 }
 
 // handleAPIViewer answers who this browser is and whether what it sees was

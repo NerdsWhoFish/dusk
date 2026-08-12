@@ -139,6 +139,14 @@ type deliveryPayload struct {
 		} `json:"account"`
 	} `json:"installation"`
 
+	Action      string `json:"action"`
+	PullRequest struct {
+		Number int `json:"number"`
+		Head   struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	} `json:"pull_request"`
+
 	Created bool `json:"created"`
 	Deleted bool `json:"deleted"`
 	Forced  bool `json:"forced"`
@@ -192,6 +200,8 @@ func (s *Server) dispatch(ctx context.Context, event, delivery string, body []by
 	switch event {
 	case "push":
 		s.reconcileRepository(ctx, delivery, payload)
+	case "pull_request":
+		s.previewPullRequest(ctx, delivery, payload)
 	case "installation", "installation_repositories":
 		go s.sweep(ctx, delivery)
 	default:
@@ -228,6 +238,49 @@ func (s *Server) reconcileRepository(ctx context.Context, delivery string, paylo
 		defer cancel()
 		if err := s.controller.SyncPush(ctx, work); err != nil {
 			s.log.Error("reconcile from delivery failed", "delivery", delivery, "error", err)
+		}
+	}()
+}
+
+// previewsFor are the pull request actions worth acting on. Everything else,
+// a label or an assignee changing, cannot alter what the catalog would say.
+var previewsFor = map[string]bool{
+	"opened": true, "reopened": true, "synchronize": true,
+	"closed": true,
+}
+
+func (s *Server) previewPullRequest(ctx context.Context, delivery string, payload deliveryPayload) {
+	if !previewsFor[payload.Action] {
+		return
+	}
+
+	owner := payload.Repository.Owner.Login
+	name := payload.Repository.Name
+	if owner == "" || name == "" || payload.PullRequest.Number == 0 || payload.Installation.ID == 0 {
+		s.log.Error("pull request delivery is missing what a preview needs", "delivery", delivery)
+		return
+	}
+
+	account := payload.Installation.Account.Login
+	if account == "" {
+		account = owner
+	}
+
+	preview := controller.Preview{
+		InstallationID: payload.Installation.ID,
+		Account:        account,
+		Owner:          owner,
+		Name:           name,
+		Number:         payload.PullRequest.Number,
+		Head:           payload.PullRequest.Head.SHA,
+		Closed:         payload.Action == "closed",
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reconcileTimeout)
+		defer cancel()
+		if err := s.controller.SyncPreview(ctx, preview); err != nil {
+			s.log.Error("preview from delivery failed", "delivery", delivery, "error", err)
 		}
 	}()
 }

@@ -29,6 +29,7 @@ type credentialStore interface {
 // declared here so the server does not depend on how reconciling works.
 type catalogController interface {
 	SyncPush(ctx context.Context, push controller.Push) error
+	SyncPreview(ctx context.Context, preview controller.Preview) error
 	Sync(ctx context.Context) error
 }
 
@@ -220,6 +221,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /drift", s.handleAPIDrift)
 	api.HandleFunc("GET /home", s.handleAPIHome)
 	api.HandleFunc("GET /viewer", s.handleAPIViewer)
+	api.HandleFunc("GET /diff", s.handleAPIDiff)
 	return api
 }
 

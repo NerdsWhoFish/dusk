@@ -45,6 +45,11 @@ type Options struct {
 	// the App belongs to, and nothing else.
 	Accounts []string
 
+	// PrivateHost is where a person reaches this Dusk, used to link a pull
+	// request comment at the preview. Empty means no link rather than a
+	// broken one.
+	PrivateHost string
+
 	Interval time.Duration
 	Logger   *slog.Logger
 	Now      func() time.Time

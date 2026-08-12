@@ -141,6 +141,7 @@ func serve(parent context.Context) error {
 		Client:      &githubapp.Client{},
 		Credentials: credentials,
 		Accounts:    cfg.AllowedAccounts,
+		PrivateHost: cfg.PrivateHost,
 		Logger:      log,
 	})
 	if err != nil {
