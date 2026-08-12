@@ -29,14 +29,34 @@ type Tarball struct {
 	Repo   Downloader
 	Limits githubapp.Limits
 
-	mu   sync.Mutex
-	tree *githubapp.Tree
+	mu       sync.Mutex
+	tree     *githubapp.Tree
+	resolved map[string]string
 }
 
-// Resolve returns the commit a ref points at, which is also the cheapest way to
-// learn that nothing has changed.
+// Resolve returns the commit a ref points at, and remembers it. The caller
+// resolves to decide whether to reconcile at all and the loader resolves again
+// to pin its reads, so without this one ref would cost two calls.
 func (t *Tarball) Resolve(ctx context.Context, gitRef string) (string, error) {
-	return t.Repo.Resolve(ctx, gitRef)
+	t.mu.Lock()
+	if commit, ok := t.resolved[gitRef]; ok {
+		t.mu.Unlock()
+		return commit, nil
+	}
+	t.mu.Unlock()
+
+	commit, err := t.Repo.Resolve(ctx, gitRef)
+	if err != nil {
+		return "", err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.resolved == nil {
+		t.resolved = map[string]string{}
+	}
+	t.resolved[gitRef] = commit
+	return commit, nil
 }
 
 // Prepare downloads the tree, but only after confirming the repository opted

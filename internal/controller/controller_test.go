@@ -1,10 +1,13 @@
 package controller_test
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -54,6 +57,13 @@ type fakeGitHub struct {
 	installs []install
 	appOwner string
 
+	// sha lets a test move a repository on, since an unchanged commit is
+	// skipped without being read.
+	sha string
+
+	// failTarballs makes that many downloads fail, standing in for a blip.
+	failTarballs int
+
 	mu    sync.Mutex
 	calls map[string]int
 }
@@ -74,8 +84,10 @@ func (f *fakeGitHub) start(t *testing.T) *githubapp.Client {
 			f.writeInstallations(w)
 		case req.URL.Path == "/installation/repositories":
 			f.writeRepositories(w, req)
+		case strings.Contains(req.URL.Path, "/tarball/"):
+			f.writeTarball(w, req)
 		case strings.Contains(req.URL.Path, "/commits/"):
-			_, _ = io.WriteString(w, `{"sha":"abc1234def5678"}`)
+			_, _ = io.WriteString(w, `{"sha":"`+f.commit()+`"}`)
 		case strings.Contains(req.URL.Path, "/git/trees/"):
 			_, _ = io.WriteString(w, `{"truncated":false,"tree":[]}`)
 		case strings.Contains(req.URL.Path, "/contents/"):
@@ -86,6 +98,13 @@ func (f *fakeGitHub) start(t *testing.T) *githubapp.Client {
 	}))
 	t.Cleanup(server.Close)
 	return &githubapp.Client{BaseURL: server.URL}
+}
+
+func (f *fakeGitHub) commit() string {
+	if f.sha != "" {
+		return f.sha
+	}
+	return "abc1234def5678"
 }
 
 func (f *fakeGitHub) count(path string) {
@@ -128,16 +147,64 @@ func (f *fakeGitHub) writeRepositories(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"repositories": repos})
 }
 
+// writeContents answers the probe that decides whether a repository opted in,
+// in the JSON envelope the write path also reads.
 func (f *fakeGitHub) writeContents(w http.ResponseWriter, req *http.Request) {
 	slug := strings.TrimPrefix(strings.SplitN(req.URL.Path, "/contents/", 2)[0], "/repos/")
+	content, ok := f.contentsOf(slug)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"message":"Not Found"}`)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"content":  base64.StdEncoding.EncodeToString([]byte(content)),
+		"encoding": "base64",
+		"sha":      "blob-" + slug,
+	})
+}
+
+// writeTarball sends the repository the way GitHub does: gzipped tar under one
+// wrapping directory.
+func (f *fakeGitHub) writeTarball(w http.ResponseWriter, req *http.Request) {
+	f.mu.Lock()
+	failing := f.failTarballs > 0
+	if failing {
+		f.failTarballs--
+	}
+	f.mu.Unlock()
+
+	if failing {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = io.WriteString(w, `{"message":"upstream is having a day"}`)
+		return
+	}
+
+	slug := strings.TrimPrefix(strings.SplitN(req.URL.Path, "/tarball/", 2)[0], "/repos/")
+	content, ok := f.contentsOf(slug)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{
+		Name: "wrapper/dusk.md", Mode: 0o644,
+		Size: int64(len(content)), Typeflag: tar.TypeReg,
+	})
+	_, _ = tw.Write([]byte(content))
+	_ = tw.Close()
+	_ = gz.Close()
+}
+
+func (f *fakeGitHub) contentsOf(slug string) (string, bool) {
 	for _, i := range f.installs {
 		if content, ok := i.repos[slug]; ok {
-			_, _ = io.WriteString(w, content)
-			return
+			return content, true
 		}
 	}
-	w.WriteHeader(http.StatusNotFound)
-	_, _ = io.WriteString(w, `{"message":"Not Found"}`)
+	return "", false
 }
 
 // fakeCredentials stands in for the encrypted store.
@@ -210,6 +277,96 @@ func TestSyncReconcilesEveryRepository(t *testing.T) {
 			}
 		}
 	})
+}
+
+// An unchanged commit is not read again. This is what makes sweeping an idle
+// installation affordable, and therefore what lets the poll floor be slow.
+func TestAnUnchangedCommitIsNotDownloaded(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id: 10, account: "example",
+		repos: map[string]string{"example/homelab": rootFile("jellyfin")},
+	}}}
+	c, _ := newController(t, fake, "example", controller.Options{})
+
+	if err := c.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	first := fake.calls["/repos/example/homelab/tarball/"+fake.commit()]
+
+	if err := c.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if got := fake.calls["/repos/example/homelab/tarball/"+fake.commit()]; got != first {
+		t.Errorf("downloaded %d times across two sweeps, want %d", got, first)
+	}
+
+	t.Run("a moved commit is read again", func(t *testing.T) {
+		fake.sha = "0000000feedface"
+		if err := c.Sync(t.Context()); err != nil {
+			t.Fatalf("Sync: %v", err)
+		}
+		if fake.calls["/repos/example/homelab/tarball/"+fake.sha] == 0 {
+			t.Error("a changed commit was skipped")
+		}
+	})
+}
+
+// A delivery is answered before the work runs, so GitHub never redelivers. A
+// transient failure has to be retried here or it waits for the poll floor.
+func TestADeliveryRetriesATransientFailure(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id: 10, account: "example",
+		repos: map[string]string{"example/homelab": rootFile("jellyfin")},
+	}}}
+	c, idx := newController(t, fake, "example", controller.Options{})
+
+	// Fail the first attempt only, the way a blip would.
+	fake.failTarballs = 1
+
+	if err := c.SyncRepository(t.Context(), 10, "example", "example", "homelab", mainRef); err != nil {
+		t.Fatalf("SyncRepository: %v", err)
+	}
+	if _, err := idx.Get(t.Context(), mainRef, "service:home/jellyfin"); err != nil {
+		t.Errorf("the retry did not recover: %v", err)
+	}
+}
+
+// Retrying a file that does not parse only delays the error reaching whoever
+// wrote it, and burns the delivery's budget doing nothing.
+func TestADeliveryDoesNotRetryABrokenFile(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id: 10, account: "example",
+		repos: map[string]string{"example/homelab": "---\nkidn: service\n---\n\nbroken\n"},
+	}}}
+	c, _ := newController(t, fake, "example", controller.Options{})
+
+	if err := c.SyncRepository(t.Context(), 10, "example", "example", "homelab", mainRef); err == nil {
+		t.Fatal("SyncRepository succeeded on an unparseable file")
+	}
+	if got := fake.calls["/repos/example/homelab/tarball/"+fake.commit()]; got != 1 {
+		t.Errorf("downloaded %d times, want 1: a parse error is not transient", got)
+	}
+}
+
+// A failure must not record the commit, or the sweep would skip the repository
+// and the error would never be retried at all.
+func TestAFailureLeavesTheCommitUnfinished(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id: 10, account: "example",
+		repos: map[string]string{"example/homelab": rootFile("jellyfin")},
+	}}}
+	c, idx := newController(t, fake, "example", controller.Options{})
+
+	fake.failTarballs = 99
+	_ = c.Sync(t.Context())
+
+	fake.failTarballs = 0
+	if err := c.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if _, err := idx.Get(t.Context(), mainRef, "service:home/jellyfin"); err != nil {
+		t.Errorf("the next sweep did not retry the failed commit: %v", err)
+	}
 }
 
 // A GitHub App can be installed by anyone able to see it. An uninvited

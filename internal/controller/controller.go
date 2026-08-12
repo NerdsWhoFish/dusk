@@ -18,12 +18,14 @@ import (
 	"github.com/FetchHQ/dusk/internal/reconcile"
 	"github.com/FetchHQ/dusk/internal/store"
 	"github.com/FetchHQ/dusk/internal/write"
+	"github.com/FetchHQ/dusk/pkg/duskmd"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
 
-// DefaultInterval is the poll floor. It is deliberately slow: webhooks carry
-// the timely case, and this only has to catch what they lose.
-const DefaultInterval = 10 * time.Minute
+// DefaultInterval is the poll floor, deliberately slow. Webhooks carry the
+// timely case and a transient failure is retried rather than waited out, so
+// what is left is a delivery that never arrived, and a day catches that.
+const DefaultInterval = 24 * time.Hour
 
 // Credentials supplies the App identity. It is re-read on every sweep so that
 // completing onboarding does not require a restart.
@@ -66,6 +68,10 @@ type Controller struct {
 	// A repository absent from it is one no sweep has seen, and therefore one
 	// Dusk has no standing to write to.
 	installations map[string]int64
+
+	// reconciled is the last commit finished for each scope. A commit reaches
+	// it only on success, so an unfinished one is retried by the next sweep.
+	reconciled map[index.Scope]string
 }
 
 // Target returns a writable handle on a repository a sweep has seen, so what
@@ -283,7 +289,49 @@ func (c *Controller) SyncRepository(ctx context.Context, installationID int64, a
 	}
 	c.remember(owner+"/"+name, installationID)
 	install := &githubapp.Install{Client: c.opts.Client, Tokens: tokens, ID: installationID}
-	return c.reconcile(ctx, install, owner+"/"+name, gitRef)
+	return c.reconcileWithRetry(ctx, install, owner+"/"+name, gitRef)
+}
+
+// deliveryAttempts bounds a webhook-triggered reconcile. GitHub is answered
+// before the work runs and never redelivers, so without this one transient
+// failure leaves the catalog wrong until the poll floor comes round.
+const deliveryAttempts = 3
+
+// deliveryBackoff is the wait before each retry. Short, because the delivery
+// context has a timeout and a reconcile that needs minutes is not transient.
+var deliveryBackoff = []time.Duration{2 * time.Second, 8 * time.Second}
+
+// reconcileWithRetry is the delivery path. A sweep does not use it, because a
+// sweep retries by running again.
+func (c *Controller) reconcileWithRetry(ctx context.Context, install *githubapp.Install, slug, gitRef string) error {
+	var err error
+	for attempt := range deliveryAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(deliveryBackoff[attempt-1]):
+			}
+			c.opts.Logger.Info("retrying a failed delivery",
+				"repository", slug, "ref", gitRef, "attempt", attempt+1)
+		}
+
+		err = c.reconcile(ctx, install, slug, gitRef)
+		if err == nil || !retryable(err) {
+			return err
+		}
+	}
+	c.opts.Logger.Error("giving up on a delivery; the next sweep will retry",
+		"repository", slug, "ref", gitRef, "error", err)
+	return err
+}
+
+// retryable reports whether trying again could plausibly succeed. A file that
+// does not parse will not parse on the second attempt, and retrying it only
+// delays the error reaching whoever wrote it.
+func retryable(err error) bool {
+	var parse duskmd.Errors
+	return !errors.As(err, &parse)
 }
 
 func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, slug, gitRef string) error {
@@ -291,17 +339,39 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 	if !ok {
 		return fmt.Errorf("controller: %q is not an owner/name repository", slug)
 	}
+	scope := index.Scope{Repository: slug, GitRef: gitRef}
 
-	source := install.Repository(owner, name)
+	source := &reconcile.Tarball{Repo: install.Repository(owner, name)}
+	commit, err := source.Resolve(ctx, gitRef)
+	if err != nil {
+		return c.failed(scope, err)
+	}
+
+	// Nothing moved, so there is nothing to read. This is the common case and
+	// the whole reason a sweep of an idle installation is affordable.
+	if c.done(scope, commit) {
+		return nil
+	}
+
+	// A repository with no dusk.md has not opted in, so it is never downloaded.
+	// Recording the commit stops it being probed again until it changes.
+	if err := source.Prepare(ctx, commit); err != nil {
+		if errors.Is(err, reconcile.ErrNotParticipating) {
+			if err := c.opts.Index.DropRepository(ctx, slug, gitRef); err != nil {
+				return c.failed(scope, err)
+			}
+			c.finish(scope, commit)
+			c.forget(scope)
+			return nil
+		}
+		return c.failed(scope, err)
+	}
+
 	graph, err := reconcile.New(source, c.opts.Index).Reconcile(ctx, slug, gitRef, c.opts.Now())
 	if err != nil {
-		c.record(index.Scope{Repository: slug, GitRef: gitRef}, func(s *Status) {
-			s.At = c.opts.Now()
-			s.Error = err.Error()
-		})
-		c.opts.Logger.Error("reconcile failed", "repository", slug, "ref", gitRef, "error", err)
-		return err
+		return c.failed(scope, err)
 	}
+	c.finish(scope, commit)
 
 	c.record(index.Scope{Repository: slug, GitRef: gitRef}, func(s *Status) {
 		*s = Status{
@@ -371,6 +441,36 @@ func (c *Controller) Status() []Status {
 		out = append(out, status)
 	}
 	return out
+}
+
+// done reports that this commit has already been reconciled successfully.
+func (c *Controller) done(scope index.Scope, commit string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reconciled[scope] == commit
+}
+
+// finish records a commit as handled. Only success records, which is what makes
+// a failure retry itself: the next sweep sees a commit it has not finished.
+func (c *Controller) finish(scope index.Scope, commit string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reconciled == nil {
+		c.reconciled = map[index.Scope]string{}
+	}
+	c.reconciled[scope] = commit
+}
+
+// failed records the error against the repository and returns it unchanged. The
+// commit is deliberately not recorded, so the work is retried.
+func (c *Controller) failed(scope index.Scope, err error) error {
+	c.record(scope, func(s *Status) {
+		s.At = c.opts.Now()
+		s.Error = err.Error()
+	})
+	c.opts.Logger.Error("reconcile failed",
+		"repository", scope.Repository, "ref", scope.GitRef, "error", err)
+	return err
 }
 
 func (c *Controller) record(scope index.Scope, update func(*Status)) {
