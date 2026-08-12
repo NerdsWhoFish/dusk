@@ -180,6 +180,7 @@ func (r *Repository) get(ctx context.Context, target, accept string) (*http.Resp
 	if err != nil {
 		return nil, fmt.Errorf("githubapp: request %s: %w", r.slug(), err)
 	}
+	r.Client.observe(resp)
 	return resp, nil
 }
 

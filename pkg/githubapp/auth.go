@@ -120,6 +120,7 @@ func (c *Client) InstallationToken(ctx context.Context, app App, installationID 
 	if err != nil {
 		return nil, fmt.Errorf("githubapp: request installation token: %w", err)
 	}
+	c.observe(resp)
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
@@ -139,6 +140,10 @@ func (c *Client) InstallationToken(ctx context.Context, app App, installationID 
 // statusError reports an unexpected status with GitHub's own message, which
 // usually says exactly which permission is missing.
 func statusError(resp *http.Response) error {
+	if limited := rateLimited(resp); limited != nil {
+		return limited
+	}
+
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	message := bytes.TrimSpace(body)
 	if len(message) == 0 {

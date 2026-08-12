@@ -34,6 +34,7 @@ These are the ones most likely to be broken by accident.
 - **The poll floor stays.** It looks redundant next to webhooks and is not; removing it makes the catalog go silently stale ([ADR-0006](adr/0006-reconcile-triggering.md)).
 - **Events never go in SQLite.** That index is disposable by contract and events cannot be rebuilt from git ([ADR-0015](adr/0015-plugin-actions-and-events.md)).
 - **Every write needs a proof token.** You cannot write what you have not read ([ADR-0009](adr/0009-proof-tokens.md)).
+- **State the API cost of anything that touches GitHub.** An installation gets ~5,000 requests an hour for every repository it can see, most of which declare nothing. Per-file reads, ungated sweeps, and anything scaling with how much a repository declares are the failure mode. Exhausting the budget makes the catalog *wrong*, not slow ([ADR-0017](adr/0017-engineering-policy.md)).
 - **Plugins normalize; Dusk never re-derives** ([ADR-0018](adr/0018-normalization-at-the-edge.md)).
 
 ## Working here

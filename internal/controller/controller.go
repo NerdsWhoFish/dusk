@@ -234,6 +234,8 @@ func (c *Controller) Sync(ctx context.Context) error {
 		}
 	}
 
+	c.reportBudget()
+
 	// Pruning only after a clean sweep is the same rule as ADR-0011: "I could
 	// not look" must never be mistaken for "it is not there".
 	if !complete {
@@ -241,6 +243,23 @@ func (c *Controller) Sync(ctx context.Context) error {
 		return nil
 	}
 	return c.prune(ctx, seen)
+}
+
+// reportBudget logs what the sweep left behind. Running out of requests makes
+// the catalog wrong rather than slow, so the approach has to be visible before
+// the wall is hit rather than diagnosed from a pile of 403s afterwards.
+func (c *Controller) reportBudget() {
+	rate := c.opts.Client.RateLimit()
+	switch {
+	case !rate.Known:
+		return
+	case rate.Low():
+		c.opts.Logger.Warn("github api budget is running low",
+			"remaining", rate.Remaining, "limit", rate.Limit, "resets", rate.Reset)
+	default:
+		c.opts.Logger.Debug("github api budget",
+			"remaining", rate.Remaining, "limit", rate.Limit)
+	}
 }
 
 // syncInstallation reports whether everything in the installation was read.
@@ -329,9 +348,12 @@ func (c *Controller) reconcileWithRetry(ctx context.Context, install *githubapp.
 // retryable reports whether trying again could plausibly succeed. A file that
 // does not parse will not parse on the second attempt, and retrying it only
 // delays the error reaching whoever wrote it.
+// retryable reports whether trying again soon could plausibly work. Both cases
+// it excludes fail identically however many times they are attempted, and the
+// budget one would spend requests it does not have to make things worse.
 func retryable(err error) bool {
 	var parse duskmd.Errors
-	return !errors.As(err, &parse)
+	return !errors.As(err, &parse) && !errors.Is(err, githubapp.ErrRateLimited)
 }
 
 func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, slug, gitRef string) error {

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -87,6 +88,29 @@ type Client struct {
 
 	// BaseURL allows pointing at GitHub Enterprise, or at a test server.
 	BaseURL string
+
+	mu   sync.Mutex
+	rate RateLimit
+}
+
+// RateLimit reports what GitHub last said about this installation's budget.
+// Every response carries it, so the answer is only as old as the last request.
+func (c *Client) RateLimit() RateLimit {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rate
+}
+
+// observe records the budget headers from a response. Every request goes
+// through here, so nothing has to remember to sample the limit.
+func (c *Client) observe(resp *http.Response) {
+	rate := readRateLimit(resp.Header)
+	if !rate.Known {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rate = rate
 }
 
 const defaultBaseURL = "https://api.github.com"

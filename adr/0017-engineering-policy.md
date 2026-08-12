@@ -189,6 +189,22 @@ If the example a plugin author copies does not produce a valid batch, the langua
 
 Coverage is reported, not gated.
 
+### The GitHub API budget is a design constraint, not an implementation detail
+
+Every design that touches GitHub states what it costs per repository per sweep, and the cheap case is the one that has to be cheap.
+
+A GitHub App installation gets on the order of 5,000 requests an hour, shared by every repository it can see and by webhooks, reconciles and writes alike.
+That number does not grow with how interesting the installation is.
+An operator with ninety repositories and two participating ones is the normal case ([ADR-0027](0027-design-target.md)), so the cost of the eighty-eight that declare nothing is the cost that matters, and it should be as close to nothing as the API allows.
+
+Three rules follow, and they are why [ADR-0032](0032-tarball-reads.md) reads a tarball and [ADR-0006](0006-reconcile-triggering.md) can afford a slow floor.
+
+- **Per-file is a smell.** A cost that scales with how much a repository declares punishes exactly the users who adopted the thing hardest. Fetch the tree.
+- **Gate before you spend.** Confirm a repository participates, and that its commit moved, before reading anything from it. An unchanged repository costs one request; a non-participating one costs one and downloads nothing.
+- **Exhausting the budget is a correctness bug, not a slowdown.** Every request past the limit fails, so a wasteful sweep does not run late, it makes the catalog wrong until the hour rolls over. Treat a rate-limit response as an incident in the logs, not a retry statistic.
+
+The rate-limit headers are read and logged rather than ignored, because an install approaching its ceiling has to be visible before it hits it.
+
 ## Consequences
 
 ### Good
@@ -224,3 +240,12 @@ Coverage is reported, not gated.
 - No written policy was rejected because it makes conventions depend on who reviews, which is neither fair to contributors nor stable over time.
 - A style guide with no enforcement was rejected because unenforced rules are aspirations. Where a rule can be mechanised it is, and where it cannot be, the ADR says so plainly rather than pretending.
 - A coverage threshold was rejected because it measures lines executed rather than behaviour verified. It is satisfiable by tests that assert nothing, and it applies pressure toward testing easy code rather than dangerous code.
+
+## Amendments
+
+### 2026-08-11 — the API budget is a policy concern
+
+Added "The GitHub API budget is a design constraint, not an implementation detail".
+
+The policy covered how code is written and tested but said nothing about what it costs to run, and the gap showed: the reconcile path shipped reading one file per request, which was fine for one repository and untenable across ninety.
+[ADR-0032](0032-tarball-reads.md) fixed that instance. This records the general rule so the next design does not have to rediscover it.

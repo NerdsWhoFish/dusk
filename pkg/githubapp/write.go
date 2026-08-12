@@ -169,6 +169,7 @@ func (r *Repository) send(ctx context.Context, method, target string, body []byt
 	if err != nil {
 		return nil, fmt.Errorf("githubapp: request %s: %w", r.slug(), err)
 	}
+	r.Client.observe(resp)
 	return resp, nil
 }
 
