@@ -45,6 +45,7 @@ type Server struct {
 	controller  catalogController
 	catalog     Catalog
 	syncs       Syncs
+	pages       Pages
 	access      *access.Policy
 	mcp         http.Handler
 	state       *setupState
@@ -72,6 +73,10 @@ type Options struct {
 	Catalog Catalog
 	Syncs   Syncs
 
+	// Pages supplies the config repository's declared portal page. Optional:
+	// without it the default page is served, which is the point of having one.
+	Pages Pages
+
 	// MCP serves the agent-facing surface. Optional, so a deployment can run
 	// without it and so tests need not stand one up.
 	MCP    http.Handler
@@ -95,6 +100,7 @@ func New(opts Options) (*Server, error) {
 		controller:  opts.Controller,
 		catalog:     opts.Catalog,
 		syncs:       opts.Syncs,
+		pages:       opts.Pages,
 		mcp:         opts.MCP,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
@@ -195,6 +201,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /overview", s.handleAPIOverview)
 	api.HandleFunc("GET /integrity", s.handleAPIIntegrity)
 	api.HandleFunc("GET /drift", s.handleAPIDrift)
+	api.HandleFunc("GET /home", s.handleAPIHome)
 	return api
 }
 

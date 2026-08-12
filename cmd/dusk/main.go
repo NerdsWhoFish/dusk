@@ -145,17 +145,18 @@ func serve(parent context.Context) error {
 	}
 
 	tokens := &proof.Store{}
+	writer := &write.Writer{
+		Catalog:          idx,
+		Repositories:     catalog,
+		Proof:            tokens,
+		ConfigRepository: cfg.ConfigRepository,
+	}
 	agents := mcp.New(mcp.Options{
 		Catalog: idx,
 		Syncs:   syncStatus{catalog},
 		Version: version,
 		Tokens:  tokens,
-		Writer: &write.Writer{
-			Catalog:          idx,
-			Repositories:     catalog,
-			Proof:            tokens,
-			ConfigRepository: cfg.ConfigRepository,
-		},
+		Writer:  writer,
 	})
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
 
@@ -165,6 +166,7 @@ func serve(parent context.Context) error {
 		Controller:  catalog,
 		Catalog:     idx,
 		Syncs:       catalog,
+		Pages:       writer,
 		MCP:         agentSurface,
 		Logger:      log,
 	})

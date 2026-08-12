@@ -43,6 +43,7 @@ That is what stops the same argument happening again in six months.
 | [0032](0032-tarball-reads.md) | Reads download a tarball, and only for repositories that opted in | Supersedes 0029's read half on the trigger 0029 itself named. Unchanged commit costs one call; a repository with no `dusk.md` is never downloaded; writes stay on the API |
 | [0033](0033-graph-integrity.md) | The catalog reports what is wrong with itself | Duplicate declarations, dangling relations and unresolvable note refs become a read rather than staying silent. Reported, never rejected: an unresolvable ref is the normal state of a catalog still being adopted |
 | [0034](0034-ingesters-in-tree-first.md) | Ingesters land in tree before the plugin protocol | The machinery, not the protocol, is the hard half. Observations get a reserved scope, a failed run never deletes, and declared beats observed. The plugin host becomes a second implementation of a proven interface |
+| [0035](0035-blocks-resolve-server-side.md) | A page's blocks resolve on the server | Implements 0013. One request per page, one implementation of each block type shared with the agent renderer, and a failing block renders empty carrying its reason |
 
 ## Writing one
 

@@ -1,0 +1,277 @@
+// Package page turns a portal page into resolved blocks.
+//
+// A page is a markdown file whose frontmatter declares an ordered list of
+// typed queries. An agent curating a layout is therefore an agent writing
+// queries, which is something agents do well (ADR-0013).
+package page
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
+	"github.com/FetchHQ/dusk/internal/index"
+)
+
+// Type is a block's kind. Adding one is adding a query, not a widget: the
+// renderer decides how a result looks, and the page decides what it asks.
+type Type string
+
+const (
+	// TypeEntities lists entities matching a query.
+	TypeEntities Type = "entities"
+
+	// TypeNotes lists recent notes.
+	TypeNotes Type = "recent-notes"
+
+	// TypeDrift lists where the catalog and reality disagree.
+	TypeDrift Type = "drift"
+
+	// TypeIntegrity lists what is wrong with the catalog itself.
+	TypeIntegrity Type = "integrity"
+
+	// TypeKinds counts entities by kind, which is the estate's shape.
+	TypeKinds Type = "kinds"
+
+	// TypeReads reports what Dusk last read, per repository.
+	TypeReads Type = "reads"
+)
+
+// Types are the block types a page may declare.
+var Types = []Type{TypeEntities, TypeNotes, TypeDrift, TypeIntegrity, TypeKinds, TypeReads}
+
+// Block is one declared query.
+type Block struct {
+	Type  Type   `yaml:"type" json:"type"`
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+
+	// Query filters an entities block: bare words match name and title, and
+	// `kind:service` restricts by kind.
+	Query string `yaml:"query,omitempty" json:"query,omitempty"`
+
+	Limit int `yaml:"limit,omitempty" json:"limit,omitempty"`
+
+	// Wide asks the renderer for the full width. It is a hint, not a layout:
+	// ADR-0013 keeps blocks queries rather than placed widgets.
+	Wide bool `yaml:"wide,omitempty" json:"wide,omitempty"`
+}
+
+// Page is a portal page as declared.
+type Page struct {
+	Title  string  `yaml:"title" json:"title"`
+	Blocks []Block `yaml:"blocks" json:"blocks"`
+}
+
+// Resolved is a block with its query run.
+type Resolved struct {
+	Block
+
+	Entities  []*duskv1alpha1.Entity `json:"entities,omitempty"`
+	Notes     []*duskv1alpha1.Note   `json:"notes,omitempty"`
+	Drift     []index.Drift          `json:"drift,omitempty"`
+	Problems  []index.Problem        `json:"problems,omitempty"`
+	Kinds     []index.KindCount      `json:"kinds,omitempty"`
+	Reads     []Read                 `json:"reads,omitempty"`
+	Truncated bool                   `json:"truncated,omitempty"`
+
+	// Err is why a block is empty. A block that fails renders empty rather
+	// than breaking the page (ADR-0013), so the reason has to travel with it.
+	Err string `json:"error,omitempty"`
+}
+
+// Read is one repository's last reconcile, as a block renders it.
+type Read struct {
+	Repository string `json:"repository"`
+	Entities   int    `json:"entities"`
+	Error      string `json:"error,omitempty"`
+	Observed   bool   `json:"observed,omitempty"`
+}
+
+// Catalog is what resolving a page needs.
+type Catalog interface {
+	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
+	Search(ctx context.Context, gitRef, query string, limit int) ([]index.SearchResult, error)
+	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
+	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
+	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
+	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
+	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
+	Scopes(ctx context.Context) ([]index.Scope, error)
+}
+
+// Default is the page shown when the config repository declares none. It has
+// to be good enough that declaring is optional (ADR-0013): a catalog that only
+// looks presentable once everyone does homework is the failure Dusk avoids.
+func Default() Page {
+	return Page{
+		Title: "Home",
+		Blocks: []Block{
+			{Type: TypeKinds},
+			{Type: TypeDrift, Title: "Drifted", Limit: 8},
+			{Type: TypeNotes, Title: "Recent notes", Limit: 5, Wide: true},
+			{Type: TypeIntegrity, Title: "Problems"},
+			{Type: TypeReads, Title: "What Dusk has read"},
+		},
+	}
+}
+
+// Resolve runs every block's query. A failing block carries its reason and
+// renders empty; it never takes the page with it.
+func Resolve(ctx context.Context, catalog Catalog, p Page) []Resolved {
+	resolved := make([]Resolved, 0, len(p.Blocks))
+	for _, block := range p.Blocks {
+		resolved = append(resolved, resolveOne(ctx, catalog, block))
+	}
+	return resolved
+}
+
+func resolveOne(ctx context.Context, catalog Catalog, block Block) Resolved {
+	out := Resolved{Block: block}
+	if out.Title == "" {
+		out.Title = defaultTitle(block.Type)
+	}
+
+	var err error
+	switch block.Type {
+	case TypeEntities:
+		out.Entities, out.Truncated, err = entitiesFor(ctx, catalog, block)
+	case TypeNotes:
+		out.Notes, err = catalog.RecentNotes(ctx, "", limitOr(block.Limit, 6))
+	case TypeDrift:
+		out.Drift, out.Truncated, err = driftFor(ctx, catalog, block)
+	case TypeIntegrity:
+		out.Problems, err = catalog.Integrity(ctx, "")
+	case TypeKinds:
+		out.Kinds, err = catalog.Kinds(ctx, "")
+	case TypeReads:
+		out.Reads, err = readsFor(ctx, catalog)
+	default:
+		err = fmt.Errorf("no such block type %q, expected one of %s", block.Type, joinTypes())
+	}
+
+	if err != nil {
+		out.Err = err.Error()
+	}
+	return out
+}
+
+func entitiesFor(ctx context.Context, catalog Catalog, block Block) ([]*duskv1alpha1.Entity, bool, error) {
+	kind, words := splitQuery(block.Query)
+	limit := limitOr(block.Limit, 0)
+
+	// A bare or kind-only query lists, which is ordered and complete. Words
+	// go through search, which is ranked.
+	if words == "" {
+		entities, err := catalog.List(ctx, "", kind)
+		if err != nil {
+			return nil, false, err
+		}
+		return cut(entities, limit)
+	}
+
+	results, err := catalog.Search(ctx, "", words, limitOr(block.Limit, 50))
+	if err != nil {
+		return nil, false, err
+	}
+
+	var entities []*duskv1alpha1.Entity
+	for _, result := range results {
+		if result.Type != "entity" {
+			continue
+		}
+		if kind != "" && !strings.EqualFold(result.Kind, kind) {
+			continue
+		}
+		entity, err := catalog.Get(ctx, "", result.Ref)
+		if err != nil {
+			continue
+		}
+		entities = append(entities, entity)
+	}
+	return cut(entities, limit)
+}
+
+func driftFor(ctx context.Context, catalog Catalog, block Block) ([]index.Drift, bool, error) {
+	drifts, err := catalog.Drift(ctx, "")
+	if err != nil {
+		return nil, false, err
+	}
+	return cut(drifts, limitOr(block.Limit, 0))
+}
+
+func readsFor(ctx context.Context, catalog Catalog) ([]Read, error) {
+	scopes, err := catalog.Scopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	reads := make([]Read, 0, len(scopes))
+	for _, scope := range scopes {
+		entities, err := catalog.List(ctx, scope.GitRef, "")
+		if err != nil {
+			return nil, err
+		}
+		reads = append(reads, Read{
+			Repository: scope.Repository,
+			Entities:   len(entities),
+			Observed:   index.IsObserved(scope.Repository),
+		})
+	}
+	return reads, nil
+}
+
+// splitQuery pulls `kind:service` out of a query, leaving the words. It is
+// deliberately small: a query language is a thing to design, not to grow.
+func splitQuery(query string) (kind, words string) {
+	var remaining []string
+	for field := range strings.FieldsSeq(query) {
+		if value, ok := strings.CutPrefix(field, "kind:"); ok {
+			kind = value
+			continue
+		}
+		remaining = append(remaining, field)
+	}
+	return kind, strings.Join(remaining, " ")
+}
+
+func cut[T any](items []T, limit int) ([]T, bool, error) {
+	if limit > 0 && len(items) > limit {
+		return items[:limit], true, nil
+	}
+	return items, false, nil
+}
+
+func limitOr(limit, fallback int) int {
+	if limit > 0 {
+		return limit
+	}
+	return fallback
+}
+
+func defaultTitle(t Type) string {
+	switch t {
+	case TypeEntities:
+		return "Entities"
+	case TypeNotes:
+		return "Recent notes"
+	case TypeDrift:
+		return "Drift"
+	case TypeIntegrity:
+		return "Problems"
+	case TypeKinds:
+		return "Kinds"
+	case TypeReads:
+		return "What Dusk has read"
+	}
+	return string(t)
+}
+
+func joinTypes() string {
+	names := make([]string, 0, len(Types))
+	for _, t := range Types {
+		names = append(names, string(t))
+	}
+	return strings.Join(names, ", ")
+}
