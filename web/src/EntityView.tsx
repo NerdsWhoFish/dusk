@@ -66,11 +66,22 @@ export function EntityView({
   return (
     <>
       {back}
-      <div className="title">
-        <h1>{entity.title || entity.name}</h1>
-        <span className={`tag kind-${entity.kind}`}>{entity.kind}</span>
-      </div>
-      <p className="ref">{entity.ref}</p>
+
+      {/* The identity band answers "what is this" before any prose. It carries
+          the horizon gradient so an entity page belongs to the same product
+          as the landing rather than reading as a bare document. */}
+      <header className="identity">
+        <div className="title">
+          <h1>{entity.title || entity.name}</h1>
+          <span className={`tag kind-${entity.kind}`}>{entity.kind}</span>
+        </div>
+        <p className="ref">{entity.ref}</p>
+        {url(entity.attributes) && (
+          <a className="visit" href={url(entity.attributes)} rel="noreferrer">
+            {url(entity.attributes)?.replace(/^https?:\/\//, "")}
+          </a>
+        )}
+      </header>
 
       {entity.description && <Markdown>{entity.description}</Markdown>}
 
@@ -125,6 +136,13 @@ export function EntityView({
       )}
     </>
   );
+}
+
+// url is the single most useful thing on the page for an operator, so it is
+// promoted out of the attribute list into the header.
+function url(attributes: Record<string, unknown> | undefined): string | undefined {
+  const value = String(attributes?.url ?? "");
+  return value.startsWith("http") ? value : undefined;
 }
 
 // A url attribute is the most useful thing on the page for an operator, so it

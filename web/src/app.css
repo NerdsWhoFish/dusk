@@ -461,6 +461,47 @@ a {
   color: var(--fg);
 }
 
+/* The identity band: what this is, before any prose. The same horizon light
+   as the landing hero, so the two pages read as one product. */
+.identity {
+  position: relative;
+  margin: 0 0 1.75rem;
+  padding: 1.25rem 0 1.5rem;
+}
+
+/* The ellipse is taller and wider than its box so the falloff completes
+   inside it. Clipped at the edge it reads as a rectangle, not as light. */
+.identity::before {
+  content: "";
+  position: absolute;
+  inset: -6rem -50vw -4rem;
+  z-index: -1;
+  background: radial-gradient(
+    40rem 14rem at 24% 50%,
+    rgb(189 147 249 / 0.09),
+    rgb(189 147 249 / 0.03) 45%,
+    transparent 72%
+  );
+  pointer-events: none;
+}
+
+.identity::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line), transparent 70%);
+}
+
+.visit {
+  display: inline-block;
+  margin-top: 0.625rem;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+}
+
 .title {
   display: flex;
   align-items: center;
@@ -477,13 +518,29 @@ h1 {
   overflow-wrap: break-word;
 }
 
+/* Sections need air and an edge, or the page is one undifferentiated column
+   and nobody can skim it. */
 h2 {
-  margin: 2rem 0 0.75rem;
-  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 2.5rem 0 1rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+h2::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.block-head h2::after {
+  display: none;
 }
 
 .prose {
@@ -640,17 +697,84 @@ h2 {
 
 @media (prefers-reduced-motion: no-preference) {
   .row {
-    transition: border-color 0.12s ease;
+    transition:
+      border-color 0.12s ease,
+      transform 0.12s ease;
+  }
+
+  .row:hover {
+    transform: translateX(2px);
+  }
+
+  .chip {
+    transition:
+      border-color 0.12s ease,
+      background 0.12s ease;
   }
 
   .skeleton {
     animation: pulse 1.4s ease-in-out infinite;
   }
 
+  /* Arrival, staggered top to bottom. It says which thing is the page's
+     subject and which are its supporting parts, which is hierarchy rather
+     than decoration. Everything is legible before it runs and after it ends. */
+  .identity,
+  .hero,
+  .kinds,
+  .block,
+  .prose,
+  .note {
+    animation: rise 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+
+  .kinds {
+    animation-delay: 0.04s;
+  }
+
+  .blocks > *:nth-child(1) {
+    animation-delay: 0.07s;
+  }
+
+  .blocks > *:nth-child(2) {
+    animation-delay: 0.11s;
+  }
+
+  .blocks > *:nth-child(n + 3) {
+    animation-delay: 0.15s;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
   @keyframes pulse {
     50% {
       opacity: 0.55;
     }
+  }
+}
+
+/* ADR-0025 requires 44px interactive targets on touch. Applied by pointer
+   rather than by width, because a small window on a desktop is still a mouse
+   and does not need thumb-sized links. */
+@media (pointer: coarse) {
+  .brand,
+  .visit,
+  .back,
+  .prose a,
+  .attrs a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .row,
+  .chip {
+    min-height: 48px;
   }
 }
 
