@@ -51,6 +51,10 @@ Everything here is the description, markdown and all.
 Any other field is an error.
 A misspelling that was quietly ignored would produce a catalog that is confidently wrong, which is worse than one that refuses to load.
 
+**Do not repeat the title as a heading in the prose.**
+`title` is already the entity's name, and markdownlint's MD025 treats a frontmatter `title` as the document's top-level heading, so a body opening with `# Checkout API` is reported as a second one.
+Start the prose with the prose.
+
 ## What you do not write
 
 **The ref.** Every entity has a stable ref of the form `kind:namespace/name`, and it is computed from the three fields above.
