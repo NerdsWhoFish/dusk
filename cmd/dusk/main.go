@@ -38,6 +38,11 @@ func command() *cli.Command {
 		Name:    "dusk",
 		Usage:   "a service catalog that maintains itself",
 		Version: version,
+
+		// The image's entrypoint is the bare binary, so no arguments has to
+		// mean serve. Printing help instead exits zero and crash loops.
+		DefaultCommand: "serve",
+
 		Commands: []*cli.Command{
 			serveCommand(),
 			validateCommand(),
