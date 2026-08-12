@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,6 +199,37 @@ func TestSchedulerBacksOffAndRecovers(t *testing.T) {
 }
 
 func clock() func() time.Time { return func() time.Time { return observedAt } }
+
+// A source Dusk cannot even connect to must not stop the process. Refusing to
+// start would take the whole catalog down over one bad credential, and the
+// catalog is still correct about everything else.
+func TestAnUnreachableSourceReportsRatherThanCrashing(t *testing.T) {
+	db := newIndex(t)
+	broken := ingest.Unreachable("mini-2", errors.New("no service account token"))
+
+	result := ingest.Run(t.Context(), broken, db, clock())
+	if result.Err == nil {
+		t.Fatal("an unreachable source reported success")
+	}
+	if !strings.Contains(result.Err.Error(), "no service account token") {
+		t.Errorf("err = %v, want the original cause", result.Err)
+	}
+	if result.Ingester != "kubernetes:mini-2" {
+		t.Errorf("ingester = %q, want it named so status can show it", result.Ingester)
+	}
+
+	t.Run("and it appears in scheduler status", func(t *testing.T) {
+		at := observedAt
+		scheduler := ingest.NewScheduler(db, slog.New(slog.DiscardHandler),
+			func() time.Time { return at }, broken)
+		scheduler.RunDue(t.Context())
+
+		status := scheduler.Status()
+		if len(status) != 1 || status[0].Err == nil {
+			t.Errorf("status = %+v, want the failure visible", status)
+		}
+	})
+}
 
 // ADR-0034: a human who wrote something down beats an ingester that inferred
 // it. Without an explicit order the winner is decided by how the scope names

@@ -148,10 +148,7 @@ func serve(parent context.Context) error {
 		return err
 	}
 
-	observers, err := clusterObservers(cfg, idx, log)
-	if err != nil {
-		return err
-	}
+	observers := clusterObservers(cfg, idx, log)
 
 	tokens := &proof.Store{}
 	writer := &write.Writer{
@@ -220,23 +217,26 @@ func serve(parent context.Context) error {
 	}
 }
 
-// clusterObservers builds an ingester per configured cluster. Failing to reach
-// one is fatal at boot on purpose: it is a credential or address mistake, and
-// starting anyway would leave a cluster silently unobserved forever.
-func clusterObservers(cfg *config.Config, idx *index.DB, log *slog.Logger) (*ingest.Scheduler, error) {
+// clusterObservers builds an ingester per configured cluster. An unreachable
+// one becomes an ingester that reports its failure rather than stopping the
+// process, because one bad source must not take the whole catalog down.
+func clusterObservers(cfg *config.Config, idx *index.DB, log *slog.Logger) *ingest.Scheduler {
 	ingesters := make([]ingest.Ingester, 0, len(cfg.Clusters))
 
 	for _, cluster := range cfg.Clusters {
 		observer, err := ingest.NewKubernetes(cluster.Name, cluster.Kubeconfig)
 		if err != nil {
-			return nil, err
+			log.Error("cannot reach a configured cluster, it will be retried and reported",
+				"cluster", cluster.Name, "error", err)
+			ingesters = append(ingesters, ingest.Unreachable(cluster.Name, err))
+			continue
 		}
 		ingesters = append(ingesters, observer)
 		log.Info("observing a kubernetes cluster",
 			"cluster", cluster.Name, "in_cluster", cluster.InCluster(), "every", observer.Interval())
 	}
 
-	return ingest.NewScheduler(idx, log, time.Now, ingesters...), nil
+	return ingest.NewScheduler(idx, log, time.Now, ingesters...)
 }
 
 // syncStatus adapts the controller's status to what the MCP surface reports,
