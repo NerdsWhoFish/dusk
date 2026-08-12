@@ -116,14 +116,24 @@ export function EntityView({
         <>
           <h2>Connections</h2>
           <Rows
-            items={relations.map((relation) => ({
-              key: `${relation.type}:${relation.to}`,
-              title: relation.to,
-              mono: true,
-              tag: relation.type,
-              tagKind: "rel" as const,
-              onOpen: () => onOpen(relation.to),
-            }))}
+            items={relations.map((relation) => {
+              // Neighbors returns edges in both directions, so the row has to
+              // show the far end. Rendering `to` unconditionally made an
+              // entity with many inbound edges list itself once per edge.
+              const inbound = relation.to === entity.ref;
+              const other = inbound ? relation.from : relation.to;
+
+              return {
+                key: `${relation.type}:${relation.from}:${relation.to}`,
+                title: other,
+                mono: true,
+                // The arrow carries the direction, so "runs_on" reads the
+                // right way round from whichever end you are standing at.
+                tag: inbound ? `← ${relation.type}` : `${relation.type} →`,
+                tagKind: "rel" as const,
+                onOpen: () => onOpen(other),
+              };
+            })}
             empty=""
           />
         </>
