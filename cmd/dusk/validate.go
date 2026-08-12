@@ -58,10 +58,20 @@ func validate(ctx context.Context, cmd *cli.Command) error {
 	for _, file := range graph.Files {
 		width = max(width, len(file))
 	}
+	for _, note := range graph.Notes {
+		width = max(width, len(note.GetId()))
+	}
+
 	for i, file := range graph.Files {
 		fmt.Printf("  %-*s  %s\n", width, file, graph.Entities[i].GetRef())
 	}
-	fmt.Printf("\n%s is valid: %d entities, %d relations, from %d files\n",
-		dir, len(graph.Entities), len(graph.Relations), len(graph.Files))
+	// Notes are listed too, or a repository whose notes all failed to parse
+	// would report clean here and fail on the server.
+	for _, note := range graph.Notes {
+		fmt.Printf("  %-*s  note/%s\n", width, note.GetId(), note.GetKind())
+	}
+
+	fmt.Printf("\n%s is valid: %d entities, %d relations, %d notes, from %d files\n",
+		dir, len(graph.Entities), len(graph.Relations), len(graph.Notes), len(graph.Files)+len(graph.Notes))
 	return nil
 }
