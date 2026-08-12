@@ -4,7 +4,10 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted, and its read decision is superseded by [ADR-0032](0032-tarball-reads.md).
+
+Reads no longer fetch a file at a time: they download a tarball of the tree, and only for repositories that have opted in.
+The rest of this record stands. Pinning every read to one resolved commit, the reasoning behind it, and the choice to keep writes on the API are all unchanged, and 0032 names the trigger this ADR itself set for revisiting the mechanism.
 
 ## Context and Problem Statement
 
