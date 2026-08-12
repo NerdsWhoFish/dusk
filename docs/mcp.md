@@ -36,7 +36,7 @@ Setting both is an error rather than the stricter of the two, because two answer
 Whichever applies is written to the boot log, and the unauthenticated mode warns on every start.
 [ADR-0012](../adr/0012-viewing-auth.md) permits a trusted-network mode for LAN and single-operator deployments and requires it to be explicit, which is why it cannot be arrived at by accident.
 
-## Four tools, each fat
+## The tools, each fat
 
 The tool list is spent on every session before any work happens, so its size is a product constraint.
 One tool per schema operation would produce thirty tools and cost a dozen calls to answer one question.
@@ -48,9 +48,11 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
+| `note(kind, body, refs?, id?, proof?)` | Record a gotcha, a runbook, a decision, attached to the entities it concerns |
 
 `get` is deliberately fat.
-An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations and provenance in one call rather than five.
+An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations, provenance and the notes attached to it in one call rather than five.
+Notes come back whole rather than as ids to fetch, because a gotcha an agent has to spend another call on is a gotcha it will not read.
 
 ## Three rules the answers follow
 
@@ -119,12 +121,31 @@ Write mode commits straight to the default branch, one commit per call, and the 
 
 Only the frontmatter is rewritten. The prose is left byte-identical, so a write can never disturb what somebody wrote.
 
+### Notes go somewhere else
+
+A note is knowledge with no natural home, so it does not go where an entity would.
+`note` writes to the **config repository**, named by `DUSK_CONFIG_REPOSITORY` as `owner/name`, in its `.dusk/` directory ([ADR-0031](../adr/0031-notes-are-files.md)).
+
+That directory is always in scope, so a note written there is read back on the next reconcile without anything being added to an `include`.
+
+The config repository is not exempt from consent: it needs its own root `dusk.md`, and Dusk will not create one.
+Without it a note would be committed and then never read back, so `note` refuses up front instead of succeeding into a hole.
+
+**A note's id is its path.**
+The answer hands it back, and passing it as `id` replaces that note rather than writing a second one.
+Replacing needs a proof token, exactly as an entity update does; writing a new note does not, because a create cannot overwrite anything.
+
+An update merges over what the file already says, so changing a body leaves the refs and kind alone.
+
+With no `DUSK_CONFIG_REPOSITORY` set, the tool is not offered at all.
+Everything else keeps working: a tool that always fails is worse than one that is absent.
+
 ## Not built yet
 
-**The other write tools.** `note`, `relate`, `mintKind` and `push` are not built. Notes have no home in `dusk.md` yet, and `push` is meaningful only in proposal mode.
+**The other write tools.** `relate`, `mintKind` and `push` are not built. `push` is meaningful only in proposal mode.
 
 **Proposal mode.** Write mode commits directly, so the per-session branch and pull request are deferred until somebody runs in proposal mode ([ADR-0010](../adr/0010-mcp-surface.md)).
 
-**Notes.** [ADR-0010](../adr/0010-mcp-surface.md) has `search` covering entities *and* notes together, because "how do I reach the zwave pi" is a note while "the zwave pi" is an entity. Notes have no home in `dusk.md` yet ([ADR-0026](../adr/0026-dusk-md-schema.md)), so search covers entities alone.
+**Note ranking.** Notes come back pinned first and then by id. [ADR-0031](../adr/0031-notes-are-files.md) has kind driving ranking, so a gotcha should outrank a todo without being pinned by hand, and it does not yet.
 
 **Authorization derived from repository access.** A bearer token answers "may you read", not "what may you read": it grants the whole catalog. [ADR-0012](../adr/0012-viewing-auth.md) decides that authorization should be *derived* from what GitHub says a viewer can see, which for an agent means presenting a GitHub token and having Dusk filter to the repositories it can read. The index is already partitioned by repository, so that filter is a predicate rather than a permission model. It earns its keep when a second person exists, and not before.

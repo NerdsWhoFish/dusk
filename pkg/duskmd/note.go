@@ -1,8 +1,10 @@
 package duskmd
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -94,6 +96,45 @@ func ParseNote(filePath string, data []byte, p Provenance) (*duskv1alpha1.Note, 
 		Provenance:  provenance(p),
 	}, nil
 }
+
+// FormatNote writes a note back to the file it came from, round-tripping what
+// ParseNote read. The body is authored markdown and is written through
+// untouched, because rendering it would quietly rewrite somebody's prose.
+func FormatNote(note *duskv1alpha1.Note) ([]byte, error) {
+	if note == nil {
+		return nil, errNothingToFormat
+	}
+	if strings.TrimSpace(note.GetKind()) == "" {
+		return nil, errNoteNeedsKind
+	}
+
+	encoded, err := marshalFrontmatter(noteFrontmatter{
+		Dusk:   SchemaVersion,
+		Note:   note.GetKind(),
+		Refs:   note.GetRefs(),
+		Pinned: note.GetPinned(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var out bytes.Buffer
+	out.WriteString("---\n")
+	out.Write(encoded)
+	out.WriteString("---\n")
+
+	if prose := strings.TrimSpace(note.GetBody()); prose != "" {
+		out.WriteString("\n")
+		out.WriteString(prose)
+		out.WriteString("\n")
+	}
+	return out.Bytes(), nil
+}
+
+var (
+	errNothingToFormat = errors.New("duskmd: nothing to format")
+	errNoteNeedsKind   = errors.New("duskmd: a note needs a kind, such as gotcha or runbook")
+)
 
 // ContentHash identifies a body, so an identical note written twice resolves to
 // the one that exists rather than a duplicate.

@@ -34,6 +34,7 @@ type Catalog interface {
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
+	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 }
 
 // Syncs reports what the controller last did, so an agent can tell a stale
@@ -55,6 +56,11 @@ type SyncStatus struct {
 // ADR-0005 treats as a supported posture rather than a degraded one.
 type Declarer interface {
 	Declare(ctx context.Context, token string, declaration write.Declaration) (*write.Result, error)
+	Record(ctx context.Context, token string, note write.Note) (*write.Result, error)
+
+	// NoteDestination is where notes go, and empty means nowhere, in which case
+	// the note tool is not offered at all.
+	NoteDestination() string
 }
 
 // Options are the server's dependencies.
@@ -133,6 +139,15 @@ func (s *Server) sdkServer() *sdk.Server {
 			Name:        "declare",
 			Description: "Create or update an entity. Requires the proof token from a read, which is why every read returns one.",
 		}, s.declare)
+
+		// A deployment with nowhere to put notes does not offer the tool at
+		// all, which is a clearer answer than one that always refuses.
+		if s.opts.Writer.NoteDestination() != "" {
+			sdk.AddTool(server, &sdk.Tool{
+				Name:        "note",
+				Description: "Record something worth keeping that is not a description of any one thing: a gotcha, a runbook, the reason something is the way it is. Attach it to the entities it concerns. Omit id to write a new one.",
+			}, s.note)
+		}
 	}
 
 	return server
@@ -146,7 +161,11 @@ func (s *Server) issue(origin proof.Origin, seen map[string]string) string {
 		return ""
 	}
 	token := s.opts.Tokens.Issue(origin, seen)
-	return fmt.Sprintf("\n---\nProof token `%s`. Pass it to `declare` to write any of the above.\n", token.ID)
+	tools := "`declare`"
+	if s.opts.Writer.NoteDestination() != "" {
+		tools = "`declare` or `note`"
+	}
+	return fmt.Sprintf("\n---\nProof token `%s`. Pass it to %s to write any of the above.\n", token.ID, tools)
 }
 
 type searchInput struct {
@@ -210,10 +229,39 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		return nil, nil, err
 	}
 
-	token := s.issue(proof.FromGet, map[string]string{
-		in.Ref: entity.GetProvenance().GetVersion(),
-	})
-	return text(renderEntity(entity, relations) + token), nil, nil
+	notes, err := s.opts.Catalog.NotesFor(ctx, "", in.Ref)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// The notes go in the token too, so replacing one needs proof of the read
+	// that surfaced it, the same as changing the entity does.
+	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
+	for _, note := range notes {
+		seen[note.GetId()] = note.GetContentHash()
+	}
+
+	return text(renderEntity(entity, relations) + renderNotes(notes) + s.issue(proof.FromGet, seen)), nil, nil
+}
+
+// renderNotes lists what is attached to an entity. Notes are the half of the
+// catalog a human wrote deliberately, so they come out whole rather than as
+// links an agent would have to spend another call on.
+func renderNotes(notes []*duskv1alpha1.Note) string {
+	if len(notes) == 0 {
+		return ""
+	}
+
+	var out strings.Builder
+	out.WriteString("## Notes\n\n")
+	for _, note := range notes {
+		pin := ""
+		if note.GetPinned() {
+			pin = " · pinned"
+		}
+		fmt.Fprintf(&out, "**%s**%s · `%s`\n\n%s\n\n", note.GetKind(), pin, note.GetId(), strings.TrimSpace(note.GetBody()))
+	}
+	return out.String()
 }
 
 type neighborsInput struct {
@@ -287,6 +335,39 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	return text(fmt.Sprintf(
 		"%s `%s` in %s at `%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.",
 		verb, result.Ref, result.Repository, result.Path, result.URL)), nil, nil
+}
+
+// noteInput leaves kind and body optional because an update merges over what
+// the file says, so restating them would be a chance to get one wrong. A new
+// note needs both, enforced by the write path rather than the schema.
+type noteInput struct {
+	Kind   string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, or todo. Required for a new note"`
+	Body   string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
+	Refs   []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name"`
+	Id     string   `json:"id,omitempty" jsonschema:"the path of an existing note to replace; omit to write a new one"`
+	Proof  string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
+	Pinned bool     `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to"`
+}
+
+func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput) (*sdk.CallToolResult, any, error) {
+	result, err := s.opts.Writer.Record(ctx, in.Proof, write.Note{
+		Id:     in.Id,
+		Kind:   in.Kind,
+		Refs:   in.Refs,
+		Body:   in.Body,
+		Pinned: in.Pinned,
+	})
+	if err != nil {
+		return text(fmt.Sprintf("The note was not written.\n\n%s", err)), nil, nil
+	}
+
+	verb := "Updated"
+	if result.Created {
+		verb = "Wrote"
+	}
+	return text(fmt.Sprintf(
+		"%s the note at `%s` in %s.\n\nCommit: %s\n\nIts id is `%s`. Pass that as `id` to replace it rather than writing a second one.",
+		verb, result.Path, result.Repository, result.URL, result.Path)), nil, nil
 }
 
 type changesInput struct{}

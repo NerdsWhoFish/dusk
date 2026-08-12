@@ -74,7 +74,11 @@ func serveCommand() *cli.Command {
                         without DUSK_TRUSTED_NETWORK, /mcp is off: one read
                         returns the whole catalog, so Dusk will not guess.
   DUSK_TRUSTED_NETWORK  Set to true to serve the agent surface with no
-                        authentication at all, on a network you trust.`,
+                        authentication at all, on a network you trust.
+  DUSK_CONFIG_REPOSITORY
+                        owner/name of the repository notes are written to. It
+                        needs its own dusk.md, like any other. Unset means the
+                        note tool is not offered; nothing else is affected.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
@@ -135,9 +139,10 @@ func serve(parent context.Context) error {
 		Version: version,
 		Tokens:  tokens,
 		Writer: &write.Writer{
-			Catalog:      idx,
-			Repositories: catalog,
-			Proof:        tokens,
+			Catalog:          idx,
+			Repositories:     catalog,
+			Proof:            tokens,
+			ConfigRepository: cfg.ConfigRepository,
 		},
 	})
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
@@ -235,6 +240,13 @@ func announce(log *slog.Logger, cfg *config.Config, onboarded bool, agentMode st
 		log.Warn("the agent surface is off: set DUSK_MCP_TOKEN, or DUSK_TRUSTED_NETWORK=true to serve it unauthenticated")
 	case "unauthenticated":
 		log.Warn("the agent surface is unauthenticated: anything that can reach this port can read the whole catalog")
+	}
+
+	if cfg.ConfigRepository == "" {
+		log.Info("no config repository: agents can declare entities but cannot write notes",
+			"set", "DUSK_CONFIG_REPOSITORY")
+	} else {
+		log.Info("notes are written to the config repository", "repository", cfg.ConfigRepository)
 	}
 	if !onboarded {
 		log.Info("not onboarded yet", "setup", cfg.PrivateHost+"/setup")

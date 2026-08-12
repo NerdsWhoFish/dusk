@@ -82,7 +82,9 @@ func frontmatterFor(file *File, inheritedNamespace string) (frontmatter, error) 
 	return front, nil
 }
 
-func marshalFrontmatter(front frontmatter) ([]byte, error) {
+// marshalFrontmatter encodes any frontmatter shape, so an entity and a note
+// come out indented the same way rather than through two encoders that drift.
+func marshalFrontmatter(front any) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)

@@ -18,6 +18,33 @@ import (
 type recordingWriter struct {
 	tokens *proof.Store
 	got    []write.Declaration
+	notes  []write.Note
+
+	// notesGo is where notes land, and empty means the tool is not offered.
+	notesGo string
+}
+
+func (w *recordingWriter) NoteDestination() string { return w.notesGo }
+
+func (w *recordingWriter) Record(_ context.Context, token string, n write.Note) (*write.Result, error) {
+	// Replacing a note is a write over something the agent should have read.
+	// Creating one is not, so only the first needs a token.
+	if n.Id != "" && w.tokens.Lookup(token) == nil {
+		return nil, &proof.Rejection{
+			Code: proof.CodeRequired, Ref: n.Id,
+			Detail: "no valid proof token was presented", Fix: `get("` + n.Id + `")`,
+		}
+	}
+	w.notes = append(w.notes, n)
+
+	path := n.Id
+	if path == "" {
+		path = ".dusk/gotcha-abcd1234.md"
+	}
+	return &write.Result{
+		Ref: path, Repository: w.notesGo, Path: path, Created: n.Id == "",
+		Commit: "c0ffee", URL: "https://github.com/example/config/commit/c0ffee",
+	}, nil
 }
 
 func (w *recordingWriter) Declare(_ context.Context, token string, d write.Declaration) (*write.Result, error) {

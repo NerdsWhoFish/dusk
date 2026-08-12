@@ -53,6 +53,10 @@ type Writer struct {
 	Repositories Repositories
 	Proof        *proof.Store
 	Now          func() time.Time
+
+	// ConfigRepository is "owner/name" of where notes are written. Empty
+	// disables note writing rather than defaulting somewhere surprising.
+	ConfigRepository string
 }
 
 // Declaration is what an agent asked to change. Absent fields are left alone,

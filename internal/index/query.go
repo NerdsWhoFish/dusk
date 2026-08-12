@@ -54,6 +54,32 @@ func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.
 	return row.entity()
 }
 
+// NotesFor returns the notes attached to an entity, pinned first then by id.
+// It is what makes a note's refs worth writing, since knowledge about a service
+// is only useful if it arrives when somebody asks about that service.
+func (db *DB) NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error) {
+	clause, args := scopeClause("notes", gitRef)
+
+	var rows []noteRow
+	err := db.gorm.WithContext(ctx).
+		Model(&noteRow{}).
+		Joins("JOIN note_refs ON note_refs.repository = notes.repository"+
+			" AND note_refs.git_ref = notes.git_ref AND note_refs.note_id = notes.note_id").
+		Where("note_refs.ref = ?", entityRef).
+		Where(clause, args...).
+		Order("notes.pinned DESC, notes.note_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: notes for %q at %q: %w", entityRef, gitRef, err)
+	}
+
+	notes := make([]*duskv1alpha1.Note, 0, len(rows))
+	for _, row := range rows {
+		notes = append(notes, row.note())
+	}
+	return notes, nil
+}
+
 // Location is where an entity is declared: the repository, the file, and the
 // version a write must still match to prove it read the current one.
 type Location struct {

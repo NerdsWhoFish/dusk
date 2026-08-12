@@ -59,7 +59,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Write containment**: writes reach only repositories a sweep has seen *and* that already contain a `dusk.md`. Dusk never creates one, because that file is how a repository consents ([0004](../adr/0004-dusk-md-convention.md))
 - [ ] **Proposal mode**: a per-session branch and a pull request. Write mode commits straight to the default branch and needs neither, so this is deferred until somebody runs in proposal mode ([0005](../adr/0005-github-app-and-access-modes.md), [0010](../adr/0010-mcp-surface.md))
 - [ ] **Read mode**: return the proposed diff rather than failing, which is what makes read-only first class rather than broken ([0005](../adr/0005-github-app-and-access-modes.md))
-- [ ] **Notes have no home in `dusk.md`**: deliberately deferred by [0026](../adr/0026-dusk-md-schema.md) until the MCP write path that authors them exists. Until then `search` covers entities alone, where [0010](../adr/0010-mcp-surface.md) wants entities and notes together
+- [x] **Notes**: a note is its own file, discovered like any other, written to the config repository's `.dusk/` ([0031](../adr/0031-notes-are-files.md)). `search` covers entities and notes together, and `get` returns the notes attached to what it answers about
 - [ ] **Note dedup**: content hash and similarity warning ([0010](../adr/0010-mcp-surface.md))
 - [ ] **Vocabulary**: `getKinds`, `mintKind`, proof token, fuzzy matching ([0007](../adr/0007-entity-schema.md))
 
@@ -68,7 +68,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Read tools**: `search`, `get`, `neighbors`, `changes` over streamable HTTP at `/mcp`, answering in markdown ([0010](../adr/0010-mcp-surface.md))
 - [x] **Agent surface access**: bearer token, or an explicit trusted-network mode, and off until one of them says. Never a default ([0012](../adr/0012-viewing-auth.md))
 - [ ] **Authorization derived from repository access**: an agent presents a GitHub token and sees only the repositories it can read. The index is already partitioned by repository, so this is a predicate rather than a permission model. Deferred until there is a second reader ([0012](../adr/0012-viewing-auth.md))
-- [~] **Write tools**: `declare` is built, and every read issues the proof token it needs. `note`, `relate`, `mintKind` and `push` are not ([0010](../adr/0010-mcp-surface.md))
+- [~] **Write tools**: `declare` and `note` are built, and every read issues the proof token they need. `relate`, `mintKind` and `push` are not ([0010](../adr/0010-mcp-surface.md))
 - [~] **Context injection**: the MCP `instructions` field is served. `dusk_context` and the client hook are not built ([0014](../adr/0014-agent-context-injection.md))
 
 ## UI
@@ -107,5 +107,6 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - The MCP surface has no authentication. Anyone able to reach the private host can read the whole catalog ([0012](../adr/0012-viewing-auth.md)).
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.
-- There is no config repository setting, so a note has nowhere to be written. `declare` reaches repositories that already have a `dusk.md`; `note` cannot ship until Dusk can be told where notes live ([0031](../adr/0031-notes-are-files.md)).
+- Notes are ranked by pinned-then-id. [0031](../adr/0031-notes-are-files.md) wants kind to drive ranking so a gotcha outranks a todo without being pinned by hand.
+- A note's refs are not checked against the catalog, so a typo attaches it to nothing, silently. Relations have the same weakness, for the same reason: the target may legitimately live in another repository.
 - A rate limit is recognised and logged but not waited out. A sweep that exhausts the budget gives up until the next one rather than resuming when the limit resets.

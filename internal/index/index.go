@@ -85,6 +85,20 @@ type noteRow struct {
 
 func (noteRow) TableName() string { return "notes" }
 
+// note rebuilds the note. Refs are left empty: a caller reading a note by the
+// entity it attaches to already knows one of them, and loading the rest would
+// be a second query for something nothing has needed yet.
+func (r noteRow) note() *duskv1alpha1.Note {
+	return &duskv1alpha1.Note{
+		Id: r.NoteID, Kind: r.Kind, Body: r.Body, Pinned: r.Pinned,
+		ContentHash: r.ContentHash,
+		Provenance: &duskv1alpha1.Provenance{
+			Source: r.Source, Version: r.Version,
+			ObservedAt: timestamppb.New(r.ObservedAt),
+		},
+	}
+}
+
 // noteRefRow attaches a note to an entity. A note names several, so the link is
 // its own table rather than a column.
 type noteRefRow struct {

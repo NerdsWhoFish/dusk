@@ -52,6 +52,17 @@ type Config struct {
 	// ADR-0012 allows this for LAN and single operator deployments and requires
 	// it to be explicit, so there is no way to arrive here by default.
 	TrustedNetwork bool
+
+	// ConfigRepository is "owner/name" of the repository notes are written to.
+	// Empty means notes cannot be written; everything else still works, because
+	// most of the catalog lives beside the code it describes (ADR-0031).
+	ConfigRepository string
+}
+
+// ConfigRepositoryParts splits the config repository into owner and name.
+func (c *Config) ConfigRepositoryParts() (owner, name string, ok bool) {
+	owner, name, ok = strings.Cut(c.ConfigRepository, "/")
+	return owner, name, ok && owner != "" && name != ""
 }
 
 // IndexPath is where the materialized graph lives. It sits beside the
@@ -81,8 +92,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		PrivateHost: normalizeHost(getenv("DUSK_PRIVATE_HOST")),
 		PublicHost:  normalizeHost(getenv("DUSK_PUBLIC_HOST")),
 
-		AllowedAccounts: splitAccounts(getenv("DUSK_ALLOWED_ACCOUNTS")),
-		TrustedNetwork:  strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
+		AllowedAccounts:  splitAccounts(getenv("DUSK_ALLOWED_ACCOUNTS")),
+		TrustedNetwork:   strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
+		ConfigRepository: strings.Trim(strings.TrimSpace(getenv("DUSK_CONFIG_REPOSITORY")), "/"),
 	}
 	if token := strings.TrimSpace(getenv("DUSK_MCP_TOKEN")); token != "" {
 		c.MCPToken = secret.New(token)
@@ -91,6 +103,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	problems := c.readHosts()
 	problems = append(problems, c.readEncryptionKey(getenv)...)
 	problems = append(problems, c.readAgentAccess()...)
+	problems = append(problems, c.readConfigRepository()...)
 
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
@@ -126,6 +139,19 @@ func (c *Config) readEncryptionKey(getenv func(string) string) []error {
 		return []error{fmt.Errorf("DUSK_ENCRYPTION_KEY is invalid: %w", err)}
 	}
 	c.EncryptionKey = secret.New(rawKey)
+	return nil
+}
+
+// readConfigRepository checks the shape only. Whether the repository exists and
+// whether Dusk may write to it are answered at write time, because a typo here
+// must not stop a catalog whose reads never touch it from starting.
+func (c *Config) readConfigRepository() []error {
+	if c.ConfigRepository == "" {
+		return nil
+	}
+	if _, _, ok := c.ConfigRepositoryParts(); !ok {
+		return []error{fmt.Errorf("DUSK_CONFIG_REPOSITORY is invalid: want owner/name, got %q", c.ConfigRepository)}
+	}
 	return nil
 }
 
