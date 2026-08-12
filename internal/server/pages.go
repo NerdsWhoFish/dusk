@@ -7,6 +7,8 @@ const pages = `
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Dusk</title>
 <style>
 :root{--bg:#22212C;--fg:#F8F8F2;--muted:#7970A9;--line:#3B3549;

@@ -20,7 +20,7 @@ func loginPage(t *testing.T, cs *fakeStore, env map[string]string) string {
 	}
 	env["DUSK_MCP_TOKEN"] = "shared"
 
-	handler := build(t, cs, &fakeGitHub{}, externalURL, "", env)
+	handler := build(t, setup{store: cs, env: env})
 	rec := get(t, handler, "/login")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /login = %d, want 200", rec.Code)
@@ -64,11 +64,11 @@ func TestSignInPrefersTheConfiguredApp(t *testing.T) {
 		t.Fatal("no GitHub sign-in offered although one is configured")
 	}
 
-	rec := get(t, build(t, registered(), &fakeGitHub{}, externalURL, "", map[string]string{
+	rec := get(t, build(t, setup{store: registered(), env: map[string]string{
 		"DUSK_MCP_TOKEN":            "shared",
 		"DUSK_GITHUB_CLIENT_ID":     "Iv1.configured",
 		"DUSK_GITHUB_CLIENT_SECRET": "configured-secret",
-	}), "/auth/github")
+	}}), "/auth/github")
 
 	target := rec.Header().Get("Location")
 	if !strings.Contains(target, "client_id=Iv1.configured") {
@@ -80,9 +80,9 @@ func TestSignInPrefersTheConfiguredApp(t *testing.T) {
 // at construction would leave sign-in dark until the next restart.
 func TestSignInAppearsWithoutARestart(t *testing.T) {
 	cs := &fakeStore{}
-	handler := build(t, cs, &fakeGitHub{}, externalURL, "", map[string]string{
+	handler := build(t, setup{store: cs, env: map[string]string{
 		"DUSK_MCP_TOKEN": "shared",
-	})
+	}})
 
 	if body := get(t, handler, "/login").Body.String(); strings.Contains(body, signInButton) {
 		t.Fatal("GitHub sign-in offered before an App was registered")

@@ -14,6 +14,15 @@ import (
 // build's assets never change, and index.html naming them is never cached.
 const assetMaxAge = "public, max-age=31536000, immutable"
 
+// staticMaxAge is for files served under a fixed name, which a new build
+// replaces in place. Immutable would pin every browser that ever loaded one to
+// the first version it saw, and a favicon is not worth a permanent mistake.
+const staticMaxAge = "public, max-age=3600"
+
+// hashedAssets is where Vite writes content-hashed output. Anything outside it
+// came from public/ and keeps the name it was written with.
+const hashedAssets = "assets/"
+
 // handleApp serves the single page app. Every unmatched path returns
 // index.html so a deep link to an entity survives a refresh, which is the one
 // thing a client-routed app gets wrong if the server is not told.
@@ -41,7 +50,11 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = file.Close()
 
-	w.Header().Set("Cache-Control", assetMaxAge)
+	if strings.HasPrefix(name, hashedAssets) {
+		w.Header().Set("Cache-Control", assetMaxAge)
+	} else {
+		w.Header().Set("Cache-Control", staticMaxAge)
+	}
 	http.FileServerFS(root).ServeHTTP(w, r)
 }
 

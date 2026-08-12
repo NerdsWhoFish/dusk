@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/FetchHQ/dusk/internal/config"
+	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/server"
 	"github.com/FetchHQ/dusk/internal/store"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
@@ -59,40 +61,82 @@ func (f *fakeGitHub) Convert(_ context.Context, code string) (*githubapp.Credent
 	return f.creds, nil
 }
 
+// setup is what a test varies about a server. The zero value is an un-onboarded
+// install with no catalog, which is what most of these tests want.
+type setup struct {
+	store   *fakeStore
+	github  *fakeGitHub
+	private string
+	public  string
+	env     map[string]string
+
+	// catalog is nil unless a test needs the routes that only exist once there
+	// is something to serve, which includes the SPA and its assets.
+	catalog server.Catalog
+}
+
 func newServer(t *testing.T, cs *fakeStore, gh *fakeGitHub) http.Handler {
 	t.Helper()
-	return build(t, cs, gh, externalURL, "", nil)
+	return build(t, setup{store: cs, github: gh})
 }
 
 // newServerWithHosts covers the split-host deployment, where GitHub reaches a
 // public forwarder and browsers reach a private hostname.
 func newServerWithHosts(t *testing.T, private, public string) http.Handler {
 	t.Helper()
-	return build(t, &fakeStore{}, &fakeGitHub{}, private, public, nil)
+	return build(t, setup{private: private, public: public})
 }
 
-func build(t *testing.T, cs *fakeStore, gh *fakeGitHub, private, public string, extra map[string]string) http.Handler {
+func build(t *testing.T, s setup) http.Handler {
 	t.Helper()
+
+	if s.store == nil {
+		s.store = &fakeStore{}
+	}
+	if s.github == nil {
+		s.github = &fakeGitHub{}
+	}
+	if s.private == "" {
+		s.private = externalURL
+	}
 
 	key, err := vault.NewKey()
 	if err != nil {
 		t.Fatalf("NewKey: %v", err)
 	}
-	env := map[string]string{"DUSK_PRIVATE_HOST": private, "DUSK_ENCRYPTION_KEY": key}
-	if public != "" {
-		env["DUSK_PUBLIC_HOST"] = public
+	env := map[string]string{"DUSK_PRIVATE_HOST": s.private, "DUSK_ENCRYPTION_KEY": key}
+	if s.public != "" {
+		env["DUSK_PUBLIC_HOST"] = s.public
 	}
-	maps.Copy(env, extra)
+	maps.Copy(env, s.env)
 	cfg, err := config.Load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
 
-	s, err := server.New(server.Options{Config: cfg, Credentials: cs, GitHub: gh})
+	srv, err := server.New(server.Options{
+		Config:      cfg,
+		Credentials: s.store,
+		GitHub:      s.github,
+		Catalog:     s.catalog,
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return s.Handler()
+	return srv.Handler()
+}
+
+// emptyCatalog is a real index rather than a stub: the interface is thirteen
+// methods, and a hand-written fake of it rots the moment one is added.
+func emptyCatalog(t *testing.T) server.Catalog {
+	t.Helper()
+
+	db, err := index.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatalf("index.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func get(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder {
