@@ -55,12 +55,15 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [ ] **Proof tokens**: issue on read, validate on write, actionable rejections ([0009](../adr/0009-proof-tokens.md))
 - [ ] **Commit queue**: one commit per call on a per-session branch, with a flush policy ([0010](../adr/0010-mcp-surface.md))
 - [ ] **Access modes**: read, proposal, and write ([0005](../adr/0005-github-app-and-access-modes.md))
+- [ ] **Notes have no home in `dusk.md`**: deliberately deferred by [0026](../adr/0026-dusk-md-schema.md) until the MCP write path that authors them exists. Until then `search` covers entities alone, where [0010](../adr/0010-mcp-surface.md) wants entities and notes together
 - [ ] **Note dedup**: content hash and similarity warning ([0010](../adr/0010-mcp-surface.md))
 - [ ] **Vocabulary**: `getKinds`, `mintKind`, proof token, fuzzy matching ([0007](../adr/0007-entity-schema.md))
 
 ## MCP
 
 - [x] **Read tools**: `search`, `get`, `neighbors`, `changes` over streamable HTTP at `/mcp`, answering in markdown ([0010](../adr/0010-mcp-surface.md))
+- [x] **Agent surface access**: bearer token, or an explicit trusted-network mode, and off until one of them says. Never a default ([0012](../adr/0012-viewing-auth.md))
+- [ ] **Authorization derived from repository access**: an agent presents a GitHub token and sees only the repositories it can read. The index is already partitioned by repository, so this is a predicate rather than a permission model. Deferred until there is a second reader ([0012](../adr/0012-viewing-auth.md))
 - [ ] **Write tools**: `declare`, `note`, `relate`, `mintKind`, `push` ([0010](../adr/0010-mcp-surface.md))
 - [~] **Context injection**: the MCP `instructions` field is served. `dusk_context` and the client hook are not built ([0014](../adr/0014-agent-context-injection.md))
 
@@ -91,7 +94,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 1. The write path: proof tokens, the commit queue, and the MCP write tools. This is the half that makes the catalog maintain itself.
 2. Notes, which need a home in `dusk.md` before `search` can cover them alongside entities.
-3. Viewing auth, because the MCP surface is currently unauthenticated.
+3. Pull request previews, which the ref-keyed index was built for and nothing yet uses.
 
 ## Known gaps
 

@@ -44,6 +44,14 @@ type Config struct {
 	// reconciled. Empty means the account the App belongs to, and nothing
 	// else, because anyone able to see an App can install it.
 	AllowedAccounts []string
+
+	// MCPToken is the bearer token the agent surface requires.
+	MCPToken secret.String
+
+	// TrustedNetwork serves the agent surface with no authentication at all.
+	// ADR-0012 allows this for LAN and single operator deployments and requires
+	// it to be explicit, so there is no way to arrive here by default.
+	TrustedNetwork bool
 }
 
 // IndexPath is where the materialized graph lives. It sits beside the
@@ -74,8 +82,25 @@ func Load(getenv func(string) string) (*Config, error) {
 		PublicHost:  normalizeHost(getenv("DUSK_PUBLIC_HOST")),
 
 		AllowedAccounts: splitAccounts(getenv("DUSK_ALLOWED_ACCOUNTS")),
+		TrustedNetwork:  strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
+	}
+	if token := strings.TrimSpace(getenv("DUSK_MCP_TOKEN")); token != "" {
+		c.MCPToken = secret.New(token)
 	}
 
+	problems := c.readHosts()
+	problems = append(problems, c.readEncryptionKey(getenv)...)
+	problems = append(problems, c.readAgentAccess()...)
+
+	if len(problems) > 0 {
+		return nil, errors.Join(problems...)
+	}
+	return c, nil
+}
+
+// readHosts validates the two hostnames, defaulting the public one to the
+// private one because most deployments are reached at a single address.
+func (c *Config) readHosts() []error {
 	var problems []error
 
 	if c.PrivateHost == "" {
@@ -89,22 +114,28 @@ func Load(getenv func(string) string) (*Config, error) {
 	} else if err := validateHost("DUSK_PUBLIC_HOST", c.PublicHost); err != nil {
 		problems = append(problems, err)
 	}
+	return problems
+}
 
-	switch rawKey := getenv("DUSK_ENCRYPTION_KEY"); rawKey {
-	case "":
-		problems = append(problems, errors.New("DUSK_ENCRYPTION_KEY is required: credentials are always encrypted at rest. Generate one with `dusk genkey`"))
-	default:
-		if _, err := vault.ParseKey(rawKey); err != nil {
-			problems = append(problems, fmt.Errorf("DUSK_ENCRYPTION_KEY is invalid: %w", err))
-		} else {
-			c.EncryptionKey = secret.New(rawKey)
-		}
+func (c *Config) readEncryptionKey(getenv func(string) string) []error {
+	rawKey := getenv("DUSK_ENCRYPTION_KEY")
+	if rawKey == "" {
+		return []error{errors.New("DUSK_ENCRYPTION_KEY is required: credentials are always encrypted at rest. Generate one with `dusk genkey`")}
 	}
+	if _, err := vault.ParseKey(rawKey); err != nil {
+		return []error{fmt.Errorf("DUSK_ENCRYPTION_KEY is invalid: %w", err)}
+	}
+	c.EncryptionKey = secret.New(rawKey)
+	return nil
+}
 
-	if len(problems) > 0 {
-		return nil, errors.Join(problems...)
+// readAgentAccess checks the answer to "who may read the catalog". Two answers
+// is not a stricter setting, it is an unanswered question.
+func (c *Config) readAgentAccess() []error {
+	if !c.MCPToken.IsZero() && c.TrustedNetwork {
+		return []error{errors.New("DUSK_MCP_TOKEN and DUSK_TRUSTED_NETWORK are both set: pick one, since a token means authenticate and a trusted network means do not")}
 	}
-	return c, nil
+	return nil
 }
 
 // LoadFromEnv is Load against the process environment.

@@ -12,10 +12,29 @@ Dusk serves streamable HTTP at `/mcp` on the private host.
 ```json
 {
   "mcpServers": {
-    "dusk": { "type": "http", "url": "https://dusk.example.com/mcp" }
+    "dusk": {
+      "type": "http",
+      "url": "https://dusk.example.com/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
   }
 }
 ```
+
+## Who may read the catalog
+
+**The surface is off until something says.** One read returns the whole catalog, so Dusk will not pick a default:
+
+| Setting | Effect |
+| --- | --- |
+| `DUSK_MCP_TOKEN` | Require that bearer token. Compared in constant time |
+| `DUSK_TRUSTED_NETWORK=true` | Serve it unauthenticated |
+| Neither | `/mcp` answers 503 explaining how to turn it on |
+
+Setting both is an error rather than the stricter of the two, because two answers to "who may read this" is an unanswered question.
+
+Whichever applies is written to the boot log, and the unauthenticated mode warns on every start.
+[ADR-0012](../adr/0012-viewing-auth.md) permits a trusted-network mode for LAN and single-operator deployments and requires it to be explicit, which is why it cannot be arrived at by accident.
 
 ## Four tools, each fat
 
@@ -67,4 +86,4 @@ Pull request previews render a specific ref and are a UI concern, so the MCP too
 
 **Notes.** [ADR-0010](../adr/0010-mcp-surface.md) has `search` covering entities *and* notes together, because "how do I reach the zwave pi" is a note while "the zwave pi" is an entity. Notes have no home in `dusk.md` yet ([ADR-0026](../adr/0026-dusk-md-schema.md)), so search covers entities alone.
 
-**Authentication.** The endpoint is unauthenticated. Viewing authorization is meant to derive from repository access ([ADR-0012](../adr/0012-viewing-auth.md)), and until it does, anyone who can reach the private host can read the whole catalog.
+**Authorization derived from repository access.** A bearer token answers "may you read", not "what may you read": it grants the whole catalog. [ADR-0012](../adr/0012-viewing-auth.md) decides that authorization should be *derived* from what GitHub says a viewer can see, which for an agent means presenting a GitHub token and having Dusk filter to the repositories it can read. The index is already partitioned by repository, so that filter is a predicate rather than a permission model. It earns its keep when a second person exists, and not before.

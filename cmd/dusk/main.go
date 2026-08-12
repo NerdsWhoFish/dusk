@@ -67,7 +67,12 @@ func serveCommand() *cli.Command {
   DUSK_ALLOWED_ACCOUNTS Comma separated GitHub accounts whose installations may
                         be reconciled. Defaults to the account the App belongs
                         to. Anyone who can see an App can install it, so this is
-                        what keeps an uninvited installation out of the catalog.`,
+                        what keeps an uninvited installation out of the catalog.
+  DUSK_MCP_TOKEN        Bearer token the agent surface requires. Without it, and
+                        without DUSK_TRUSTED_NETWORK, /mcp is off: one read
+                        returns the whole catalog, so Dusk will not guess.
+  DUSK_TRUSTED_NETWORK  Set to true to serve the agent surface with no
+                        authentication at all, on a network you trust.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
@@ -126,12 +131,13 @@ func serve(parent context.Context) error {
 		Syncs:   syncStatus{catalog},
 		Version: version,
 	})
+	agentSurface, agentMode := guard(agents.Handler(), cfg)
 
 	srv, err := server.New(server.Options{
 		Config:      cfg,
 		Credentials: credentials,
 		Controller:  catalog,
-		MCP:         agents.Handler(),
+		MCP:         agentSurface,
 		Logger:      log,
 	})
 	if err != nil {
@@ -153,16 +159,7 @@ func serve(parent context.Context) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		log.Info("dusk listening",
-			"addr", cfg.Addr,
-			"private_host", cfg.PrivateHost,
-			"public_host", cfg.PublicHost,
-			"webhook_url", cfg.WebhookURL(),
-			"onboarded", credentials.Configured(),
-			"version", version)
-		if !credentials.Configured() {
-			log.Info("not onboarded yet", "setup", cfg.PrivateHost+"/setup")
-		}
+		announce(log, cfg, credentials.Configured(), agentMode)
 		errc <- httpServer.ListenAndServe()
 	}()
 
@@ -197,4 +194,40 @@ func (s syncStatus) Status() []mcp.SyncStatus {
 		})
 	}
 	return out
+}
+
+// guard decides who may read the catalog, and reports which way it went so the
+// answer appears in the boot log rather than only in the environment.
+func guard(handler http.Handler, cfg *config.Config) (http.Handler, string) {
+	switch {
+	case !cfg.MCPToken.IsZero():
+		return mcp.RequireBearer(handler, cfg.MCPToken), "token"
+	case cfg.TrustedNetwork:
+		return handler, "unauthenticated"
+	default:
+		return mcp.Disabled(), "off"
+	}
+}
+
+// announce puts the decisions that are easy to get wrong into the boot log,
+// where an operator will actually read them.
+func announce(log *slog.Logger, cfg *config.Config, onboarded bool, agentMode string) {
+	log.Info("dusk listening",
+		"addr", cfg.Addr,
+		"private_host", cfg.PrivateHost,
+		"public_host", cfg.PublicHost,
+		"webhook_url", cfg.WebhookURL(),
+		"onboarded", onboarded,
+		"agent_surface", agentMode,
+		"version", version)
+
+	switch agentMode {
+	case "off":
+		log.Warn("the agent surface is off: set DUSK_MCP_TOKEN, or DUSK_TRUSTED_NETWORK=true to serve it unauthenticated")
+	case "unauthenticated":
+		log.Warn("the agent surface is unauthenticated: anything that can reach this port can read the whole catalog")
+	}
+	if !onboarded {
+		log.Info("not onboarded yet", "setup", cfg.PrivateHost+"/setup")
+	}
 }

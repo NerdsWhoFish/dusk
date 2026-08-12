@@ -49,4 +49,5 @@ make test    # go test -race ./...
 - **`internal/` needs a reason.** Default to a real package in `pkg/` that another caller could use.
 - Commit as you go, in atomic commits with conventional messages. Do not push or tag without being asked.
 - **Update [`docs/status.md`](docs/status.md) in the same change that moves an item.**
+- **Anything deferred gets a line in [`docs/status.md`](docs/status.md), in the change that defers it.** Choosing not to build something now is fine. Leaving no trace of the choice is not, because "later" and "forgotten" look identical from outside. A `[ ]` item, a `[~]` with what is missing, or a Known gaps entry: whichever fits, but one of them, written while the decision is fresh enough to explain.
 - **This repository is public.** Never commit anything about a particular person's deployment: hostnames, cluster names, domains, or the names of private repositories. Examples use `example.com` and generic names.

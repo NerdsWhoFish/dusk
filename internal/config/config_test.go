@@ -145,3 +145,69 @@ func TestConfigNeverRendersTheKey(t *testing.T) {
 		}
 	}
 }
+
+// ADR-0012 allows an unauthenticated agent surface and requires it to be
+// explicit. Two answers to "who may read the catalog" is an unanswered
+// question, not a stricter setting.
+func TestMCPAuthConfiguration(t *testing.T) {
+	base := map[string]string{
+		"DUSK_PRIVATE_HOST":   "https://dusk.example.com",
+		"DUSK_ENCRYPTION_KEY": validKey(t),
+	}
+
+	with := func(extra map[string]string) map[string]string {
+		merged := map[string]string{}
+		for k, v := range base {
+			merged[k] = v
+		}
+		for k, v := range extra {
+			merged[k] = v
+		}
+		return merged
+	}
+
+	t.Run("a token is read", func(t *testing.T) {
+		cfg, err := config.Load(env(with(map[string]string{"DUSK_MCP_TOKEN": "s3cret"})))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.MCPToken.Reveal() != "s3cret" {
+			t.Errorf("MCPToken = %q, want it read", cfg.MCPToken.Reveal())
+		}
+		if cfg.TrustedNetwork {
+			t.Error("TrustedNetwork = true, want false")
+		}
+	})
+
+	t.Run("a trusted network is opt in", func(t *testing.T) {
+		cfg, err := config.Load(env(with(map[string]string{"DUSK_TRUSTED_NETWORK": "true"})))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !cfg.TrustedNetwork {
+			t.Error("TrustedNetwork = false, want true")
+		}
+	})
+
+	t.Run("neither is the default, and neither is an error", func(t *testing.T) {
+		cfg, err := config.Load(env(base))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !cfg.MCPToken.IsZero() || cfg.TrustedNetwork {
+			t.Error("an unconfigured deployment should choose neither")
+		}
+	})
+
+	t.Run("both together is rejected", func(t *testing.T) {
+		_, err := config.Load(env(with(map[string]string{
+			"DUSK_MCP_TOKEN": "s3cret", "DUSK_TRUSTED_NETWORK": "true",
+		})))
+		if err == nil {
+			t.Fatal("Load accepted both, want an error naming the conflict")
+		}
+		if !strings.Contains(err.Error(), "pick one") {
+			t.Errorf("error = %q, want it to say which to pick", err)
+		}
+	})
+}
