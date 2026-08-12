@@ -1,0 +1,5 @@
+This file keeps web/dist present so `//go:embed all:dist` compiles on a
+checkout that has never run the web build. Without it `go build` fails before
+anybody reaches the error explaining that the UI is missing.
+
+Do not delete it. `make web` and the Dockerfile both preserve it.

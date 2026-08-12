@@ -26,14 +26,15 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # Before the Go steps, including lint: the Go build embeds this output,
+      # and a UI that does not compile should fail here rather than at release
+      # time where the image build is the first thing to try it.
+      - run: make web
+
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=5m
-
-      # Before the Go steps: a UI that does not compile should fail here rather
-      # than at release time, where the image build is the first thing to try it.
-      - run: make web
 
       - run: make nocgo
       - run: make test

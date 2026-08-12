@@ -20,6 +20,7 @@ build: web
 	go build ./...
 
 web:
+	rm -rf web/dist/assets web/dist/index.html
 	cd web && npm ci --no-audit --fund=false && npm run build
 
 # Typecheck without a full build, for the check target. Skipped rather than

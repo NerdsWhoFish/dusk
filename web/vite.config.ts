@@ -8,7 +8,10 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "dist",
-    emptyOutDir: true,
+    // Emptying the directory would delete the committed placeholder that keeps
+    // go:embed compiling on an unbuilt checkout. `make web` clears the build
+    // output itself, so stale assets still do not accumulate.
+    emptyOutDir: false,
   },
   server: {
     // `npm run dev` talks to a locally running Dusk, so the UI can be worked
