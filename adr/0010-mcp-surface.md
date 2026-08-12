@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. Amended, see [Amendments](#amendments).
 
 ## Context and Problem Statement
 
@@ -100,3 +100,25 @@ Because an agent with no memory of a prior session cannot know an id, two furthe
 
 - CRUD per type was rejected because it makes the agent assemble answers from many calls, which is slow, expensive, and error-prone.
 - A single DSL query tool was rejected because it moves the difficulty to the caller. An agent without documentation cannot construct a correct query, and the tool description cannot carry a whole language.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-11: commits go through the API, and write mode commits directly
+
+This ADR described the commit queue as "a real branch in a local clone, so it survives a restart".
+[ADR-0029](0029-reading-repositories.md) came later and chose the GitHub API over cloning for reads, on the grounds that a reconcile wants a handful of files and a clone fetches all of history to deliver them.
+
+Writes now follow it: a commit is created through the API rather than in a checkout.
+The stated reason for the local clone is better served this way, not worse, because a branch that lives on GitHub survives a restart more completely than one that lives on a disk Dusk might not have next time.
+
+**Write mode commits straight to the repository's default branch**, one commit per call.
+The per-session branch remains for proposal mode, where a pull request needs a branch to come from.
+
+That split costs something this ADR had: a multi-call sequence is no longer atomic in write mode, so a failure partway leaves the earlier calls committed.
+It buys back the whole queue lifecycle, including the automatic flush and the abandoned-branch sweep that this ADR itself described as guarding against "silent data loss".
+An operator who chose write mode has already said they trust the agent, and a queue that must be swept to be safe is a worse trade for them than a commit that simply lands.
+
+`push()` therefore has nothing to flush in write mode and reports what already landed.
+It keeps its full meaning in proposal mode, where it is what opens the pull request.

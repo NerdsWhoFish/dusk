@@ -18,7 +18,7 @@ That is what stops the same argument happening again in six months.
 | [0007](0007-entity-schema.md) | Small schema, open kinds, attributes escape hatch | Entity, Relation, Note, Observation. Declaration and observation are different layers, and divergence is drift rather than conflict |
 | [0008](0008-storage.md) | SQLite via GORM on a pure-Go driver | Refs as a column, FTS5 for search. The driver choice is load-bearing: the default GORM driver requires cgo |
 | [0009](0009-proof-tokens.md) | Proof tokens gate every write | You cannot write what you have not read. One invariant replaces dedup, optimistic concurrency, and the vocabulary gate |
-| [0010](0010-mcp-surface.md) | A few fat MCP tools, not a schema mirror | Seven tools, per-session commit branches, note kinds, and three layers of note dedup |
+| [0010](0010-mcp-surface.md) | A few fat MCP tools, not a schema mirror | Seven tools, note kinds, and three layers of note dedup. Amended: commits go through the API, and write mode commits straight to the default branch |
 | [0011](0011-ingester-scheduling.md) | Scheduling, shared API budget, never delete on failure | A failing ingester marks observations stale and never removes entities. "I could not look" is never "it is not there" |
 | [0012](0012-viewing-auth.md) | Viewing authorization derives from repo access | No second permission model to drift. Per-entity filtering falls out for free |
 | [0013](0013-layout-and-pages.md) | Pages are markdown, blocks are queries | Entity pages belong to satellite repos, portal pages to the config repo. Route collisions are impossible by construction |
@@ -35,13 +35,9 @@ That is what stops the same argument happening again in six months.
 | [0024](0024-charts-publishes-charts.md) | The charts repository publishes its own charts | Supersedes half of 0019. Chart version and appVersion are independent, so no App and no cross-repo write |
 | [0025](0025-responsive-ui.md) | Mobile and desktop are both first class | A fixed viewport matrix is the definition, tests assert no overflow and touch target size, screenshot diffing is rejected |
 | [0026](0026-dusk-md-schema.md) | One file declares one entity, and its prose is the description | Fills in what 0004 left open. Refs are derived not authored, only outbound relations are declarable, `include` is one level deep and cannot escape the repository. Also places the declaration path's normalization edge, which 0018 left unstated, and spends the repository's zero-dependency property on a YAML parser |
-
 | [0027](0027-design-target.md) | The design target is a single operator and their agents | Homelabs and personal infrastructure, not platform teams. Team use stays supported but never breaks a tie. Corrects an audience assumption 0003, 0005 and 0013 had absorbed from Backstage |
-
 | [0028](0028-amending-adrs.md) | ADRs are amended in place, and retired rather than deleted | Any part may be corrected where it stands, disclosed in a dated section; a wholesale rewrite supersedes instead. A dead decision is `Retired`, and no ADR is ever deleted |
-
 | [0029](0029-reading-repositories.md) | Repositories are read over the API, at a pinned commit | Three endpoints instead of a clone, because a reconcile reads one file per repository. The ref is resolved once so a moving branch cannot stitch two commits into one graph, which also makes the tree cache safe |
-
 | [0030](0030-account-allowlist.md) | Only allowlisted accounts are reconciled | Anyone able to see an App can install it, and catalog content reaches agent context, so an uninvited installation is a prompt injection path. Defaults to the App's own account, checked on both the sweep and the webhook |
 
 ## Writing one

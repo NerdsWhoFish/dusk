@@ -52,9 +52,12 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Write path
 
-- [ ] **Proof tokens**: issue on read, validate on write, actionable rejections ([0009](../adr/0009-proof-tokens.md))
-- [ ] **Commit queue**: one commit per call on a per-session branch, with a flush policy ([0010](../adr/0010-mcp-surface.md))
-- [ ] **Access modes**: read, proposal, and write ([0005](../adr/0005-github-app-and-access-modes.md))
+- [x] **Proof tokens**: `pkg/proof`, issued by a read, invalidated by change with a TTL backstop, rejections naming the call that fixes them ([0009](../adr/0009-proof-tokens.md))
+- [x] **Rendering `dusk.md`**: `pkg/duskmd`, frontmatter rewritten and prose left byte-identical, so a write cannot disturb what somebody wrote ([0026](../adr/0026-dusk-md-schema.md))
+- [x] **Committing over the API**: `githubapp.CommitFile`, one file per commit, presenting the blob sha so a raced write collides instead of overwriting ([0010](../adr/0010-mcp-surface.md), [0029](../adr/0029-reading-repositories.md))
+- [ ] **`declare`**: the tool that ties the three together. Creating an entity means a new file, which is only read if an `include` glob catches it, so `declare` must place it or extend the root's `include`
+- [ ] **Proposal mode**: a per-session branch and a pull request. Write mode commits straight to the default branch and needs neither, so this is deferred until somebody runs in proposal mode ([0005](../adr/0005-github-app-and-access-modes.md), [0010](../adr/0010-mcp-surface.md))
+- [ ] **Read mode**: return the proposed diff rather than failing, which is what makes read-only first class rather than broken ([0005](../adr/0005-github-app-and-access-modes.md))
 - [ ] **Notes have no home in `dusk.md`**: deliberately deferred by [0026](../adr/0026-dusk-md-schema.md) until the MCP write path that authors them exists. Until then `search` covers entities alone, where [0010](../adr/0010-mcp-surface.md) wants entities and notes together
 - [ ] **Note dedup**: content hash and similarity warning ([0010](../adr/0010-mcp-surface.md))
 - [ ] **Vocabulary**: `getKinds`, `mintKind`, proof token, fuzzy matching ([0007](../adr/0007-entity-schema.md))
