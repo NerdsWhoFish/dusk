@@ -193,6 +193,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /entities/{ref}/dependents", s.handleAPIDependents)
 	api.HandleFunc("GET /status", s.handleAPIStatus)
 	api.HandleFunc("GET /overview", s.handleAPIOverview)
+	api.HandleFunc("GET /integrity", s.handleAPIIntegrity)
 	return api
 }
 

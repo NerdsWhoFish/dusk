@@ -41,6 +41,7 @@ That is what stops the same argument happening again in six months.
 | [0030](0030-account-allowlist.md) | Only allowlisted accounts are reconciled | Anyone able to see an App can install it, and catalog content reaches agent context, so an uninvited installation is a prompt injection path. Defaults to the App's own account, checked on both the sweep and the webhook |
 | [0031](0031-notes-are-files.md) | A note is its own file, discovered like any other | Fills in what 0026 deferred. One file per note because notes are written most and contention lands there; the path is the id; a required discriminator says whether a file is a note or an entity |
 | [0032](0032-tarball-reads.md) | Reads download a tarball, and only for repositories that opted in | Supersedes 0029's read half on the trigger 0029 itself named. Unchanged commit costs one call; a repository with no `dusk.md` is never downloaded; writes stay on the API |
+| [0033](0033-graph-integrity.md) | The catalog reports what is wrong with itself | Duplicate declarations, dangling relations and unresolvable note refs become a read rather than staying silent. Reported, never rejected: an unresolvable ref is the normal state of a catalog still being adopted |
 
 ## Writing one
 

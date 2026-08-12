@@ -27,6 +27,7 @@ type Catalog interface {
 	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
 	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
+	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 }
 
 // entityJSON is the wire shape, written by hand rather than through protojson,
@@ -246,6 +247,17 @@ func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
 		"notes":        asNotes(notes),
 		"repositories": repositories,
 	})
+}
+
+// handleAPIIntegrity answers GET /api/integrity: what is wrong with the graph
+// that no other read would mention.
+func (s *Server) handleAPIIntegrity(w http.ResponseWriter, r *http.Request) {
+	problems, err := s.catalog.Integrity(r.Context(), "")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"problems": problems})
 }
 
 // handleAPIStatus answers GET /api/status with what Dusk last read, which is

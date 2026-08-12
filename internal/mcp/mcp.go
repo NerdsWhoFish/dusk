@@ -35,6 +35,7 @@ type Catalog interface {
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
+	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 }
 
 // Syncs reports what the controller last did, so an agent can tell a stale
@@ -85,7 +86,7 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - search finds entities by any word in their name, kind, title, or description.
 - get returns everything known about one entity, including what it connects to.
 - neighbors walks the graph outward from an entity.
-- changes reports what Dusk last read from git, which is how you tell a stale answer from a missing one.
+- changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
 
 Every result carries a ref of the form kind:namespace/name. Refs feed straight back into get.
 
@@ -129,9 +130,12 @@ func (s *Server) sdkServer() *sdk.Server {
 		Description: "Walk the graph outward from an entity to find what depends on it.",
 	}, s.neighbors)
 
+	// Freshness and soundness are one question, "how much should I trust what
+	// you just told me", so they are one tool. ADR-0010 makes the size of the
+	// tool list a product constraint: it is spent before any work happens.
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "changes",
-		Description: "What Dusk last read from git, per repository. Use it to tell a stale answer from a missing one.",
+		Description: "The state of the catalog: what Dusk last read from each repository, and anything wrong with the result. Use it to tell a stale answer from a missing one, and a confident answer from a correct one.",
 	}, s.changes)
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
@@ -370,22 +374,43 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 		verb, result.Path, result.Repository, result.URL, result.Path)), nil, nil
 }
 
+// renderIntegrity appends what is wrong with the graph. It arrives unasked
+// for, like the proof token does, because an agent that has to know to ask
+// whether an answer is trustworthy will not ask.
+func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) error {
+	problems, err := s.opts.Catalog.Integrity(ctx, "")
+	if err != nil {
+		return err
+	}
+	if len(problems) == 0 {
+		out.WriteString("\nNothing is declared twice, and every relation and note points at something that exists.\n")
+		return nil
+	}
+
+	fmt.Fprintf(out, "\n## %d problem(s) with the catalog itself\n\n", len(problems))
+	for _, problem := range problems {
+		fmt.Fprintf(out, "**`%s`** (%s)\n\n%s.\n", problem.Ref, problem.Kind, problem.Detail)
+		for _, where := range problem.Where {
+			fmt.Fprintf(out, "- %s\n", where)
+		}
+		out.WriteString("\n")
+	}
+
+	out.WriteString("These are not read failures. Each is a place the catalog answers confidently and may be wrong.\n")
+	return nil
+}
+
 type changesInput struct{}
 
-func (s *Server) changes(_ context.Context, _ *sdk.CallToolRequest, _ changesInput) (*sdk.CallToolResult, any, error) {
-	if s.opts.Syncs == nil {
-		return text("Sync status is not available in this deployment."), nil, nil
-	}
+func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesInput) (*sdk.CallToolResult, any, error) {
+	var out strings.Builder
 
-	statuses := s.opts.Syncs.Status()
-	if len(statuses) == 0 {
-		return text("Dusk has not read any repository yet."), nil, nil
-	}
+	// Soundness does not depend on sync status, so it is reported even where
+	// there is none. Returning early here once meant a deployment without a
+	// controller could never learn its catalog was broken.
+	statuses := s.freshness(&out)
 
 	var declaring, failing, quiet int
-	var out strings.Builder
-	out.WriteString("# What Dusk last read\n\n")
-
 	for _, status := range statuses {
 		switch {
 		case status.Error != "":
@@ -400,9 +425,33 @@ func (s *Server) changes(_ context.Context, _ *sdk.CallToolRequest, _ changesInp
 		}
 	}
 
-	fmt.Fprintf(&out, "\n%d repository(s) declare entities, %d failed, and %d contain no dusk.md.\n",
-		declaring, failing, quiet)
+	if len(statuses) > 0 {
+		fmt.Fprintf(&out, "\n%d repository(s) declare entities, %d failed, and %d contain no dusk.md.\n",
+			declaring, failing, quiet)
+	}
+
+	if err := s.renderIntegrity(ctx, &out); err != nil {
+		return nil, nil, err
+	}
 	return text(out.String()), nil, nil
+}
+
+// freshness writes the read-status half and returns what it found, so the
+// caller can tell "nothing read" from "nothing to say about what was read".
+func (s *Server) freshness(out *strings.Builder) []SyncStatus {
+	if s.opts.Syncs == nil {
+		out.WriteString("# The catalog\n\nSync status is not available in this deployment.\n")
+		return nil
+	}
+
+	statuses := s.opts.Syncs.Status()
+	if len(statuses) == 0 {
+		out.WriteString("# The catalog\n\nDusk has not read any repository yet.\n")
+		return nil
+	}
+
+	out.WriteString("# What Dusk last read\n\n")
+	return statuses
 }
 
 func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) string {
