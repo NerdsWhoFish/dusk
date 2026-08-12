@@ -52,6 +52,7 @@ type install struct {
 // fakeGitHub serves enough of the API for a whole sweep.
 type fakeGitHub struct {
 	installs []install
+	appOwner string
 
 	mu    sync.Mutex
 	calls map[string]int
@@ -67,6 +68,8 @@ func (f *fakeGitHub) start(t *testing.T) *githubapp.Client {
 		case strings.HasSuffix(req.URL.Path, "/access_tokens"):
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"token":"ghs_x","expires_at":"2099-01-01T00:00:00Z"}`)
+		case req.URL.Path == "/app":
+			_, _ = io.WriteString(w, `{"id":1,"slug":"dusk","owner":{"login":"`+f.appOwner+`"}}`)
 		case req.URL.Path == "/app/installations":
 			f.writeInstallations(w)
 		case req.URL.Path == "/installation/repositories":
@@ -379,5 +382,27 @@ func TestRunSweepsUntilCancelled(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not stop when its context was cancelled")
+	}
+}
+
+// Credentials stored before onboarding recorded an owner leave it empty, and an
+// empty owner allows nothing. Upgrading must not silently stop reconciling.
+func TestOwnerIsResolvedWhenOnboardingDidNotRecordIt(t *testing.T) {
+	fake := &fakeGitHub{
+		appOwner: "example",
+		installs: []install{{
+			id:      10,
+			account: "example",
+			repos:   map[string]string{"example/homelab": rootFile("jellyfin")},
+		}},
+	}
+	c, idx := newController(t, fake, "", controller.Options{})
+
+	if err := c.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if _, err := idx.Get(t.Context(), mainRef, "service:home/jellyfin"); err != nil {
+		t.Fatalf("an upgraded install reconciled nothing: %v", err)
 	}
 }

@@ -65,6 +65,48 @@ func (c *Client) Installations(ctx context.Context, app App) ([]Installation, er
 	}
 }
 
+// Metadata is what GitHub reports about the App itself.
+type Metadata struct {
+	ID    int64  `json:"id"`
+	Slug  string `json:"slug"`
+	Owner struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+}
+
+// App reads the App's own record. It is how Dusk learns which account it
+// belongs to when onboarding predates that being recorded.
+func (c *Client) App(ctx context.Context, app App) (*Metadata, error) {
+	assertion, err := app.JWT(time.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL()+"/app", http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("githubapp: build app request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", APIVersion)
+	req.Header.Set("Authorization", "Bearer "+assertion.Reveal())
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("githubapp: read app: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("githubapp: read app: %w", statusError(resp))
+	}
+
+	metadata := &Metadata{}
+	if err := json.NewDecoder(resp.Body).Decode(metadata); err != nil {
+		return nil, fmt.Errorf("githubapp: decode app: %w", err)
+	}
+	return metadata, nil
+}
+
 // Install is one installation, and the handle through which its repositories
 // are reached. It exists so a caller wires the client, the token cache, and the
 // installation id together once.

@@ -56,26 +56,52 @@ type Controller struct {
 	// sweeps rather than re-minting a token every ten minutes.
 	tokens *githubapp.Tokens
 	appID  int64
+
+	// resolvedOwner caches an owner asked of GitHub, for credentials stored
+	// before onboarding recorded one.
+	resolvedOwner string
 }
 
-// auth loads the App identity and a token cache for it.
-func (c *Controller) auth() (*githubapp.Tokens, string, error) {
+// auth loads the App identity, a token cache for it, and the account it
+// belongs to.
+func (c *Controller) auth(ctx context.Context) (*githubapp.Tokens, string, error) {
 	creds, err := c.opts.Credentials.Load()
 	if err != nil {
 		return nil, "", err
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.tokens == nil || c.appID != creds.AppID {
 		c.appID = creds.AppID
+		c.resolvedOwner = ""
 		c.tokens = &githubapp.Tokens{
 			Client: c.opts.Client,
 			App:    githubapp.App{ID: creds.AppID, PrivateKey: creds.PrivateKey},
 		}
 	}
-	return c.tokens, creds.Owner, nil
+	tokens, cached := c.tokens, c.resolvedOwner
+	c.mu.Unlock()
+
+	if creds.Owner != "" {
+		return tokens, creds.Owner, nil
+	}
+	if cached != "" {
+		return tokens, cached, nil
+	}
+
+	// Onboarding before the owner was recorded leaves it empty, and an empty
+	// owner allows nothing. Ask GitHub rather than refusing every installation.
+	metadata, err := c.opts.Client.App(ctx, tokens.App)
+	if err != nil {
+		return nil, "", fmt.Errorf("controller: this App records no owner and GitHub could not be asked for one: %w", err)
+	}
+
+	c.mu.Lock()
+	c.resolvedOwner = metadata.Owner.Login
+	c.mu.Unlock()
+	c.opts.Logger.Info("resolved the App owner from GitHub",
+		"owner", metadata.Owner.Login, "reason", "onboarding predates it being recorded")
+	return tokens, metadata.Owner.Login, nil
 }
 
 // Status is the outcome of the last reconcile of one repository, which is the
@@ -136,7 +162,7 @@ func (c *Controller) Permitted(account, owner string) bool {
 // can no longer see. One repository failing neither stops the sweep nor removes
 // what that repository already contributed.
 func (c *Controller) Sync(ctx context.Context) error {
-	tokens, owner, err := c.auth()
+	tokens, owner, err := c.auth(ctx)
 	if err != nil {
 		c.opts.Logger.Info("sweep skipped: not onboarded yet", "reason", err)
 		return nil
@@ -196,7 +222,7 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 
 // SyncRepository reconciles one repository, which is what a webhook triggers.
 func (c *Controller) SyncRepository(ctx context.Context, installationID int64, account, owner, name, gitRef string) error {
-	tokens, appOwner, err := c.auth()
+	tokens, appOwner, err := c.auth(ctx)
 	if err != nil {
 		c.opts.Logger.Info("delivery skipped: not onboarded yet", "reason", err)
 		return nil

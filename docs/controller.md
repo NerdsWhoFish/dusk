@@ -58,3 +58,6 @@ An error is kept **alongside** the previous good numbers rather than replacing t
 The controller loads the App identity on every sweep rather than at startup.
 
 Onboarding therefore takes effect without a restart: a Dusk that starts un-onboarded logs that it is skipping, and begins reconciling once setup completes.
+
+An install onboarded before the App's owner was recorded has no owner stored, and an empty owner allows nothing.
+Rather than silently reconciling zero repositories, Dusk asks GitHub for the App's owner and carries on, logging that it did.
