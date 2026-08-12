@@ -98,9 +98,9 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. Notes, which need a home in `dusk.md` before `search` can cover them alongside entities. They are what agents write most, so this is the write path's other half.
-2. Pull request previews, which the ref-keyed index was built for and nothing yet uses.
-3. The HTTP API and the UI, which is the first surface a human rather than an agent reads.
+1. The plugin host. Ingestion now works in tree ([0034](../adr/0034-ingesters-in-tree-first.md)) and its machinery is proven against a real cluster, so [ADR-0002](../adr/0002-plugin-protocol.md)'s subprocess protocol is now a second implementation of a working interface rather than an invention.
+2. The shared per-source API budget in the ingest scheduler. Each ingester is currently bounded only by its own interval, so a second GitHub ingester would assume it had the whole quota.
+3. Filtering drift, integrity and kind counts for a restricted viewer. They are the only reads a signed-in person sees unfiltered.
 
 ## Known gaps
 
