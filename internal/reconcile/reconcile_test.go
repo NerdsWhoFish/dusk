@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
 	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/reconcile"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
@@ -129,6 +131,103 @@ func TestReconcile(t *testing.T) {
 			t.Errorf("Search = %v, want navidrome", results)
 		}
 	})
+}
+
+const noteFile = `---
+dusk: v1alpha1
+note: gotcha
+refs:
+  - host:home/nas
+  - service:home/jellyfin
+---
+
+Transcoding is off on purpose. Anything that will not direct play is a client
+problem, not a server one.
+`
+
+// A repository that declares no include still has somewhere Dusk can read and
+// write, or the write path would be refusable exactly where it is first tried.
+func TestNotesInDuskDirNeedNoInclude(t *testing.T) {
+	rootWithoutInclude := strings.Replace(rootFile, "include:\n  - services/*/dusk.md\n", "", 1)
+
+	_, reconciler := setup(t, map[string]string{
+		"dusk.md":                    rootWithoutInclude,
+		".dusk/transcoding.md":       noteFile,
+		".dusk/notes/second-note.md": strings.Replace(noteFile, "note: gotcha", "note: runbook", 1),
+	})
+
+	graph, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt)
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if len(graph.Notes) != 2 {
+		t.Fatalf("Notes = %d, want both, one nested: %+v", len(graph.Notes), graph.Notes)
+	}
+	// One entity, from the root. A note must not be mistaken for one.
+	if len(graph.Entities) != 1 {
+		t.Errorf("Entities = %d, want only the root's", len(graph.Entities))
+	}
+
+	byKind := map[string]*duskv1alpha1.Note{}
+	for _, note := range graph.Notes {
+		byKind[note.GetKind()] = note
+	}
+	gotcha, ok := byKind["gotcha"]
+	if !ok {
+		t.Fatalf("no gotcha among %v", byKind)
+	}
+
+	t.Run("the path is the id", func(t *testing.T) {
+		if gotcha.GetId() != ".dusk/transcoding.md" {
+			t.Errorf("id = %q, want the path", gotcha.GetId())
+		}
+	})
+
+	t.Run("it attaches to every ref it names", func(t *testing.T) {
+		if len(gotcha.GetRefs()) != 2 {
+			t.Errorf("refs = %v, want both entities", gotcha.GetRefs())
+		}
+	})
+
+	t.Run("the body is the prose", func(t *testing.T) {
+		if !strings.Contains(gotcha.GetBody(), "direct play") {
+			t.Errorf("body = %q, want the prose", gotcha.GetBody())
+		}
+	})
+
+	t.Run("identical bodies hash identically", func(t *testing.T) {
+		if byKind["runbook"].GetContentHash() != gotcha.GetContentHash() {
+			t.Error("the same body hashed differently, so dedup could never work")
+		}
+	})
+}
+
+func TestNoteFilesAreValidated(t *testing.T) {
+	tests := []struct {
+		name string
+		file string
+		want string
+	}{
+		{"a note with no refs surfaces nowhere", strings.Replace(noteFile, "refs:\n  - host:home/nas\n  - service:home/jellyfin\n", "refs: []\n", 1), "at least one entity"},
+		{"a ref that is not a ref is rejected", strings.Replace(noteFile, "- host:home/nas", "- nas", 1), "kind:namespace/name"},
+		{"a note with no prose is not a note", strings.SplitN(noteFile, "---\n\n", 2)[0] + "---\n", "has none below the frontmatter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, reconciler := setup(t, map[string]string{
+				"dusk.md": rootFile, ".dusk/broken.md": tt.file,
+			})
+			_, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt)
+			if err == nil {
+				t.Fatal("Reconcile accepted a broken note")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.want)
+			}
+		})
+	}
 }
 
 // ADR-0004 promises that Dusk reads the root dusk.md and nothing else in the

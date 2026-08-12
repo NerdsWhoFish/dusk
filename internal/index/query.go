@@ -14,13 +14,18 @@ import (
 // SearchResult is one full-text hit, carrying enough to render a list without
 // a second read.
 type SearchResult struct {
+	// Type is "entity" or "note". One search covers both, because "how do I
+	// reach the zwave pi" is a note and "the zwave pi" is an entity.
+	Type string
+
+	// Ref identifies the hit: an entity ref, or a note's path.
 	Ref     string
 	Kind    string
 	Title   string
 	Snippet string
 
 	// Version is what a proof token records, so a search authorizes writing
-	// everything it returned rather than only naming it.
+	// everything it returned rather than only naming it. Empty for a note.
 	Version string
 }
 
@@ -133,15 +138,15 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 
 	var results []SearchResult
 	err := db.gorm.WithContext(ctx).Raw(`
-		SELECT f.ref, f.kind, f.title,
-		       -- Column 6 is description. snippet() takes a positional index,
-		       -- so adding a column to entity_fts silently moves this.
-		       snippet(entity_fts, 6, '', '', '...', 12) AS snippet,
-		       e.version
-		  FROM entity_fts f
-		  JOIN entities e
-		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.ref
-		 WHERE entity_fts MATCH ? AND `+scope+`
+		SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
+		       -- Column 7 is body. snippet() takes a positional index, so
+		       -- adding a column to catalog_fts silently moves this.
+		       snippet(catalog_fts, 7, '', '', '...', 12) AS snippet,
+		       COALESCE(e.version, '') AS version
+		  FROM catalog_fts f
+		  LEFT JOIN entities e
+		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
+		 WHERE catalog_fts MATCH ? AND `+scope+`
 		 ORDER BY rank
 		 LIMIT ?`, args...,
 	).Scan(&results).Error

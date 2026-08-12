@@ -1,0 +1,134 @@
+package duskmd
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
+	"strings"
+
+	"github.com/FetchHQ/dusk-plugin-sdk/conformance"
+	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+)
+
+// WellKnownNoteKinds seed the vocabulary. Kind drives ranking and rendering
+// rather than only labelling, so a gotcha surfaces where a todo does not.
+var WellKnownNoteKinds = []string{"gotcha", "runbook", "howto", "decision", "incident", "todo"}
+
+// noteFrontmatter is the authorable shape of a note file.
+type noteFrontmatter struct {
+	Dusk   string   `yaml:"dusk"`
+	Note   string   `yaml:"note"`
+	Refs   []string `yaml:"refs"`
+	Pinned bool     `yaml:"pinned,omitempty"`
+}
+
+var knownNoteFields = map[string]bool{
+	"dusk": true, "note": true, "refs": true, "pinned": true,
+}
+
+var derivedNoteFields = map[string]string{
+	"id":           "id is the file's path, so it cannot be declared here",
+	"body":         "body is the prose below the frontmatter, not a field",
+	"content_hash": "content_hash is computed from the body",
+}
+
+// IsNote reports whether a catalog file declares a note rather than an entity.
+// The discriminator is required rather than inferred: a file whose type has to
+// be guessed is one that will eventually be guessed wrong.
+func IsNote(data []byte) bool {
+	front, _, err := splitFrontmatter(data)
+	if err != nil {
+		return false
+	}
+	mapping, err := frontmatterMapping(front)
+	if err != nil {
+		return false
+	}
+	return valueNode(mapping, "note") != nil
+}
+
+// ParseNote reads a note file.
+func ParseNote(filePath string, data []byte, p Provenance) (*duskv1alpha1.Note, error) {
+	front, body, err := splitFrontmatter(data)
+	if err != nil {
+		return nil, Errors{{Path: filePath, Message: err.Error()}}
+	}
+
+	mapping, err := frontmatterMapping(front)
+	if err != nil {
+		return nil, Errors{{Path: filePath, Message: err.Error()}}
+	}
+
+	c := &collector{path: filePath}
+	lines := keyLines(mapping)
+	checkKeys(c, mapping, knownNoteFields, derivedNoteFields)
+
+	var fm noteFrontmatter
+	if err := mapping.Decode(&fm); err != nil {
+		c.decodeError(err)
+		return nil, c.err()
+	}
+
+	c.checkNoteVersion(fm, lines)
+	kind := strings.TrimSpace(fm.Note)
+	if kind == "" {
+		c.at(lines["note"], "note", "is required and is what makes this file a note")
+	}
+
+	refs := c.checkNoteRefs(fm, lines)
+	prose := strings.TrimSpace(string(body))
+	if prose == "" {
+		c.at(0, "", "a note is its prose, and this file has none below the frontmatter")
+	}
+
+	if err := c.err(); err != nil {
+		return nil, err
+	}
+	return &duskv1alpha1.Note{
+		Id:          filePath,
+		Kind:        kind,
+		Refs:        refs,
+		Body:        prose,
+		Pinned:      fm.Pinned,
+		ContentHash: ContentHash(prose),
+		Provenance:  provenance(p),
+	}, nil
+}
+
+// ContentHash identifies a body, so an identical note written twice resolves to
+// the one that exists rather than a duplicate.
+func ContentHash(body string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(body)))
+	return hex.EncodeToString(sum[:])
+}
+
+func (c *collector) checkNoteVersion(fm noteFrontmatter, lines map[string]int) {
+	if fm.Dusk != SchemaVersion {
+		c.at(lines["dusk"], "dusk", `is required and must be "`+SchemaVersion+`"`)
+	}
+}
+
+// checkNoteRefs validates what the note attaches to. Nothing here checks the
+// refs resolve, because a note may legitimately be about an entity another
+// repository declares.
+func (c *collector) checkNoteRefs(fm noteFrontmatter, lines map[string]int) []string {
+	if len(fm.Refs) == 0 {
+		c.at(lines["refs"], "refs", "must name at least one entity, or nothing will ever surface this note")
+	}
+
+	refs := make([]string, 0, len(fm.Refs))
+	for i, ref := range fm.Refs {
+		ref = strings.TrimSpace(ref)
+		field := "refs[" + strconv.Itoa(i) + "]"
+		if ref == "" {
+			c.at(lines["refs"], field, "must not be empty")
+			continue
+		}
+		if _, _, _, err := conformance.ParseRef(ref); err != nil {
+			c.at(lines["refs"], field, "must be a ref of the form kind:namespace/name: "+err.Error())
+			continue
+		}
+		refs = append(refs, ref)
+	}
+	return refs
+}

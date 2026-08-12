@@ -82,7 +82,7 @@ func seed(t *testing.T, idx *index.DB) {
 	for _, e := range entities {
 		declarations = append(declarations, index.Declaration{Path: e.GetName() + "/dusk.md", Entity: e})
 	}
-	if err := idx.Put(ctx, "example/homelab", mainRef, declarations, relations); err != nil {
+	if err := idx.Put(ctx, "example/homelab", mainRef, declarations, relations, nil); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if err := idx.SetDefaultView(ctx, "example/homelab", mainRef); err != nil {

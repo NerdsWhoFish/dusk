@@ -39,6 +39,7 @@ That is what stops the same argument happening again in six months.
 | [0028](0028-amending-adrs.md) | ADRs are amended in place, and retired rather than deleted | Any part may be corrected where it stands, disclosed in a dated section; a wholesale rewrite supersedes instead. A dead decision is `Retired`, and no ADR is ever deleted |
 | [0029](0029-reading-repositories.md) | Repositories are read over the API, at a pinned commit | Three endpoints instead of a clone, because a reconcile reads one file per repository. The ref is resolved once so a moving branch cannot stitch two commits into one graph, which also makes the tree cache safe |
 | [0030](0030-account-allowlist.md) | Only allowlisted accounts are reconciled | Anyone able to see an App can install it, and catalog content reaches agent context, so an uninvited installation is a prompt injection path. Defaults to the App's own account, checked on both the sweep and the webhook |
+| [0031](0031-notes-are-files.md) | A note is its own file, discovered like any other | Fills in what 0026 deferred. One file per note because notes are written most and contention lands there; the path is the id; a required discriminator says whether a file is a note or an entity |
 
 ## Writing one
 

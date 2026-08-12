@@ -70,6 +70,10 @@ type Graph struct {
 
 	Entities  []*duskv1alpha1.Entity
 	Relations []*duskv1alpha1.Relation
+
+	// Notes are the curated knowledge attached to entities, which may live in
+	// this repository while the entities they describe live elsewhere.
+	Notes []*duskv1alpha1.Note
 }
 
 // declarations pairs each entity with the file that declared it. Files and
@@ -110,12 +114,16 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 		return &Graph{GitRef: gitRef, Commit: commit, Participating: false}, nil
 	}
 
-	files, err := l.collect(ctx, commit, root, provenance)
+	files, notes, err := l.collect(ctx, commit, root, provenance)
 	if err != nil {
 		return nil, err
 	}
 
-	graph := &Graph{GitRef: gitRef, Commit: commit, Participating: true, Files: make([]string, 0, len(files))}
+	graph := &Graph{
+		GitRef: gitRef, Commit: commit, Participating: true,
+		Files: make([]string, 0, len(files)),
+		Notes: notes,
+	}
 	if err := graph.merge(files); err != nil {
 		return nil, err
 	}
@@ -139,16 +147,18 @@ func (l *Loader) readRoot(ctx context.Context, commit string, provenance duskmd.
 	return root, nil
 }
 
-// collect returns the root file followed by everything its includes reach.
-func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, error) {
+// collect returns the root file followed by everything its includes reach,
+// separated into the entities they declare and the notes they carry.
+func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, []*duskv1alpha1.Note, error) {
 	paths, err := l.expand(ctx, commit, root.Include)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	files := make([]*duskmd.File, 0, len(paths)+1)
 	files = append(files, root)
 
+	var notes []*duskv1alpha1.Note
 	var problems []error
 	for _, filePath := range paths {
 		data, err := l.source.ReadFile(ctx, commit, filePath)
@@ -156,6 +166,19 @@ func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, 
 			problems = append(problems, fmt.Errorf("reconcile: read %q at %q: %w", filePath, commit, err))
 			continue
 		}
+
+		// An included file says which it is. Notes and entities share the
+		// include list, so the discriminator is what tells them apart.
+		if duskmd.IsNote(data) {
+			note, err := duskmd.ParseNote(filePath, data, provenance)
+			if err != nil {
+				problems = append(problems, err)
+				continue
+			}
+			notes = append(notes, note)
+			continue
+		}
+
 		included, err := duskmd.ParseIncluded(filePath, data, root.Entity.GetNamespace(), provenance)
 		if err != nil {
 			problems = append(problems, err)
@@ -164,10 +187,15 @@ func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, 
 		files = append(files, included)
 	}
 	if len(problems) > 0 {
-		return nil, errors.Join(problems...)
+		return nil, nil, errors.Join(problems...)
 	}
-	return files, nil
+	return files, notes, nil
 }
+
+// DuskDir is read whenever it exists, with no include needed. A directory whose
+// whole purpose is catalog content is consent by construction, and it gives a
+// write somewhere to land in a repository that declares no include.
+const DuskDir = ".dusk"
 
 // expand resolves include patterns to a sorted, deduplicated path list. The
 // root file is excluded so that a pattern matching it cannot declare its entity
@@ -175,6 +203,9 @@ func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, 
 func (l *Loader) expand(ctx context.Context, commit string, patterns []string) ([]string, error) {
 	seen := map[string]bool{RootFile: true}
 	var paths []string
+
+	// Always in scope, ahead of whatever the root asks for.
+	patterns = append([]string{DuskDir + "/*.md", DuskDir + "/*/*.md"}, patterns...)
 
 	for _, pattern := range patterns {
 		matches, err := l.source.Glob(ctx, commit, pattern)
@@ -242,7 +273,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, o
 		}
 		return graph, nil
 	}
-	if err := r.index.Put(ctx, repository, gitRef, graph.declarations(), graph.Relations); err != nil {
+	if err := r.index.Put(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes); err != nil {
 		return nil, err
 	}
 	return graph, nil
