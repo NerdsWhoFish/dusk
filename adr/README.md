@@ -46,6 +46,7 @@ That is what stops the same argument happening again in six months.
 | [0035](0035-blocks-resolve-server-side.md) | A page's blocks resolve on the server | Implements 0013. One request per page, one implementation of each block type shared with the agent renderer, and a failing block renders empty carrying its reason |
 | [0036](0036-deriving-what-a-viewer-sees.md) | Signing in with GitHub, and what it does not protect | Implements 0012. Visibility derives from repository access, observed entities are hidden by default, invisible answers as absent. The shared token remains a full bypass, stated plainly |
 | [0037](0037-pull-request-previews.md) | A pull request is a version of the catalog | Implements 0001's review half and finally uses 0008's ref-keyed index. Semantic diff, one comment edited in place, removals flagged, closing drops the ref |
+| [0038](0038-what-drift-may-say.md) | Drift only speaks where something is watching | Extends 0011's rule that "I could not look" is not "it is not there" to kinds nobody observes. Coverage is derived from observations, and a declaration over its own observation stops reading as a conflict |
 
 ## Writing one
 

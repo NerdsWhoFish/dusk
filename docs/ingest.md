@@ -104,3 +104,16 @@ observed_as:
 
 Without the mapping, drift reports your declaration as missing and the observed service as undeclared, forever.
 See [dusk-md.md](dusk-md.md).
+
+The mapping is unnecessary when you declare an entity at the ref the ingester already reports, which is the shortest path from the undeclared list to a documented estate.
+Declaring `host:prod/node-1` when that is what the ingester calls it makes them the same entity, the declaration wins the read, and no alias is involved.
+
+## What drift will not tell you
+
+Drift only judges kinds something observes ([ADR-0038](../adr/0038-what-drift-may-say.md)).
+
+The Kubernetes ingester reports services, hosts and clusters, so a declared `repository:` or `team:` is never reported as missing however long it has been gone.
+Nothing is watching for it, and a report that named every unwatched kind would be noise on the first page.
+
+The cost is the reverse case: removing the only ingester for a kind makes drift go quiet about that kind rather than raising an alarm.
+Watch the ingester's own health for that, not drift.

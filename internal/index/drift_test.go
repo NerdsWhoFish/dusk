@@ -1,6 +1,7 @@
 package index_test
 
 import (
+	"slices"
 	"testing"
 
 	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
@@ -33,6 +34,36 @@ func TestDriftIsSilentWithNoIngesters(t *testing.T) {
 	}
 	if len(drifts) != 0 {
 		t.Errorf("drift with no ingesters reported %d items: %+v", len(drifts), drifts)
+	}
+}
+
+// Nothing observes a repository, so a declared one is not missing, it is
+// unwatched. Reporting it makes every kind an ingester does not cover into
+// permanent drift nobody can ever clear.
+func TestADR0038_DriftIsSilentWhereNothingObserves(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
+		entity("repository:home/infra", "Infra", ""),
+		entity("service:home/retired", "Retired thing", ""),
+	}, nil)
+	observe(t, db, "kubernetes", entity("service:home/surprise", "surprise", ""))
+
+	drifts, err := db.Drift(t.Context(), mainRef)
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+
+	for _, drift := range drifts {
+		if drift.Ref == "repository:home/infra" {
+			t.Errorf("an unwatched kind was reported as drift: %+v", drift)
+		}
+	}
+
+	// The observed kind still reports, or the filter has swallowed the signal.
+	if !slices.ContainsFunc(drifts, func(d index.Drift) bool {
+		return d.Ref == "service:home/retired" && d.Kind == index.DriftMissing
+	}) {
+		t.Errorf("a declared service nothing observed was not reported: %+v", drifts)
 	}
 }
 

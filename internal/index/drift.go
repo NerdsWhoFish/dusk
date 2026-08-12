@@ -41,17 +41,9 @@ type driftRow struct {
 }
 
 // Drift compares the declared half of the catalog against the observed half.
-// It stays silent with no ingesters running, where every entity is declared
-// and unobserved and the report would name the whole catalog.
+// Nothing is missing until something is looking for it, so a kind no ingester
+// reports is left alone rather than named as entirely gone.
 func (db *DB) Drift(ctx context.Context, gitRef string) ([]Drift, error) {
-	observing, err := db.observing(ctx, gitRef)
-	if err != nil {
-		return nil, err
-	}
-	if !observing {
-		return nil, nil
-	}
-
 	missing, err := db.declaredNotObserved(ctx, gitRef)
 	if err != nil {
 		return nil, err
@@ -61,22 +53,6 @@ func (db *DB) Drift(ctx context.Context, gitRef string) ([]Drift, error) {
 		return nil, err
 	}
 	return append(missing, undeclared...), nil
-}
-
-// observing reports whether anything is being observed at all, so drift stays
-// silent rather than reporting a catalog nobody is watching as entirely gone.
-func (db *DB) observing(ctx context.Context, gitRef string) (bool, error) {
-	clause, args := scopeClause("", gitRef)
-
-	var count int64
-	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
-		Where(clause, args...).
-		Where("observed = ?", true).
-		Limit(1).Count(&count).Error
-	if err != nil {
-		return false, fmt.Errorf("index: check for observations: %w", err)
-	}
-	return count > 0, nil
 }
 
 func (db *DB) declaredNotObserved(ctx context.Context, gitRef string) ([]Drift, error) {
@@ -116,6 +92,8 @@ func (db *DB) observedNotDeclared(ctx context.Context, gitRef string) ([]Drift, 
 // compare finds refs on one side and absent on the other, where an
 // `observed_as` alias counts as a match. Without the alias every entity would
 // appear on both sides, because a human and an ingester never pick one name.
+// Declared rows are limited to kinds something observes, because absence needs
+// an observer to be absent from.
 func (db *DB) compare(ctx context.Context, gitRef string, observed bool) ([]driftRow, error) {
 	clause, args := scopeClause("", gitRef)
 	otherScope, otherArgs := scopeClause("other", gitRef)
@@ -133,16 +111,21 @@ func (db *DB) compare(ctx context.Context, gitRef string, observed bool) ([]drif
 		matched += "entity_aliases.ref = entities.ref AND entity_aliases.alias = other.ref)))"
 	}
 
-	var rows []driftRow
-	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
+	query := db.gorm.WithContext(ctx).Model(&entityRow{}).
 		Select("ref, title, repository").
 		Where(clause, args...).
 		Where("observed = ?", observed).
-		Where(matched, append(append([]any{!observed}, otherArgs...), aliasArgs...)...).
-		Group("ref").
-		Order("ref").
-		Find(&rows).Error
-	if err != nil {
+		Where(matched, append(append([]any{!observed}, otherArgs...), aliasArgs...)...)
+
+	if !observed {
+		watchedScope, watchedArgs := scopeClause("watched", gitRef)
+		query = query.Where("EXISTS (SELECT 1 FROM entities watched WHERE watched.observed = ?"+
+			" AND "+watchedScope+" AND watched.kind = entities.kind)",
+			append([]any{true}, watchedArgs...)...)
+	}
+
+	var rows []driftRow
+	if err := query.Group("ref").Order("ref").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("index: compare declared against observed: %w", err)
 	}
 	return rows, nil
