@@ -90,19 +90,19 @@ type config struct {
 // catalog that is confidently wrong.
 type frontmatter struct {
 	Dusk       string         `yaml:"dusk"`
-	Namespace  string         `yaml:"namespace"`
+	Namespace  string         `yaml:"namespace,omitempty"`
 	Kind       string         `yaml:"kind"`
 	Name       string         `yaml:"name"`
-	Title      string         `yaml:"title"`
-	Relations  []relation     `yaml:"relations"`
-	Attributes map[string]any `yaml:"attributes"`
-	Include    []string       `yaml:"include"`
+	Title      string         `yaml:"title,omitempty"`
+	Relations  []relation     `yaml:"relations,omitempty"`
+	Attributes map[string]any `yaml:"attributes,omitempty"`
+	Include    []string       `yaml:"include,omitempty"`
 }
 
 type relation struct {
 	Type       string         `yaml:"type"`
 	To         string         `yaml:"to"`
-	Attributes map[string]any `yaml:"attributes"`
+	Attributes map[string]any `yaml:"attributes,omitempty"`
 }
 
 var knownFields = map[string]bool{
