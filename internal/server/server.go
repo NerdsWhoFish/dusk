@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FetchHQ/dusk/internal/access"
 	"github.com/FetchHQ/dusk/internal/config"
 	"github.com/FetchHQ/dusk/internal/controller"
 	"github.com/FetchHQ/dusk/internal/store"
@@ -42,6 +43,9 @@ type Server struct {
 	credentials credentialStore
 	github      appClient
 	controller  catalogController
+	catalog     Catalog
+	syncs       Syncs
+	access      *access.Policy
 	mcp         http.Handler
 	state       *setupState
 	deliveries  *seenDeliveries
@@ -50,12 +54,23 @@ type Server struct {
 	tmpl        *template.Template
 }
 
+// Syncs reports what the controller last read, so the UI can tell a stale
+// answer from a missing one.
+type Syncs interface {
+	Status() []controller.Status
+}
+
 // Options are the server's dependencies. Zero values get sane defaults.
 type Options struct {
 	Config      *config.Config
 	Credentials credentialStore
 	GitHub      appClient
 	Controller  catalogController
+
+	// Catalog and Syncs back the HTTP API and the UI. Optional, so a
+	// deployment mid-onboarding still serves setup and health.
+	Catalog Catalog
+	Syncs   Syncs
 
 	// MCP serves the agent-facing surface. Optional, so a deployment can run
 	// without it and so tests need not stand one up.
@@ -78,6 +93,8 @@ func New(opts Options) (*Server, error) {
 		credentials: opts.Credentials,
 		github:      opts.GitHub,
 		controller:  opts.Controller,
+		catalog:     opts.Catalog,
+		syncs:       opts.Syncs,
 		mcp:         opts.MCP,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
@@ -93,6 +110,11 @@ func New(opts Options) (*Server, error) {
 	if s.now == nil {
 		s.now = time.Now
 	}
+
+	// The cookie is marked Secure only behind TLS, or a local http run could
+	// never log in: the browser would refuse to send back what it was given.
+	s.access = access.New(s.cfg.MCPToken, s.cfg.TrustedNetwork,
+		strings.HasPrefix(s.cfg.PrivateHost, "https://"))
 
 	tmpl, err := template.New("").Parse(pages)
 	if err != nil {
@@ -134,6 +156,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /setup/callback", s.handleSetupCallback)
 	mux.HandleFunc("GET /setup/done", s.handleSetupDone)
 
+	// Signing in cannot sit behind the gate it opens.
+	mux.HandleFunc("GET /login", s.handleLoginPage)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /logout", s.handleLogout)
+
+	if s.catalog != nil {
+		mux.Handle("GET /api/", s.access.API(http.StripPrefix("/api", s.apiRoutes())))
+
+		// Registered without a method: "GET /" would be narrower in method and
+		// broader in path than /mcp/, which the mux rejects as ambiguous.
+		mux.Handle("/", s.access.Browsers(http.HandlerFunc(s.handleApp)))
+		return mux
+	}
+
 	// Anything else is a dead end until onboarding is done, so send people
 	// where they can actually make progress.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +181,19 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	return mux
+}
+
+// apiRoutes is the catalog over HTTP. The UI is an ordinary client of it with
+// no privileged path, so everything the UI renders is fetchable with curl.
+func (s *Server) apiRoutes() http.Handler {
+	api := http.NewServeMux()
+	api.HandleFunc("GET /search", s.handleAPISearch)
+	api.HandleFunc("GET /entities", s.handleAPIEntities)
+	api.HandleFunc("GET /entities/{ref}", s.handleAPIEntity)
+	api.HandleFunc("GET /entities/{ref}/dependents", s.handleAPIDependents)
+	api.HandleFunc("GET /status", s.handleAPIStatus)
+	api.HandleFunc("GET /overview", s.handleAPIOverview)
+	return api
 }
 
 type setupPage struct {

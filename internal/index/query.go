@@ -80,6 +80,54 @@ func (db *DB) NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1
 	return notes, nil
 }
 
+// RecentNotes returns the most recently observed notes, pinned first. It backs
+// the portal's recent-notes block from ADR-0013: the accumulated knowledge is
+// the half of the catalog worth showing before anybody searches.
+func (db *DB) RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	clause, args := scopeClause("", gitRef)
+
+	var rows []noteRow
+	err := db.gorm.WithContext(ctx).Model(&noteRow{}).
+		Where(clause, args...).
+		Order("pinned DESC, observed_at DESC, note_id").
+		Limit(limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: recent notes at %q: %w", gitRef, err)
+	}
+
+	notes := make([]*duskv1alpha1.Note, 0, len(rows))
+	for _, row := range rows {
+		notes = append(notes, row.note())
+	}
+	return notes, nil
+}
+
+// KindCount is how many entities share one kind.
+type KindCount struct {
+	Kind  string
+	Count int
+}
+
+// Kinds counts entities by kind, which is the shape of the estate and the
+// cheapest useful thing to show somebody who has not searched yet.
+func (db *DB) Kinds(ctx context.Context, gitRef string) ([]KindCount, error) {
+	var counts []KindCount
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Model(&entityRow{}).
+		Select("kind, count(*) as count").
+		Group("kind").
+		Order("count DESC, kind").
+		Find(&counts).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: count kinds at %q: %w", gitRef, err)
+	}
+	return counts, nil
+}
+
 // Location is where an entity is declared: the repository, the file, and the
 // version a write must still match to prove it read the current one.
 type Location struct {

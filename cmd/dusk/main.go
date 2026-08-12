@@ -49,6 +49,7 @@ func command() *cli.Command {
 		Commands: []*cli.Command{
 			serveCommand(),
 			validateCommand(),
+			ingestCommand(),
 			genkeyCommand(),
 		},
 	}
@@ -151,6 +152,8 @@ func serve(parent context.Context) error {
 		Config:      cfg,
 		Credentials: credentials,
 		Controller:  catalog,
+		Catalog:     idx,
+		Syncs:       catalog,
 		MCP:         agentSurface,
 		Logger:      log,
 	})

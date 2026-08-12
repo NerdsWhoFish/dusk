@@ -1,0 +1,6 @@
+node_modules/
+
+# The build output is not committed, but the directory must exist or go:embed
+# fails to compile on a fresh checkout.
+dist/*
+!dist/.gitkeep

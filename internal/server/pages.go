@@ -112,4 +112,23 @@ you will have to register a new App.</p>
 {{if .Detail}}<div class="detail">{{.Detail}}</div>{{end}}
 {{if .Retry}}<a class="btn" href="{{.Retry}}">Start again</a>{{end}}
 {{template "foot"}}{{end}}
+
+{{define "login"}}{{template "head"}}
+<h1>Dusk</h1>
+<p class="sub">The catalog is behind the same token as the agent surface.
+Sign in once and this browser stays signed in.</p>
+
+<form method="post" action="/login">
+  <div class="card">
+    <label for="token">Access token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password"
+           autofocus required spellcheck="false">
+    {{if .Problem}}<p class="hint err" role="alert">{{.Problem}}</p>{{end}}
+    <p class="hint">This is <code>DUSK_MCP_TOKEN</code>, the same value an agent
+    sends as a bearer token.</p>
+  </div>
+  <button type="submit">Sign in</button>
+</form>
+{{template "foot"}}{{end}}
+
 `

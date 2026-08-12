@@ -1,0 +1,630 @@
+/* Dracula Pro. Dark only, per ADR-0025: one codebase, one URL, no theme
+   switch to keep in sync with a preference nobody expressed. */
+:root {
+  --bg: #22212c;
+  --fg: #f8f8f2;
+  --muted: #7970a9;
+  --line: #3b3549;
+  --card: #2a2735;
+  --purple: #bd93f9;
+  --green: #50fa7b;
+  --red: #ff5555;
+  --yellow: #ffca80;
+  --cyan: #80ffea;
+
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--sans);
+  /* ADR-0025: the body never scrolls sideways. Wide content scrolls itself. */
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--purple);
+}
+
+:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.shell {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 4rem;
+}
+
+/* Header ------------------------------------------------------------- */
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0 1rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+/* The horizon at dusk: lit on one edge, dark on the other. It is the one
+   piece of the product's name made visible, so it is not a 6px afterthought. */
+.brand::before {
+  content: "";
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: linear-gradient(105deg, var(--yellow) 0%, var(--purple) 52%, #171622 100%);
+  box-shadow: 0 0 12px rgb(189 147 249 / 0.35);
+}
+
+.signout {
+  min-height: 44px;
+  padding: 0 0.75rem;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.signout:hover {
+  color: var(--fg);
+}
+
+/* Search -------------------------------------------------------------- */
+
+/* The hero is the one place the product's name is made visible: a band of
+   light along the horizon, fading up into the dark the rest of the page is. */
+.hero {
+  position: relative;
+  margin: 0 0 2rem;
+  padding: 2.5rem 0 1.75rem;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 -50vw;
+  z-index: -1;
+  background:
+    radial-gradient(60rem 12rem at 50% 100%, rgb(189 147 249 / 0.14), transparent 70%),
+    radial-gradient(28rem 8rem at 50% 100%, rgb(255 202 128 / 0.09), transparent 70%);
+  pointer-events: none;
+}
+
+.hero-sub {
+  margin: 0.875rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.search,
+.hero {
+  position: relative;
+}
+
+.search {
+  margin-bottom: 1.5rem;
+}
+
+/* The search box is the primary action, so it does not look like the rows
+   below it: darker than the cards, taller, and the only thing that glows. */
+.hero input,
+.search input {
+  width: 100%;
+  min-height: 56px;
+  padding: 0.875rem 1rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  font: inherit;
+  font-size: 1.0625rem;
+}
+
+.hero input::placeholder,
+.search input::placeholder {
+  color: var(--muted);
+}
+
+.hero input:focus,
+.search input:focus {
+  border-color: var(--purple);
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(189 147 249 / 0.15);
+}
+
+/* Kind chips ---------------------------------------------------------- */
+
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 2rem;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: currentColor;
+}
+
+.chip.on {
+  background: color-mix(in srgb, currentColor 12%, var(--card));
+  border-color: currentColor;
+}
+
+.chip-count {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Blocks -------------------------------------------------------------- */
+
+.blocks {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.block {
+  padding: 1.125rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+
+.block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.875rem;
+}
+
+.block-head h2 {
+  margin: 0;
+}
+
+.quiet {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.note-compact {
+  padding: 0.75rem 0.875rem;
+  background: var(--bg);
+}
+
+.note-compact:last-child {
+  margin-bottom: 0;
+}
+
+.reads {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reads li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.reads li:last-child {
+  border-bottom: 0;
+}
+
+.reads-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reads-state {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.reads-state.bad {
+  color: var(--red);
+}
+
+/* Rows ---------------------------------------------------------------- */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 44px;
+  padding: 0.75rem 0.875rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.625rem;
+  color: var(--fg);
+  text-decoration: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+.row:hover,
+.row:focus-visible {
+  border-color: var(--purple);
+}
+
+.row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.row-title {
+  font-weight: 600;
+}
+
+.row-sub {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.tag {
+  flex: none;
+  padding: 0.125rem 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.tag.rel {
+  color: var(--green);
+  border-color: rgb(80 250 123 / 0.35);
+}
+
+/* Kind is how a catalog is scanned, so it carries colour rather than being
+   another grey pill. Unknown kinds keep the neutral default. */
+.kind-service {
+  color: var(--green);
+  border-color: rgb(80 250 123 / 0.35);
+}
+
+.kind-host,
+.kind-cluster {
+  color: var(--cyan);
+  border-color: rgb(128 255 234 / 0.35);
+}
+
+.kind-repository {
+  color: var(--purple);
+  border-color: rgb(189 147 249 / 0.35);
+}
+
+.kind-datastore {
+  color: var(--yellow);
+  border-color: rgb(255 202 128 / 0.35);
+}
+
+/* Entity -------------------------------------------------------------- */
+
+.back {
+  display: inline-block;
+  min-height: 44px;
+  padding: 0.625rem 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--fg);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.25rem 0;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+h2 {
+  margin: 2rem 0 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.prose {
+  overflow-wrap: break-word;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0 0 0.875rem;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg);
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 0.875rem;
+  padding-left: 1.25rem;
+}
+
+.prose li {
+  margin-bottom: 0.25rem;
+}
+
+.prose code {
+  padding: 0.1em 0.35em;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.85em;
+  overflow-wrap: break-word;
+}
+
+.prose pre {
+  padding: 0.875rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  /* ADR-0025: wide content scrolls inside its own box, never the body. */
+  overflow-x: auto;
+}
+
+.prose pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.prose blockquote {
+  margin: 0 0 0.875rem;
+  padding-left: 0.875rem;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.prose table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin-bottom: 0.875rem;
+}
+
+.prose th,
+.prose td {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.prose strong {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+/* A note is the one warm thing on the page. Everything else here is a
+   machine record; a note is what a person left for their later self. */
+.note {
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--yellow);
+  border-radius: 0.625rem;
+}
+
+.note-kind {
+  color: var(--yellow);
+  border-color: rgb(255 202 128 / 0.4);
+}
+
+.note .prose {
+  margin: 0.625rem 0 0;
+}
+
+.note-id {
+  margin: 0.75rem 0 0;
+}
+
+.attrs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.125rem 1rem;
+  margin: 0;
+}
+
+.attrs dt {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.attrs dd {
+  margin: 0 0 0.75rem;
+  overflow-wrap: break-word;
+}
+
+/* States -------------------------------------------------------------- */
+
+.empty,
+.problem {
+  padding: 2rem 0;
+  color: var(--muted);
+}
+
+.problem {
+  color: var(--red);
+}
+
+.skeleton {
+  height: 66px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.625rem;
+}
+
+.skeleton.tall {
+  height: 11rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .row {
+    transition: border-color 0.12s ease;
+  }
+
+  .skeleton {
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+}
+
+@media (min-width: 48rem) {
+  .shell {
+    padding: 2rem 1.5rem 5rem;
+  }
+
+  h1 {
+    font-size: 2rem;
+  }
+
+  .hero {
+    padding: 3.5rem 0 2.25rem;
+  }
+
+  .hero input {
+    min-height: 60px;
+    font-size: 1.125rem;
+  }
+
+  /* Blocks pair up on a wide screen. A plugin block drops into the same grid,
+     so the layout does not have to learn about it. */
+  .blocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .block-wide {
+    grid-column: 1 / -1;
+  }
+
+  .attrs {
+    grid-template-columns: minmax(7rem, auto) 1fr;
+  }
+
+  .attrs dt {
+    text-align: right;
+  }
+
+  .attrs dd {
+    margin-bottom: 0.25rem;
+  }
+}
