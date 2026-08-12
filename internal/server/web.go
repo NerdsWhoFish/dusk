@@ -23,6 +23,37 @@ const staticMaxAge = "public, max-age=3600"
 // came from public/ and keeps the name it was written with.
 const hashedAssets = "assets/"
 
+// icons are the paths handleIcon will serve. Everything else about the UI is
+// gated; these are brand assets that identify Dusk to a tab strip.
+var icons = []string{"/favicon.svg", "/apple-touch-icon.png"}
+
+// handleIcon serves an icon from outside the gate, for the same reason signing
+// in sits outside it: the login and setup pages reference these, so a gated
+// icon redirects to the very page asking for it and renders nothing.
+func (s *Server) handleIcon(w http.ResponseWriter, r *http.Request) {
+	root, ok := web.Bundle()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	body, err := fs.ReadFile(root, strings.TrimPrefix(r.URL.Path, "/"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Cache-Control", staticMaxAge)
+	if strings.HasSuffix(r.URL.Path, ".svg") {
+		w.Header().Set("Content-Type", "image/svg+xml")
+	} else {
+		w.Header().Set("Content-Type", "image/png")
+	}
+	if _, err := w.Write(body); err != nil {
+		s.log.Debug("the browser went away mid-icon", "error", err)
+	}
+}
+
 // handleApp serves the single page app. Every unmatched path returns
 // index.html so a deep link to an entity survives a refresh, which is the one
 // thing a client-routed app gets wrong if the server is not told.

@@ -175,6 +175,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /setup/callback", s.handleSetupCallback)
 	mux.HandleFunc("GET /setup/done", s.handleSetupDone)
 
+	// Nor can the icons those pages reference, and they exist before onboarding
+	// does, so they are routed whether or not there is a catalog.
+	for _, icon := range icons {
+		mux.HandleFunc("GET "+icon, s.handleIcon)
+	}
+
 	// Signing in cannot sit behind the gate it opens.
 	mux.HandleFunc("GET /login", s.handleLoginPage)
 	mux.HandleFunc("POST /login", s.handleLogin)
