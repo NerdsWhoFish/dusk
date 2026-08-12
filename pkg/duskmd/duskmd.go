@@ -66,6 +66,11 @@ type File struct {
 	// Include holds the glob patterns a root dusk.md points at. Expanding them
 	// against a tree needs a filesystem and belongs to the reconciler.
 	Include []string
+
+	// ObservedAs names what an ingester calls this same thing. A human writes
+	// `service:home/jellyfin` and Kubernetes calls it `service:mini-2/media-
+	// jellyfin`; without the mapping, drift reports both as drift.
+	ObservedAs []string
 }
 
 // ParseRoot parses a repository's root dusk.md. The root must declare its own
@@ -94,6 +99,7 @@ type frontmatter struct {
 	Kind       string         `yaml:"kind"`
 	Name       string         `yaml:"name"`
 	Title      string         `yaml:"title,omitempty"`
+	ObservedAs []string       `yaml:"observed_as,omitempty"`
 	Relations  []relation     `yaml:"relations,omitempty"`
 	Attributes map[string]any `yaml:"attributes,omitempty"`
 	Include    []string       `yaml:"include,omitempty"`
@@ -108,6 +114,7 @@ type relation struct {
 var knownFields = map[string]bool{
 	"dusk": true, "namespace": true, "kind": true, "name": true,
 	"title": true, "relations": true, "attributes": true, "include": true,
+	"observed_as": true,
 }
 
 // derivedFields carry their own message. Being told a field is unknown when it
@@ -165,7 +172,10 @@ func parse(filePath string, data []byte, p Provenance, cfg config) (*File, error
 	if err := c.err(); err != nil {
 		return nil, err
 	}
-	return &File{Path: filePath, Entity: entity, Relations: relations, Include: include}, nil
+	return &File{
+		Path: filePath, Entity: entity, Relations: relations,
+		Include: include, ObservedAs: fm.ObservedAs,
+	}, nil
 }
 
 func title(fm frontmatter, name string) string {

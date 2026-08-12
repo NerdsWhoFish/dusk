@@ -46,6 +46,7 @@ Everything here is the description, markdown and all.
 | `title` | no | Human-facing name. Defaults to `name` |
 | `relations` | no | Edges originating from this entity. Each is a `type` and a `to` |
 | `attributes` | no | Anything the schema does not model yet. Values must be representable in JSON |
+| `observed_as` | no | Refs an ingester uses for this same thing, so drift matches them up |
 | `include` | root file only | Glob patterns naming further catalog files |
 
 Any other field is an error.
@@ -103,3 +104,27 @@ Plugins report what is actually there.
 Neither overwrites the other, and disagreement between them is surfaced as drift rather than merged away.
 "Your `dusk.md` says this runs on the NAS, and the ingester found it on the Pi" is information worth having, so the catalog keeps both.
 See [ADR-0007](../adr/0007-entity-schema.md).
+
+Where both exist for the same ref, the declared one wins a read: a person wrote it deliberately and an ingester inferred it ([ADR-0034](../adr/0034-ingesters-in-tree-first.md)).
+
+### Saying which observed thing is yours
+
+A human and an ingester never independently pick the same name.
+You write `service:home/jellyfin`; the Kubernetes ingester finds a Service in a namespace and calls it `service:mini-2/media-jellyfin`.
+
+`observed_as` is how you say they are the same thing:
+
+```yaml
+---
+dusk: v1alpha1
+kind: service
+name: jellyfin
+observed_as:
+  - service:mini-2/media-jellyfin
+---
+```
+
+Without it, drift reports your declaration as missing and the observed service as undeclared, forever, and the report is noise rather than a signal.
+
+An `observed_as` naming something no ingester sees is still reported.
+The mapping is a claim, and a claim that does not hold is exactly what drift is for.

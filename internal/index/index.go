@@ -154,7 +154,7 @@ func (db *DB) migrate() error {
 	if err := db.gorm.Exec(`PRAGMA foreign_keys=ON`).Error; err != nil {
 		return fmt.Errorf("index: enable foreign keys: %w", err)
 	}
-	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &defaultView{}); err != nil {
+	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &defaultView{}); err != nil {
 		return fmt.Errorf("index: migrate: %w", err)
 	}
 	for _, stmt := range ftsSchema {
@@ -220,6 +220,33 @@ var ftsSchema = []string{
 type Declaration struct {
 	Path   string
 	Entity *duskv1alpha1.Entity
+
+	// ObservedAs names what an ingester calls this same thing, so drift can
+	// tell "I named it differently" from "it is gone".
+	ObservedAs []string
+}
+
+// aliasRow links a declared entity to what an ingester calls it.
+type aliasRow struct {
+	Repository string `gorm:"primaryKey"`
+	GitRef     string `gorm:"primaryKey"`
+	Ref        string `gorm:"primaryKey"`
+	Alias      string `gorm:"primaryKey;index"`
+}
+
+func (aliasRow) TableName() string { return "entity_aliases" }
+
+func aliasRows(repository, gitRef string, declarations []Declaration) []aliasRow {
+	var rows []aliasRow
+	for _, declared := range declarations {
+		for _, alias := range declared.ObservedAs {
+			rows = append(rows, aliasRow{
+				Repository: repository, GitRef: gitRef,
+				Ref: declared.Entity.GetRef(), Alias: alias,
+			})
+		}
+	}
+	return rows
 }
 
 // Put replaces what repository contributes at gitRef, in one transaction, so a
@@ -239,6 +266,7 @@ func (db *DB) Put(ctx context.Context, repository, gitRef string, declarations [
 		return err
 	}
 	noteRows, noteRefRows := noteRows(repository, gitRef, notes)
+	aliasRows := aliasRows(repository, gitRef, declarations)
 
 	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := deleteScope(tx, repository, gitRef); err != nil {
@@ -253,6 +281,7 @@ func (db *DB) Put(ctx context.Context, repository, gitRef string, declarations [
 			{"relations", relationRows, len(relationRows)},
 			{"notes", noteRows, len(noteRows)},
 			{"note refs", noteRefRows, len(noteRefRows)},
+			{"aliases", aliasRows, len(aliasRows)},
 		} {
 			if batch.n == 0 {
 				continue
@@ -311,12 +340,22 @@ func deleteScope(tx *gorm.DB, repository, gitRef string) error {
 	return deleteWhere(tx, "repository = ? AND git_ref = ?", repository, gitRef)
 }
 
+// deleteWhere clears every kind of row a scope holds, so that deleting a file
+// from a repository actually removes what it contributed.
 func deleteWhere(tx *gorm.DB, query string, args ...any) error {
-	if err := tx.Where(query, args...).Delete(&relationRow{}).Error; err != nil {
-		return fmt.Errorf("index: drop relations: %w", err)
-	}
-	if err := tx.Where(query, args...).Delete(&entityRow{}).Error; err != nil {
-		return fmt.Errorf("index: drop entities: %w", err)
+	for _, target := range []struct {
+		what string
+		row  any
+	}{
+		{"relations", &relationRow{}},
+		{"note refs", &noteRefRow{}},
+		{"notes", &noteRow{}},
+		{"aliases", &aliasRow{}},
+		{"entities", &entityRow{}},
+	} {
+		if err := tx.Where(query, args...).Delete(target.row).Error; err != nil {
+			return fmt.Errorf("index: drop %s: %w", target.what, err)
+		}
 	}
 	return nil
 }

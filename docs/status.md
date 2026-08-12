@@ -86,8 +86,9 @@ This tracks the product. It deliberately says nothing about any particular deplo
 ## Plugins
 
 - [ ] **Host runtime**: subprocess lifecycle, Tier 1 stdout and Tier 2 gRPC ([0002](../adr/0002-plugin-protocol.md))
-- [ ] **Scheduler**: intervals, shared API budget, backoff, never delete on failure ([0011](../adr/0011-ingester-scheduling.md))
-- [ ] **Kubernetes ingester**
+- [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
+- [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md))
+- [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
 - [ ] **Flux ingester**
 - [ ] **GitHub ingester**
 - [ ] **Plugin UI**: declarative view spec, then Web Components ([0020](../adr/0020-plugin-ui.md))
@@ -111,6 +112,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - Notes are ranked by pinned-then-id. [0031](../adr/0031-notes-are-files.md) wants kind to drive ranking so a gotcha outranks a todo without being pinned by hand.
 - A note's refs and a relation's target are still unchecked at write time, deliberately, because the target may live in a repository Dusk cannot see. Both are now **reported** by `integrity` instead of failing silently ([0033](../adr/0033-graph-integrity.md)).
 - Integrity reports every unresolvable ref, and in a partially adopted catalog most of them are legitimate. Nothing distinguishes "typo" from "not adopted yet".
+- Drift only matches a declaration to an observation through an explicit `observed_as`. Nothing infers the mapping, so an estate that has not written them shows every entity on both sides of the report.
+- Ingested entities are stored under a reserved `ingester:` scope that occupies the repository slot. Anything treating a repository as clonable has to check `index.IsObserved` first.
 - A rate limit is recognised and logged but not waited out. A sweep that exhausts the budget gives up until the next one rather than resuming when the limit resets.
 - The UI's responsive behaviour is unverified. It is written mobile first against [0025](../adr/0025-responsive-ui.md)'s rules, but the viewport matrix has never actually been run against it.
 - A browser session is a bearer token in a cookie by another name: it grants the whole catalog and cannot be revoked short of rotating `DUSK_MCP_TOKEN`, which signs it.

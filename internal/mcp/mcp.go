@@ -36,6 +36,7 @@ type Catalog interface {
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
+	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
 }
 
 // Syncs reports what the controller last did, so an agent can tell a stale
@@ -87,6 +88,7 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - get returns everything known about one entity, including what it connects to.
 - neighbors walks the graph outward from an entity.
 - changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
+- drift reports where the catalog and reality disagree: declared and nowhere to be found, or running and written down nowhere.
 
 Every result carries a ref of the form kind:namespace/name. Refs feed straight back into get.
 
@@ -137,6 +139,14 @@ func (s *Server) sdkServer() *sdk.Server {
 		Name:        "changes",
 		Description: "The state of the catalog: what Dusk last read from each repository, and anything wrong with the result. Use it to tell a stale answer from a missing one, and a confident answer from a correct one.",
 	}, s.changes)
+
+	// A fifth tool, and the only one that is a work queue rather than a
+	// lookup. Folding it into changes would mix "can I trust this answer"
+	// with "what should I go and do", which are different sessions.
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "drift",
+		Description: "Where the catalog and reality disagree: declared but nowhere to be found, or running and written down nowhere. Ask before documenting an estate, and after something is decommissioned.",
+	}, s.drift)
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		sdk.AddTool(server, &sdk.Tool{
@@ -398,6 +408,50 @@ func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) erro
 
 	out.WriteString("These are not read failures. Each is a place the catalog answers confidently and may be wrong.\n")
 	return nil
+}
+
+type driftInput struct{}
+
+func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, _ driftInput) (*sdk.CallToolResult, any, error) {
+	drifts, err := s.opts.Catalog.Drift(ctx, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(drifts) == 0 {
+		return text("Nothing has drifted. Everything declared is observed, and everything observed is declared.\n\nIf no ingester is configured there is nothing to compare against, and this answer means only that."), nil, nil
+	}
+
+	var missing, undeclared []index.Drift
+	for _, drift := range drifts {
+		if drift.Kind == index.DriftMissing {
+			missing = append(missing, drift)
+		} else {
+			undeclared = append(undeclared, drift)
+		}
+	}
+
+	var out strings.Builder
+	out.WriteString("# Drift\n\n")
+
+	if len(missing) > 0 {
+		fmt.Fprintf(&out, "## %d declared and not found\n\n", len(missing))
+		for _, drift := range missing {
+			fmt.Fprintf(&out, "- `%s` %s, declared in %s\n",
+				drift.Ref, displayName(drift.Title, ""), drift.Declared)
+		}
+		out.WriteString("\nEither these are gone and their declarations should be removed, or nothing is watching where they run.\n\n")
+	}
+
+	if len(undeclared) > 0 {
+		fmt.Fprintf(&out, "## %d running and undeclared\n\n", len(undeclared))
+		for _, drift := range undeclared {
+			fmt.Fprintf(&out, "- `%s` %s, seen by %s\n",
+				drift.Ref, displayName(drift.Title, ""), drift.Observed)
+		}
+		out.WriteString("\nThese exist and nobody has said what they are for. Declaring one is a `declare` call.\n")
+	}
+
+	return text(out.String()), nil, nil
 }
 
 type changesInput struct{}

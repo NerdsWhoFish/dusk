@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ var DefaultSkip = []string{"kube-system", "kube-public", "kube-node-lease"}
 // NewKubernetes connects to a cluster. An empty kubeconfig means in-cluster
 // credentials, which is how Dusk observes the cluster it is deployed to.
 func NewKubernetes(cluster, kubeconfig string) (*Kubernetes, error) {
-	config, err := restConfig(kubeconfig)
+	config, err := restConfig(cluster, kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: reach cluster %q: %w", cluster, err)
 	}
@@ -55,11 +56,36 @@ func NewKubernetes(cluster, kubeconfig string) (*Kubernetes, error) {
 	}, nil
 }
 
-func restConfig(kubeconfig string) (*rest.Config, error) {
+// restConfig resolves credentials for one cluster, from the context named
+// after it rather than the kubeconfig's current-context. A missing context is
+// an error: falling back would observe one cluster and label it as another.
+func restConfig(cluster, kubeconfig string) (*rest.Config, error) {
 	if kubeconfig == "" {
 		return rest.InClusterConfig()
 	}
-	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+
+	loader := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}
+	raw, err := loader.Load()
+	if err != nil {
+		return nil, fmt.Errorf("read %q: %w", kubeconfig, err)
+	}
+	if _, ok := raw.Contexts[cluster]; !ok {
+		return nil, fmt.Errorf("%q has no context named %q, only %s. Name the cluster after its context, or Dusk would observe a different one and label it %q",
+			kubeconfig, cluster, strings.Join(contextNames(raw.Contexts), ", "), cluster)
+	}
+
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loader, &clientcmd.ConfigOverrides{CurrentContext: cluster},
+	).ClientConfig()
+}
+
+func contextNames[T any](contexts map[string]T) []string {
+	names := make([]string, 0, len(contexts))
+	for name := range contexts {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Name scopes this cluster's observations, so two clusters do not overwrite

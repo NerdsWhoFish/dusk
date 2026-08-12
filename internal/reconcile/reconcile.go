@@ -70,6 +70,10 @@ type Graph struct {
 	Entities  []*duskv1alpha1.Entity
 	Relations []*duskv1alpha1.Relation
 
+	// ObservedAs is index-aligned with Entities: what an ingester calls each
+	// one, so drift can tell a different name from a disappearance.
+	ObservedAs [][]string
+
 	// Notes are the curated knowledge attached to entities, which may live in
 	// this repository while the entities they describe live elsewhere.
 	Notes []*duskv1alpha1.Note
@@ -80,7 +84,9 @@ type Graph struct {
 func (g *Graph) declarations() []index.Declaration {
 	out := make([]index.Declaration, 0, len(g.Entities))
 	for i, entity := range g.Entities {
-		out = append(out, index.Declaration{Path: g.Files[i], Entity: entity})
+		out = append(out, index.Declaration{
+			Path: g.Files[i], Entity: entity, ObservedAs: g.ObservedAs[i],
+		})
 	}
 	return out
 }
@@ -248,6 +254,7 @@ func (g *Graph) merge(files []*duskmd.File) error {
 		g.Files = append(g.Files, file.Path)
 		g.Entities = append(g.Entities, file.Entity)
 		g.Relations = append(g.Relations, file.Relations...)
+		g.ObservedAs = append(g.ObservedAs, file.ObservedAs)
 	}
 
 	return errors.Join(problems...)

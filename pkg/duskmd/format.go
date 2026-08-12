@@ -68,6 +68,7 @@ func frontmatterFor(file *File, inheritedNamespace string) (frontmatter, error) 
 		front.Title = title
 	}
 	front.Include = file.Include
+	front.ObservedAs = file.ObservedAs
 
 	for _, edge := range file.Relations {
 		front.Relations = append(front.Relations, relation{

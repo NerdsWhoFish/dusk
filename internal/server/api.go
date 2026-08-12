@@ -28,6 +28,7 @@ type Catalog interface {
 	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
+	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
 }
 
 // entityJSON is the wire shape, written by hand rather than through protojson,
@@ -258,6 +259,17 @@ func (s *Server) handleAPIIntegrity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"problems": problems})
+}
+
+// handleAPIDrift answers GET /api/drift: where the catalog and reality
+// disagree.
+func (s *Server) handleAPIDrift(w http.ResponseWriter, r *http.Request) {
+	drifts, err := s.catalog.Drift(r.Context(), "")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"drift": drifts})
 }
 
 // handleAPIStatus answers GET /api/status with what Dusk last read, which is
