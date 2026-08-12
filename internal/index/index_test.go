@@ -27,7 +27,7 @@ func TestPutAndGet(t *testing.T) {
 	want := entity("service:home/jellyfin", "Jellyfin", "Media server, transcoding disabled.")
 	want.Attributes = attributes(t, map[string]any{"backup": "nightly"})
 
-	if err := db.Put(ctx, testRepo, mainRef, []*duskv1alpha1.Entity{want}, nil); err != nil {
+	if err := db.Put(ctx, testRepo, mainRef, declare([]*duskv1alpha1.Entity{want}), nil); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 
@@ -303,7 +303,7 @@ func TestPutRollsBackOnFailure(t *testing.T) {
 		entity("service:home/navidrome", "Navidrome", "Music server."),
 		entity("service:home/navidrome", "Navidrome", "The same ref twice, which the primary key rejects."),
 	}
-	if err := db.Put(ctx, testRepo, mainRef, duplicated, nil); err == nil {
+	if err := db.Put(ctx, testRepo, mainRef, declare(duplicated), nil); err == nil {
 		t.Fatal("Put succeeded with a duplicate ref, want a constraint error")
 	}
 
@@ -497,6 +497,15 @@ func TestDependentsTerminatesOnACycle(t *testing.T) {
 	}
 }
 
+// declare pairs entities with a plausible declaring file, which Put now needs.
+func declare(entities []*duskv1alpha1.Entity) []index.Declaration {
+	out := make([]index.Declaration, 0, len(entities))
+	for _, e := range entities {
+		out = append(out, index.Declaration{Path: e.GetName() + "/dusk.md", Entity: e})
+	}
+	return out
+}
+
 func newDB(t *testing.T) *index.DB {
 	t.Helper()
 	db, err := index.Open(filepath.Join(t.TempDir(), "index.db"))
@@ -509,7 +518,7 @@ func newDB(t *testing.T) *index.DB {
 
 func mustPut(t *testing.T, db *index.DB, repository, gitRef string, entities []*duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) {
 	t.Helper()
-	if err := db.Put(t.Context(), repository, gitRef, entities, relations); err != nil {
+	if err := db.Put(t.Context(), repository, gitRef, declare(entities), relations); err != nil {
 		t.Fatalf("Put at %q: %v", gitRef, err)
 	}
 }

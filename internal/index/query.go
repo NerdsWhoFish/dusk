@@ -18,6 +18,10 @@ type SearchResult struct {
 	Kind    string
 	Title   string
 	Snippet string
+
+	// Version is what a proof token records, so a search authorizes writing
+	// everything it returned rather than only naming it.
+	Version string
 }
 
 // Dependent is an entity reached by walking relations inbound, with the length
@@ -43,6 +47,37 @@ func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.
 		return nil, fmt.Errorf("index: get %q at %q: %w", entityRef, gitRef, err)
 	}
 	return row.entity()
+}
+
+// Location is where an entity is declared: the repository, the file, and the
+// version a write must still match to prove it read the current one.
+type Location struct {
+	Repository string
+	GitRef     string
+	Path       string
+	Version    string
+}
+
+// Locate finds the file that declares an entity, which is how a write routes to
+// the repository that owns it rather than needing a routing table.
+func (db *DB) Locate(ctx context.Context, gitRef, entityRef string) (*Location, error) {
+	var row entityRow
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Where("ref = ?", entityRef).
+		Order("repository").
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("index: locate %q: %w", entityRef, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("index: locate %q: %w", entityRef, err)
+	}
+	return &Location{
+		Repository: row.Repository,
+		GitRef:     row.GitRef,
+		Path:       row.Path,
+		Version:    row.Version,
+	}, nil
 }
 
 // List returns every entity at gitRef, optionally narrowed to one kind.
@@ -91,17 +126,21 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		limit = defaultSearchLimit
 	}
 
-	scope, scopeArgs := scopeClause("", gitRef)
+	// Qualified, because the join makes a bare git_ref ambiguous.
+	scope, scopeArgs := scopeClause("f", gitRef)
 	args := append([]any{match}, scopeArgs...)
 	args = append(args, limit)
 
 	var results []SearchResult
 	err := db.gorm.WithContext(ctx).Raw(`
-		SELECT ref, kind, title,
+		SELECT f.ref, f.kind, f.title,
 		       -- Column 6 is description. snippet() takes a positional index,
 		       -- so adding a column to entity_fts silently moves this.
-		       snippet(entity_fts, 6, '', '', '...', 12) AS snippet
-		  FROM entity_fts
+		       snippet(entity_fts, 6, '', '', '...', 12) AS snippet,
+		       e.version
+		  FROM entity_fts f
+		  JOIN entities e
+		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.ref
 		 WHERE entity_fts MATCH ? AND `+scope+`
 		 ORDER BY rank
 		 LIMIT ?`, args...,

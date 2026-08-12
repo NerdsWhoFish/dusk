@@ -55,7 +55,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Proof tokens**: `pkg/proof`, issued by a read, invalidated by change with a TTL backstop, rejections naming the call that fixes them ([0009](../adr/0009-proof-tokens.md))
 - [x] **Rendering `dusk.md`**: `pkg/duskmd`, frontmatter rewritten and prose left byte-identical, so a write cannot disturb what somebody wrote ([0026](../adr/0026-dusk-md-schema.md))
 - [x] **Committing over the API**: `githubapp.CommitFile`, one file per commit, presenting the blob sha so a raced write collides instead of overwriting ([0010](../adr/0010-mcp-surface.md), [0029](../adr/0029-reading-repositories.md))
-- [ ] **`declare`**: the tool that ties the three together. Creating an entity means a new file, which is only read if an `include` glob catches it, so `declare` must place it or extend the root's `include`
+- [x] **`declare`**: `internal/write`, routing to the file that declares an entity, rewriting only its frontmatter, and committing to the default branch. Creating places the file under an `include` glob and refuses when none would reach it ([0010](../adr/0010-mcp-surface.md))
+- [x] **Write containment**: writes reach only repositories a sweep has seen *and* that already contain a `dusk.md`. Dusk never creates one, because that file is how a repository consents ([0004](../adr/0004-dusk-md-convention.md))
 - [ ] **Proposal mode**: a per-session branch and a pull request. Write mode commits straight to the default branch and needs neither, so this is deferred until somebody runs in proposal mode ([0005](../adr/0005-github-app-and-access-modes.md), [0010](../adr/0010-mcp-surface.md))
 - [ ] **Read mode**: return the proposed diff rather than failing, which is what makes read-only first class rather than broken ([0005](../adr/0005-github-app-and-access-modes.md))
 - [ ] **Notes have no home in `dusk.md`**: deliberately deferred by [0026](../adr/0026-dusk-md-schema.md) until the MCP write path that authors them exists. Until then `search` covers entities alone, where [0010](../adr/0010-mcp-surface.md) wants entities and notes together
@@ -67,7 +68,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Read tools**: `search`, `get`, `neighbors`, `changes` over streamable HTTP at `/mcp`, answering in markdown ([0010](../adr/0010-mcp-surface.md))
 - [x] **Agent surface access**: bearer token, or an explicit trusted-network mode, and off until one of them says. Never a default ([0012](../adr/0012-viewing-auth.md))
 - [ ] **Authorization derived from repository access**: an agent presents a GitHub token and sees only the repositories it can read. The index is already partitioned by repository, so this is a predicate rather than a permission model. Deferred until there is a second reader ([0012](../adr/0012-viewing-auth.md))
-- [ ] **Write tools**: `declare`, `note`, `relate`, `mintKind`, `push` ([0010](../adr/0010-mcp-surface.md))
+- [~] **Write tools**: `declare` is built, and every read issues the proof token it needs. `note`, `relate`, `mintKind` and `push` are not ([0010](../adr/0010-mcp-surface.md))
 - [~] **Context injection**: the MCP `instructions` field is served. `dusk_context` and the client hook are not built ([0014](../adr/0014-agent-context-injection.md))
 
 ## UI
@@ -95,9 +96,9 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Next
 
-1. The write path: proof tokens, the commit queue, and the MCP write tools. This is the half that makes the catalog maintain itself.
-2. Notes, which need a home in `dusk.md` before `search` can cover them alongside entities.
-3. Pull request previews, which the ref-keyed index was built for and nothing yet uses.
+1. Notes, which need a home in `dusk.md` before `search` can cover them alongside entities. They are what agents write most, so this is the write path's other half.
+2. Pull request previews, which the ref-keyed index was built for and nothing yet uses.
+3. The HTTP API and the UI, which is the first surface a human rather than an agent reads.
 
 ## Known gaps
 

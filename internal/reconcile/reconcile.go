@@ -72,6 +72,16 @@ type Graph struct {
 	Relations []*duskv1alpha1.Relation
 }
 
+// declarations pairs each entity with the file that declared it. Files and
+// Entities are appended together, so their indexes line up.
+func (g *Graph) declarations() []index.Declaration {
+	out := make([]index.Declaration, 0, len(g.Entities))
+	for i, entity := range g.Entities {
+		out = append(out, index.Declaration{Path: g.Files[i], Entity: entity})
+	}
+	return out
+}
+
 // Loader reads a repository into a graph, storing nothing.
 type Loader struct {
 	source Source
@@ -232,7 +242,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, o
 		}
 		return graph, nil
 	}
-	if err := r.index.Put(ctx, repository, gitRef, graph.Entities, graph.Relations); err != nil {
+	if err := r.index.Put(ctx, repository, gitRef, graph.declarations(), graph.Relations); err != nil {
 		return nil, err
 	}
 	return graph, nil

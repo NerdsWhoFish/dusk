@@ -38,6 +38,7 @@ type entityRow struct {
 	Repository  string `gorm:"primaryKey"`
 	GitRef      string `gorm:"primaryKey"`
 	Ref         string `gorm:"primaryKey"`
+	Path        string
 	Kind        string `gorm:"index"`
 	Namespace   string
 	Name        string
@@ -135,15 +136,22 @@ var ftsSchema = []string{
 	END`,
 }
 
+// Declaration is one entity and the file that declares it. They travel together
+// because a write has to find its way back to that file.
+type Declaration struct {
+	Path   string
+	Entity *duskv1alpha1.Entity
+}
+
 // Put replaces what repository contributes at gitRef, in one transaction, so a
 // failed reconcile leaves the previous contents rather than a half-built graph.
 // Scoping to one repository keeps a push to one from re-reading all the others.
-func (db *DB) Put(ctx context.Context, repository, gitRef string, entities []*duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) error {
+func (db *DB) Put(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation) error {
 	if repository == "" || gitRef == "" {
 		return errors.New("index: put: a repository and a git ref are both required")
 	}
 
-	entityRows, err := entityRows(repository, gitRef, entities)
+	entityRows, err := entityRows(repository, gitRef, declarations)
 	if err != nil {
 		return err
 	}
@@ -278,9 +286,10 @@ func (db *DB) GitRefs(ctx context.Context) ([]string, error) {
 	return refs, nil
 }
 
-func entityRows(repository, gitRef string, entities []*duskv1alpha1.Entity) ([]entityRow, error) {
-	rows := make([]entityRow, 0, len(entities))
-	for _, e := range entities {
+func entityRows(repository, gitRef string, declarations []Declaration) ([]entityRow, error) {
+	rows := make([]entityRow, 0, len(declarations))
+	for _, declared := range declarations {
+		e := declared.Entity
 		attributes, err := marshalStruct(e.GetAttributes())
 		if err != nil {
 			return nil, fmt.Errorf("index: entity %q: %w", e.GetRef(), err)
@@ -288,6 +297,7 @@ func entityRows(repository, gitRef string, entities []*duskv1alpha1.Entity) ([]e
 		rows = append(rows, entityRow{
 			Repository:  repository,
 			GitRef:      gitRef,
+			Path:        declared.Path,
 			Ref:         e.GetRef(),
 			Kind:        e.GetKind(),
 			Namespace:   e.GetNamespace(),

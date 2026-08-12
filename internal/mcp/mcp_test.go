@@ -34,7 +34,13 @@ func connect(t *testing.T, syncs mcp.Syncs) (*sdk.ClientSession, *index.DB) {
 	}
 	t.Cleanup(func() { _ = idx.Close() })
 
-	server := mcp.New(mcp.Options{Catalog: idx, Syncs: syncs, Version: "test"})
+	return serve(t, mcp.New(mcp.Options{Catalog: idx, Syncs: syncs, Version: "test"})), idx
+}
+
+// serve stands the real HTTP surface up for a configured server.
+func serve(t *testing.T, server *mcp.Server) *sdk.ClientSession {
+	t.Helper()
+
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(httpServer.Close)
 
@@ -45,7 +51,18 @@ func connect(t *testing.T, syncs mcp.Syncs) (*sdk.ClientSession, *index.DB) {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
-	return session, idx
+	return session
+}
+
+// newIndex opens an empty index, for a server configured by hand.
+func newIndex(t *testing.T) *index.DB {
+	t.Helper()
+	idx, err := index.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatalf("index.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
+	return idx
 }
 
 func seed(t *testing.T, idx *index.DB) {
@@ -61,7 +78,11 @@ func seed(t *testing.T, idx *index.DB) {
 		Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
 	}}
 
-	if err := idx.Put(ctx, "example/homelab", mainRef, entities, relations); err != nil {
+	declarations := make([]index.Declaration, 0, len(entities))
+	for _, e := range entities {
+		declarations = append(declarations, index.Declaration{Path: e.GetName() + "/dusk.md", Entity: e})
+	}
+	if err := idx.Put(ctx, "example/homelab", mainRef, declarations, relations); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if err := idx.SetDefaultView(ctx, "example/homelab", mainRef); err != nil {

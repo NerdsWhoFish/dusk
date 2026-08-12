@@ -17,6 +17,7 @@ import (
 	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/reconcile"
 	"github.com/FetchHQ/dusk/internal/store"
+	"github.com/FetchHQ/dusk/internal/write"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
 
@@ -60,6 +61,45 @@ type Controller struct {
 	// resolvedOwner caches an owner asked of GitHub, for credentials stored
 	// before onboarding recorded one.
 	resolvedOwner string
+
+	// installations maps a repository to the installation that grants access.
+	// A repository absent from it is one no sweep has seen, and therefore one
+	// Dusk has no standing to write to.
+	installations map[string]int64
+}
+
+// Target returns a writable handle on a repository a sweep has seen, so what
+// Dusk can write to is bounded by what it was granted rather than by what an
+// agent asks for.
+func (c *Controller) Target(ctx context.Context, slug string) (write.Target, error) {
+	c.mu.Lock()
+	installationID, known := c.installations[slug]
+	c.mu.Unlock()
+
+	if !known {
+		return nil, fmt.Errorf("controller: no installation grants access to %q. Dusk writes only to repositories it already reconciles", slug)
+	}
+
+	tokens, _, err := c.auth(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	owner, name, ok := strings.Cut(slug, "/")
+	if !ok {
+		return nil, fmt.Errorf("controller: %q is not an owner/name repository", slug)
+	}
+	install := &githubapp.Install{Client: c.opts.Client, Tokens: tokens, ID: installationID}
+	return install.Repository(owner, name), nil
+}
+
+func (c *Controller) remember(slug string, installationID int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.installations == nil {
+		c.installations = map[string]int64{}
+	}
+	c.installations[slug] = installationID
 }
 
 // auth loads the App identity, a token cache for it, and the account it
@@ -212,6 +252,7 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 	for _, repository := range repositories {
 		gitRef := "refs/heads/" + repository.DefaultBranch
 		seen[index.Scope{Repository: repository.Slug(), GitRef: gitRef}] = true
+		c.remember(repository.Slug(), installation.ID)
 
 		// Repositories disagree about what the default branch is called, so a
 		// catalog-wide query needs to be told which ref each one contributes.
@@ -240,6 +281,7 @@ func (c *Controller) SyncRepository(ctx context.Context, installationID int64, a
 			"account", account, "repository", owner+"/"+name)
 		return nil
 	}
+	c.remember(owner+"/"+name, installationID)
 	install := &githubapp.Install{Client: c.opts.Client, Tokens: tokens, ID: installationID}
 	return c.reconcile(ctx, install, owner+"/"+name, gitRef)
 }

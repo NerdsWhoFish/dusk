@@ -47,6 +47,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `get(ref)` | Everything about one entity, including its connections |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
+| `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
 
 `get` is deliberately fat.
 An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations and provenance in one call rather than five.
@@ -80,9 +81,49 @@ See [storage](storage.md).
 
 Pull request previews render a specific ref and are a UI concern, so the MCP tools do not take one.
 
+## Writing
+
+**Every write presents a proof token issued by a read**, so an agent cannot write what it has not looked at ([ADR-0009](../adr/0009-proof-tokens.md)).
+
+Every read therefore returns one unasked, because read-before-write is an unusual contract and an agent that has to discover it will flail instead:
+
+```text
+Proof token `4QK7…`. Pass it to `declare` to write any of the above.
+```
+
+A token carries the version of everything its read returned, so one `search` authorizes a session's worth of writes, and any of them moving invalidates it.
+Creating needs a token from a **search that did not find it**: only an enumerating read can witness an absence, so an agent cannot duplicate something it never looked for.
+
+A refused write is an answer rather than an error, naming the call that fixes it:
+
+```text
+The write was not made.
+
+E_PROOF_STALE: service:home/jellyfin: it changed after the read that
+issued this token; call get("service:home/jellyfin")
+```
+
+### Where a write can reach
+
+Two limits, neither of them configuration:
+
+**Only repositories Dusk already reconciles.** A slug no sweep has seen resolves to nothing, so the set of writable repositories is bounded by what the installation granted.
+
+**Only repositories that already contain a `dusk.md`.** Dusk never creates one. That file is how a repository consents ([ADR-0004](../adr/0004-dusk-md-convention.md)), so creating it would be Dusk granting itself permission. A human opts a repository in.
+
+Creating an entity means adding a file, and a file no `include` glob reaches would be committed and never read. `declare` refuses that up front rather than succeeding while changing nothing.
+
+### What lands
+
+Write mode commits straight to the default branch, one commit per call, and the answer carries the commit URL so an agent can hand a human a link rather than claiming success.
+
+Only the frontmatter is rewritten. The prose is left byte-identical, so a write can never disturb what somebody wrote.
+
 ## Not built yet
 
-**Writes.** `declare`, `note`, `relate`, `mintKind` and `push` all wait on proof tokens ([ADR-0009](../adr/0009-proof-tokens.md)) and the commit queue. Today the surface is read-only, which [ADR-0005](../adr/0005-github-app-and-access-modes.md) treats as a supported posture rather than a degraded one.
+**The other write tools.** `note`, `relate`, `mintKind` and `push` are not built. Notes have no home in `dusk.md` yet, and `push` is meaningful only in proposal mode.
+
+**Proposal mode.** Write mode commits directly, so the per-session branch and pull request are deferred until somebody runs in proposal mode ([ADR-0010](../adr/0010-mcp-surface.md)).
 
 **Notes.** [ADR-0010](../adr/0010-mcp-surface.md) has `search` covering entities *and* notes together, because "how do I reach the zwave pi" is a note while "the zwave pi" is an entity. Notes have no home in `dusk.md` yet ([ADR-0026](../adr/0026-dusk-md-schema.md)), so search covers entities alone.
 

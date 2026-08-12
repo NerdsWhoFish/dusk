@@ -20,7 +20,9 @@ import (
 	"github.com/FetchHQ/dusk/internal/mcp"
 	"github.com/FetchHQ/dusk/internal/server"
 	"github.com/FetchHQ/dusk/internal/store"
+	"github.com/FetchHQ/dusk/internal/write"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/FetchHQ/dusk/pkg/proof"
 	"github.com/FetchHQ/dusk/pkg/vault"
 )
 
@@ -126,10 +128,17 @@ func serve(parent context.Context) error {
 		return err
 	}
 
+	tokens := &proof.Store{}
 	agents := mcp.New(mcp.Options{
 		Catalog: idx,
 		Syncs:   syncStatus{catalog},
 		Version: version,
+		Tokens:  tokens,
+		Writer: &write.Writer{
+			Catalog:      idx,
+			Repositories: catalog,
+			Proof:        tokens,
+		},
 	})
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
 

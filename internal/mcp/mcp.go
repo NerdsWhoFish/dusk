@@ -22,6 +22,8 @@ import (
 	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/FetchHQ/dusk/internal/write"
+	"github.com/FetchHQ/dusk/pkg/proof"
 )
 
 // Catalog is the slice of the index the tools need, declared here so the tools
@@ -49,11 +51,22 @@ type SyncStatus struct {
 	Error      string
 }
 
+// Declarer performs writes. A nil one leaves the surface read-only, which
+// ADR-0005 treats as a supported posture rather than a degraded one.
+type Declarer interface {
+	Declare(ctx context.Context, token string, declaration write.Declaration) (*write.Result, error)
+}
+
 // Options are the server's dependencies.
 type Options struct {
 	Catalog Catalog
 	Syncs   Syncs
 	Version string
+
+	// Tokens issues the proof a write must present. Without it the read tools
+	// still answer, but nothing can be written.
+	Tokens *proof.Store
+	Writer Declarer
 }
 
 // instructions is the portable half of ADR-0014's context injection: an
@@ -115,7 +128,25 @@ func (s *Server) sdkServer() *sdk.Server {
 		Description: "What Dusk last read from git, per repository. Use it to tell a stale answer from a missing one.",
 	}, s.changes)
 
+	if s.opts.Writer != nil && s.opts.Tokens != nil {
+		sdk.AddTool(server, &sdk.Tool{
+			Name:        "declare",
+			Description: "Create or update an entity. Requires the proof token from a read, which is why every read returns one.",
+		}, s.declare)
+	}
+
 	return server
+}
+
+// issue mints a proof token for what a read returned and renders the line that
+// tells an agent how to use it. Read-before-write is an unusual contract, so
+// the token has to arrive unasked or nobody discovers it.
+func (s *Server) issue(origin proof.Origin, seen map[string]string) string {
+	if s.opts.Tokens == nil || s.opts.Writer == nil {
+		return ""
+	}
+	token := s.opts.Tokens.Issue(origin, seen)
+	return fmt.Sprintf("\n---\nProof token `%s`. Pass it to `declare` to write any of the above.\n", token.ID)
 }
 
 type searchInput struct {
@@ -136,11 +167,13 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 
 	var out strings.Builder
 	shown := 0
+	seen := map[string]string{}
 	for _, hit := range results {
 		if in.Kind != "" && !strings.EqualFold(hit.Kind, in.Kind) {
 			continue
 		}
 		shown++
+		seen[hit.Ref] = hit.Version
 		fmt.Fprintf(&out, "- **%s** `%s`\n", displayName(hit.Title, hit.Ref), hit.Ref)
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
 			fmt.Fprintf(&out, "  %s\n", singleLine(snippet))
@@ -148,9 +181,13 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	}
 
 	if shown == 0 {
-		return text(fmt.Sprintf("Nothing in the catalog matches %q.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.", in.Query)), nil, nil
+		// A search that found nothing is exactly what authorizes creating, so
+		// it still issues a token: the absence is the evidence.
+		return text(fmt.Sprintf("Nothing in the catalog matches %q.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
+			in.Query, s.issue(proof.FromSearch, nil))), nil, nil
 	}
-	return text(fmt.Sprintf("%d result(s) for %q. Pass a ref to `get` for the full picture.\n\n%s", shown, in.Query, out.String())), nil, nil
+	return text(fmt.Sprintf("%d result(s) for %q. Pass a ref to `get` for the full picture.\n\n%s%s",
+		shown, in.Query, out.String(), s.issue(proof.FromSearch, seen))), nil, nil
 }
 
 type getInput struct {
@@ -172,7 +209,11 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(renderEntity(entity, relations)), nil, nil
+
+	token := s.issue(proof.FromGet, map[string]string{
+		in.Ref: entity.GetProvenance().GetVersion(),
+	})
+	return text(renderEntity(entity, relations) + token), nil, nil
 }
 
 type neighborsInput struct {
@@ -206,7 +247,46 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 		}
 		out.WriteString("\nThese break, or need checking, if it goes away.\n")
 	}
-	return text(out.String()), nil, nil
+
+	// A traversal names refs without reading their contents, so the token it
+	// issues covers only the entity it was asked about.
+	seen := map[string]string{}
+	if entity, err := s.opts.Catalog.Get(ctx, "", in.Ref); err == nil {
+		seen[in.Ref] = entity.GetProvenance().GetVersion()
+	}
+	return text(out.String() + s.issue(proof.FromNeighbors, seen)), nil, nil
+}
+
+type declareInput struct {
+	Ref         string            `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name"`
+	Proof       string            `json:"proof" jsonschema:"the proof token from the read that found it"`
+	Title       string            `json:"title,omitempty" jsonschema:"human facing name"`
+	Description string            `json:"description,omitempty" jsonschema:"markdown prose describing it, replacing what is there"`
+	Attributes  map[string]string `json:"attributes,omitempty" jsonschema:"attributes to set, merged with the existing ones"`
+	Repository  string            `json:"repository,omitempty" jsonschema:"owner/name to declare a new entity in, required only when creating"`
+}
+
+func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declareInput) (*sdk.CallToolResult, any, error) {
+	result, err := s.opts.Writer.Declare(ctx, in.Proof, write.Declaration{
+		Ref:         in.Ref,
+		Title:       in.Title,
+		Description: in.Description,
+		Attributes:  in.Attributes,
+		Repository:  in.Repository,
+	})
+	// A refused write is an answer, not a transport failure: the agent has to
+	// read the reason and act on it.
+	if err != nil {
+		return text(fmt.Sprintf("The write was not made.\n\n%s", err)), nil, nil
+	}
+
+	verb := "Updated"
+	if result.Created {
+		verb = "Created"
+	}
+	return text(fmt.Sprintf(
+		"%s `%s` in %s at `%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.",
+		verb, result.Ref, result.Repository, result.Path, result.URL)), nil, nil
 }
 
 type changesInput struct{}
