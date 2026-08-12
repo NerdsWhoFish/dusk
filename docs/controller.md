@@ -32,10 +32,30 @@ A `push` reconciles that one repository at that one ref; an `installation` or `i
 
 Deliveries are answered immediately and the work runs behind the response, so GitHub is never waiting on a reconcile.
 
-**The poll floor** sweeps everything on an interval regardless, default ten minutes.
+That speed has a cost: GitHub is told the delivery succeeded before the work is attempted, so it never redelivers.
+A delivery therefore retries its own work, three attempts backing off from two seconds, and gives up on anything that would fail the same way every time.
+A file that does not parse will not parse on retry, and a spent API budget cannot be spent harder.
+
+**The poll floor** sweeps everything on an interval regardless, default twenty-four hours.
 It looks redundant next to webhooks and is not: deliveries are lost in normal operation, and a catalog with no poll underneath goes stale with no signal, which for this product is the worst available bug ([ADR-0006](../adr/0006-reconcile-triggering.md)).
 
+The floor is slow because it can afford to be.
+A repository whose commit has not moved is recognised for one request and not read, and a repository with no `dusk.md` is never downloaded ([ADR-0032](../adr/0032-tarball-reads.md)), so a sweep of a mostly idle installation costs about one request per repository.
+Only a failure records nothing, which is what makes the next sweep retry it.
+
 Poll-only is a fully supported configuration, not a degraded one. Nothing requires a public endpoint.
+
+## The API budget is watched
+
+A GitHub App installation gets on the order of five thousand requests an hour, shared across every repository it can see.
+Exhausting it does not slow the catalog down, it makes the catalog wrong, because every request after the limit fails until the hour rolls over.
+
+Every response carries the remaining budget, so Dusk reads it from responses it was making anyway rather than spending a request to ask.
+Each sweep logs what it left behind, and warns once the remaining budget falls below a third.
+
+A refusal for budget reasons is distinguished from a refusal for permission reasons, which matters because GitHub returns 403 for both.
+`errors.Is(err, githubapp.ErrRateLimited)` separates them, and a `*githubapp.RateLimitError` carries when the budget returns.
+Nothing retries into a rate limit.
 
 ## Failure never looks like deletion
 

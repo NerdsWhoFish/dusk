@@ -107,3 +107,6 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - The MCP surface has no authentication. Anyone able to reach the private host can read the whole catalog ([0012](../adr/0012-viewing-auth.md)).
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.
+- A push webhook does not yet narrow what it reads. The payload lists the files a commit touched, so a repository with no `dusk.md` could cost zero requests instead of one, and only `dusk.md` appearing in `added` would need a look. Until then every push costs one probe.
+- There is no config repository setting, so a note has nowhere to be written. `declare` reaches repositories that already have a `dusk.md`; `note` cannot ship until Dusk can be told where notes live ([0031](../adr/0031-notes-are-files.md)).
+- A rate limit is recognised and logged but not waited out. A sweep that exhausts the budget gives up until the next one rather than resuming when the limit resets.
