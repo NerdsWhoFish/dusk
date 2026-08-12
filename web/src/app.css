@@ -24,9 +24,19 @@ html {
   color-scheme: dark;
 }
 
+/* The horizon at dusk, painted on the page rather than on a component.
+   A pseudo-element has to escape its container to reach the screen edges,
+   which either overflows the page or gets clipped into a visible rectangle.
+   A background cannot do either: it is the full width of the page by
+   definition, and contributes nothing to scroll width. */
 body {
   margin: 0;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(72rem 26rem at 50% -4rem, rgb(189 147 249 / 0.13), transparent 68%),
+    radial-gradient(34rem 14rem at 50% -2rem, rgb(255 202 128 / 0.07), transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: scroll;
   color: var(--fg);
   font: 16px/1.6 var(--sans);
 }
@@ -134,19 +144,6 @@ input,
   padding: 2.5rem 0 1.75rem;
 }
 
-/* Bleeds vertically but never horizontally. A -50vw inset overflows the page,
-   which then needs overflow-x: hidden to mask it, which is what stops a
-   pinch-zoomed phone from panning sideways. */
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: -2rem 0;
-  z-index: -1;
-  background:
-    radial-gradient(60rem 12rem at 50% 100%, rgb(189 147 249 / 0.14), transparent 70%),
-    radial-gradient(28rem 8rem at 50% 100%, rgb(255 202 128 / 0.09), transparent 70%);
-  pointer-events: none;
-}
 
 .hero-sub {
   margin: 0.875rem 0 0;
@@ -479,22 +476,6 @@ input,
   position: relative;
   margin: 0 0 1.75rem;
   padding: 1.25rem 0 1.5rem;
-}
-
-/* The ellipse is taller and wider than its box so the falloff completes
-   inside it. Clipped at the edge it reads as a rectangle, not as light. */
-.identity::before {
-  content: "";
-  position: absolute;
-  inset: -6rem 0 -4rem;
-  z-index: -1;
-  background: radial-gradient(
-    40rem 14rem at 24% 50%,
-    rgb(189 147 249 / 0.09),
-    rgb(189 147 249 / 0.03) 45%,
-    transparent 72%
-  );
-  pointer-events: none;
 }
 
 .identity::after {
