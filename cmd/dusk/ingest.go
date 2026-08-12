@@ -34,11 +34,11 @@ func ingestCommand() *cli.Command {
 				Usage: "owner/name to attribute it to (default: the directory name)",
 			},
 		},
-		Action: ingest,
+		Action: ingestDirectory,
 	}
 }
 
-func ingest(ctx context.Context, cmd *cli.Command) error {
+func ingestDirectory(ctx context.Context, cmd *cli.Command) error {
 	dir := cmd.Args().First()
 	if dir == "" {
 		return fmt.Errorf("ingest: which directory? Pass one, for example `dusk ingest .`")

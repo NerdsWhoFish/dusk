@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -35,10 +36,16 @@ type DB struct {
 }
 
 type entityRow struct {
-	Repository  string `gorm:"primaryKey"`
-	GitRef      string `gorm:"primaryKey"`
-	Ref         string `gorm:"primaryKey"`
-	Path        string
+	Repository string `gorm:"primaryKey"`
+	GitRef     string `gorm:"primaryKey"`
+	Ref        string `gorm:"primaryKey"`
+	Path       string
+
+	// Observed marks a row an ingester saw rather than a human declared. It
+	// orders reads: a person who wrote something down beats a machine that
+	// inferred it, and without this the winner would be an ASCII accident.
+	Observed bool `gorm:"index"`
+
 	Kind        string `gorm:"index"`
 	Namespace   string
 	Name        string
@@ -363,6 +370,21 @@ type Scope struct {
 	GitRef     string
 }
 
+// observedPrefix marks a partition holding what an ingester saw rather than a
+// repository somebody can clone. It lives here because the index is what
+// partitions and orders by it (ADR-0034).
+const observedPrefix = "ingester:"
+
+// ObservedScope is where an ingester's observations are stored, in the slot a
+// repository would occupy.
+func ObservedScope(name string) string { return observedPrefix + name }
+
+// IsObserved reports whether a partition holds observations, so a caller does
+// not offer to clone something that was never a repository.
+func IsObserved(repository string) bool {
+	return strings.HasPrefix(repository, observedPrefix)
+}
+
 // Scopes lists every partition currently materialized, which is how a sweep
 // finds contents belonging to a repository it can no longer see.
 func (db *DB) Scopes(ctx context.Context) ([]Scope, error) {
@@ -414,6 +436,7 @@ func entityRows(repository, gitRef string, declarations []Declaration) ([]entity
 			Repository:  repository,
 			GitRef:      gitRef,
 			Path:        declared.Path,
+			Observed:    IsObserved(repository),
 			Ref:         e.GetRef(),
 			Kind:        e.GetKind(),
 			Namespace:   e.GetNamespace(),

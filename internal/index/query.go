@@ -43,7 +43,9 @@ func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.
 	var row entityRow
 	err := scoped(db.gorm.WithContext(ctx), gitRef).
 		Where("ref = ?", entityRef).
-		Order("repository").
+		// A human who wrote it down beats an ingester that inferred it
+		// (ADR-0034). Repository is the tiebreak among equals.
+		Order("observed, repository").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("index: get %q at %q: %w", entityRef, gitRef, ErrNotFound)

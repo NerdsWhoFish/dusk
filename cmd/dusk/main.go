@@ -14,6 +14,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/FetchHQ/dusk/internal/ingest"
+
 	"github.com/FetchHQ/dusk/internal/config"
 	"github.com/FetchHQ/dusk/internal/controller"
 	"github.com/FetchHQ/dusk/internal/index"
@@ -79,7 +81,11 @@ func serveCommand() *cli.Command {
   DUSK_CONFIG_REPOSITORY
                         owner/name of the repository notes are written to. It
                         needs its own dusk.md, like any other. Unset means the
-                        note tool is not offered; nothing else is affected.`,
+                        note tool is not offered; nothing else is affected.
+  DUSK_KUBERNETES       Clusters to observe, comma separated. A bare name uses
+                        in-cluster credentials; name=/path/to/kubeconfig uses
+                        that file. For example: mini-2,mini-1=/etc/dusk/mini-1
+                        Unset means Dusk observes nothing and only reads git.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
@@ -133,6 +139,11 @@ func serve(parent context.Context) error {
 		return err
 	}
 
+	observers, err := clusterObservers(cfg, idx, log)
+	if err != nil {
+		return err
+	}
+
 	tokens := &proof.Store{}
 	agents := mcp.New(mcp.Options{
 		Catalog: idx,
@@ -174,6 +185,10 @@ func serve(parent context.Context) error {
 	// what keeps a lost delivery from leaving the catalog quietly stale.
 	go catalog.Run(ctx)
 
+	if observers.Any() {
+		go observers.Start(ctx)
+	}
+
 	errc := make(chan error, 1)
 	go func() {
 		announce(log, cfg, credentials.Configured(), agentMode)
@@ -192,6 +207,25 @@ func serve(parent context.Context) error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// clusterObservers builds an ingester per configured cluster. Failing to reach
+// one is fatal at boot on purpose: it is a credential or address mistake, and
+// starting anyway would leave a cluster silently unobserved forever.
+func clusterObservers(cfg *config.Config, idx *index.DB, log *slog.Logger) (*ingest.Scheduler, error) {
+	ingesters := make([]ingest.Ingester, 0, len(cfg.Clusters))
+
+	for _, cluster := range cfg.Clusters {
+		observer, err := ingest.NewKubernetes(cluster.Name, cluster.Kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+		ingesters = append(ingesters, observer)
+		log.Info("observing a kubernetes cluster",
+			"cluster", cluster.Name, "in_cluster", cluster.InCluster(), "every", observer.Interval())
+	}
+
+	return ingest.NewScheduler(idx, log, time.Now, ingesters...), nil
 }
 
 // syncStatus adapts the controller's status to what the MCP surface reports,
