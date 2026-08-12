@@ -23,6 +23,7 @@ import (
 	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/FetchHQ/dusk/pkg/catalogfs"
 	"github.com/FetchHQ/dusk/pkg/duskmd"
 )
 
@@ -38,12 +39,10 @@ type Source interface {
 	// cannot stitch two commits into one graph.
 	Resolve(ctx context.Context, gitRef string) (string, error)
 
-	// ReadFile returns the contents of filePath at commit. A file that is not
-	// there yields an error satisfying errors.Is(err, fs.ErrNotExist).
-	ReadFile(ctx context.Context, commit, filePath string) ([]byte, error)
-
-	// Glob returns the paths at commit matching pattern, in lexical order.
-	Glob(ctx context.Context, commit, pattern string) ([]string, error)
+	// Tree returns the catalog files at commit. Producing this is a source's
+	// only real job: matching and reading over it are identical everywhere, so
+	// they live on the tree and a change to either reaches every source.
+	Tree(ctx context.Context, commit string) (*catalogfs.Tree, error)
 }
 
 // Graph is what a repository declares at one git ref.
@@ -106,7 +105,15 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 	}
 	provenance := duskmd.Provenance{Version: commit, ObservedAt: observedAt}
 
-	root, err := l.readRoot(ctx, commit, provenance)
+	tree, err := l.source.Tree(ctx, commit)
+	if errors.Is(err, ErrNotParticipating) {
+		return &Graph{GitRef: gitRef, Commit: commit, Participating: false}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: read %q at %q: %w", gitRef, commit, err)
+	}
+
+	root, err := readRoot(tree, commit, provenance)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +121,7 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 		return &Graph{GitRef: gitRef, Commit: commit, Participating: false}, nil
 	}
 
-	files, notes, err := l.collect(ctx, commit, root, provenance)
+	files, notes, err := collect(tree, commit, root, provenance)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +138,8 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 }
 
 // readRoot returns nil when the repository has no root dusk.md.
-func (l *Loader) readRoot(ctx context.Context, commit string, provenance duskmd.Provenance) (*duskmd.File, error) {
-	data, err := l.source.ReadFile(ctx, commit, RootFile)
+func readRoot(tree *catalogfs.Tree, commit string, provenance duskmd.Provenance) (*duskmd.File, error) {
+	data, err := tree.Read(RootFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -149,8 +156,8 @@ func (l *Loader) readRoot(ctx context.Context, commit string, provenance duskmd.
 
 // collect returns the root file followed by everything its includes reach,
 // separated into the entities they declare and the notes they carry.
-func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, []*duskv1alpha1.Note, error) {
-	paths, err := l.expand(ctx, commit, root.Include)
+func collect(tree *catalogfs.Tree, commit string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, []*duskv1alpha1.Note, error) {
+	paths, err := expand(tree, commit, root.Include)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -161,7 +168,7 @@ func (l *Loader) collect(ctx context.Context, commit string, root *duskmd.File, 
 	var notes []*duskv1alpha1.Note
 	var problems []error
 	for _, filePath := range paths {
-		data, err := l.source.ReadFile(ctx, commit, filePath)
+		data, err := tree.Read(filePath)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("reconcile: read %q at %q: %w", filePath, commit, err))
 			continue
@@ -200,15 +207,15 @@ const DuskDir = ".dusk"
 // expand resolves include patterns to a sorted, deduplicated path list. The
 // root file is excluded so that a pattern matching it cannot declare its entity
 // twice.
-func (l *Loader) expand(ctx context.Context, commit string, patterns []string) ([]string, error) {
+func expand(tree *catalogfs.Tree, commit string, patterns []string) ([]string, error) {
 	seen := map[string]bool{RootFile: true}
 	var paths []string
 
 	// Always in scope, ahead of whatever the root asks for.
-	patterns = append([]string{DuskDir + "/*.md", DuskDir + "/*/*.md"}, patterns...)
+	patterns = append([]string{DuskDir + "/**/*.md"}, patterns...)
 
 	for _, pattern := range patterns {
-		matches, err := l.source.Glob(ctx, commit, pattern)
+		matches, err := tree.Glob(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("reconcile: expand %q at %q: %w", pattern, commit, err)
 		}

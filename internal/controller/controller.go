@@ -19,6 +19,7 @@ import (
 	"github.com/FetchHQ/dusk/internal/reconcile"
 	"github.com/FetchHQ/dusk/internal/store"
 	"github.com/FetchHQ/dusk/internal/write"
+	"github.com/FetchHQ/dusk/pkg/catalogfs"
 	"github.com/FetchHQ/dusk/pkg/duskmd"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
@@ -359,7 +360,7 @@ func (c *Controller) irrelevant(ctx context.Context, push Push) bool {
 	}
 
 	if participates {
-		if slices.ContainsFunc(push.Files, githubapp.IsMarkdown) {
+		if slices.ContainsFunc(push.Files, catalogfs.IsCatalogFile) {
 			return false
 		}
 		c.opts.Logger.Debug("delivery skipped: the push touched no markdown",
@@ -441,7 +442,7 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 
 	// A repository with no dusk.md has not opted in, so it is never downloaded.
 	// Recording the commit stops it being probed again until it changes.
-	if err := source.Prepare(ctx, commit); err != nil {
+	if _, err := source.Tree(ctx, commit); err != nil {
 		if errors.Is(err, reconcile.ErrNotParticipating) {
 			if err := c.opts.Index.DropRepository(ctx, slug, gitRef); err != nil {
 				return c.failed(scope, err)

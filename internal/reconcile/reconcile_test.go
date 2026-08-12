@@ -1,7 +1,6 @@
 package reconcile_test
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,14 +13,13 @@ import (
 
 	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/reconcile"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
 
 // Both sources satisfy the boundary, which is what ADR-0005 requires: the
 // reconciler is identical over a checkout and a real repository.
 var (
 	_ reconcile.Source = (*reconcile.Dir)(nil)
-	_ reconcile.Source = (*githubapp.Repository)(nil)
+	_ reconcile.Source = (*reconcile.Tarball)(nil)
 )
 
 const (
@@ -230,35 +228,39 @@ func TestNoteFilesAreValidated(t *testing.T) {
 	}
 }
 
-// ADR-0004 promises that Dusk reads the root dusk.md and nothing else in the
-// repository unless that file explicitly points at another path. That promise
-// is the whole basis for a repository consenting by containing one file.
-func TestADR0004_OnlyDeclaredPathsAreRead(t *testing.T) {
-	dir := writeTree(t, map[string]string{
+// ADR-0004 promises the root dusk.md and whatever it points at, nothing else.
+// ADR-0032 narrowed that to what enters the catalog rather than what crosses
+// the wire, so the assertion is on the graph rather than on the transfer.
+func TestADR0004_OnlyDeclaredPathsEnterTheCatalog(t *testing.T) {
+	idx, reconciler := setup(t, map[string]string{
 		"dusk.md":                    rootFile,
 		"services/jellyfin/dusk.md":  jellyfinFile,
-		"secrets.md":                 "should never be read",
-		"README.md":                  "should never be read",
-		"internal/notes/private.md":  "should never be read",
-		"services/jellyfin/notes.md": "should never be read",
+		"secrets.md":                 "should never be parsed",
+		"README.md":                  "should never be parsed",
+		"internal/notes/private.md":  "should never be parsed",
+		"services/jellyfin/notes.md": "should never be parsed",
 	})
 
-	source, err := reconcile.NewDir(dir, mainRef)
+	graph, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt)
 	if err != nil {
-		t.Fatalf("NewDir: %v", err)
-	}
-	t.Cleanup(func() { _ = source.Close() })
-
-	recorder := &recordingSource{Source: source}
-	idx := newIndex(t)
-	if _, err := reconcile.New(recorder, idx).Reconcile(t.Context(), testRepo, mainRef, observedAt); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
 	want := []string{"dusk.md", "services/jellyfin/dusk.md"}
-	slices.Sort(recorder.read)
-	if !slices.Equal(recorder.read, want) {
-		t.Errorf("read %v, want exactly %v", recorder.read, want)
+	got := slices.Clone(graph.Files)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("parsed %v, want exactly %v", got, want)
+	}
+
+	// The undeclared files are markdown and were in the tree, so if the include
+	// list were ignored they would have produced entities or parse errors.
+	entities, err := idx.List(t.Context(), mainRef, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entities) != len(want) {
+		t.Errorf("catalog holds %d entities, want %d", len(entities), len(want))
 	}
 }
 
@@ -370,24 +372,31 @@ func TestDir(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	ctx := t.Context()
 
-	t.Run("a path escaping the directory is refused", func(t *testing.T) {
+	tree, err := source.Tree(ctx, mainRef)
+	if err != nil {
+		t.Fatalf("Tree: %v", err)
+	}
+
+	// A tree only ever holds paths the walk produced, so an escape cannot be
+	// expressed at all rather than being caught at read time.
+	t.Run("a path escaping the directory is not in the tree", func(t *testing.T) {
 		for _, escape := range []string{"../outside.md", "services/../../outside.md", "/etc/hosts"} {
-			if _, err := source.ReadFile(ctx, mainRef, escape); err == nil {
-				t.Errorf("ReadFile(%q) succeeded, want a refusal", escape)
+			if _, err := tree.Read(escape); err == nil {
+				t.Errorf("Read(%q) succeeded, want a refusal", escape)
 			}
 		}
 	})
 
 	t.Run("a missing file reports as not existing", func(t *testing.T) {
-		_, err := source.ReadFile(ctx, mainRef, "absent.md")
+		_, err := tree.Read("absent.md")
 		if !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("ReadFile = %v, want fs.ErrNotExist", err)
+			t.Errorf("Read = %v, want fs.ErrNotExist", err)
 		}
 	})
 
 	t.Run("another git ref is refused rather than served the same tree", func(t *testing.T) {
-		if _, err := source.ReadFile(ctx, "refs/pull/1/head", "dusk.md"); err == nil {
-			t.Error("ReadFile for another ref succeeded, want a refusal")
+		if _, err := source.Tree(ctx, "refs/pull/1/head"); err == nil {
+			t.Error("Tree for another ref succeeded, want a refusal")
 		}
 	})
 
@@ -396,16 +405,6 @@ func TestDir(t *testing.T) {
 			t.Error("NewDir succeeded with no ref, want an error")
 		}
 	})
-}
-
-type recordingSource struct {
-	reconcile.Source
-	read []string
-}
-
-func (r *recordingSource) ReadFile(ctx context.Context, gitRef, filePath string) ([]byte, error) {
-	r.read = append(r.read, filePath)
-	return r.Source.ReadFile(ctx, gitRef, filePath)
 }
 
 func setup(t *testing.T, files map[string]string) (*index.DB, *reconcile.Reconciler) {

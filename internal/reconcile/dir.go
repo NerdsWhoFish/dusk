@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/FetchHQ/dusk/pkg/catalogfs"
 )
 
 // Dir is a Source backed by a directory on disk. A directory has no refs, so it
@@ -48,53 +48,38 @@ func (d *Dir) Resolve(_ context.Context, gitRef string) (string, error) {
 	return gitRef, nil
 }
 
-// ReadFile returns the contents of filePath from within the directory.
-func (d *Dir) ReadFile(_ context.Context, gitRef, filePath string) ([]byte, error) {
-	if err := d.check(gitRef); err != nil {
-		return nil, err
-	}
-	data, err := fs.ReadFile(d.root.FS(), filePath)
-	if err != nil {
-		return nil, fmt.Errorf("reconcile: read %q: %w", filePath, err)
-	}
-	return data, nil
-}
-
-// Glob returns the markdown paths matching pattern, in lexical order. It walks
-// rather than calling fs.Glob so `**`, `.git` and non-markdown behave as they
-// do reading a tarball, since a local check that disagrees is worse than none.
-func (d *Dir) Glob(_ context.Context, gitRef, pattern string) ([]string, error) {
-	if err := d.check(gitRef); err != nil {
+// Tree walks the directory and reads its catalog files. It produces the same
+// tree a tarball would, so `dusk validate` and the server cannot disagree.
+func (d *Dir) Tree(_ context.Context, commit string) (*catalogfs.Tree, error) {
+	if err := d.check(commit); err != nil {
 		return nil, err
 	}
 
-	var matches []string
+	files := map[string][]byte{}
 	err := fs.WalkDir(d.root.FS(), ".", func(candidate string, entry fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			return err
 		case entry.IsDir():
-			if candidate == ".git" {
+			if catalogfs.IsGitDir(candidate) {
 				return fs.SkipDir
 			}
 			return nil
-		case !githubapp.IsMarkdown(candidate):
+		case !catalogfs.IsCatalogFile(candidate):
 			return nil
 		}
 
-		ok, err := match(pattern, candidate)
+		data, err := fs.ReadFile(d.root.FS(), candidate)
 		if err != nil {
-			return err
+			return fmt.Errorf("read %q: %w", candidate, err)
 		}
-		if ok {
-			matches = append(matches, candidate)
-		}
+		files[candidate] = data
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("reconcile: glob %q: %w", pattern, err)
+		return nil, fmt.Errorf("reconcile: read %q: %w", d.gitRef, err)
 	}
-	return matches, nil
+	return catalogfs.New(commit, files), nil
 }
 
 func (d *Dir) check(gitRef string) error {

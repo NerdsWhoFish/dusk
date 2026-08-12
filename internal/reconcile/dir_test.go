@@ -9,10 +9,10 @@ import (
 	"github.com/FetchHQ/dusk/internal/reconcile"
 )
 
-// Dir backs `dusk validate` and Tarball backs the server. A pattern that
-// resolves differently between them makes the local check actively misleading,
-// which is worse than not having one.
-func TestDirAndTarballGlobAlike(t *testing.T) {
+// Dir backs `dusk validate` and Tarball backs the server. They now share one
+// matcher, so what can still differ is the tree each produces: this asserts
+// they agree on that, which is what keeps the local check honest.
+func TestDirAndTarballProduceTheSameTree(t *testing.T) {
 	files := map[string]string{
 		"dusk.md":                rootFile,
 		"entities/dusk.md":       jellyfinFile,
@@ -20,6 +20,7 @@ func TestDirAndTarballGlobAlike(t *testing.T) {
 		"docs/deep/guide.md":     "x",
 		".dusk/gotcha.md":        noteFile,
 		".git/config":            "not a catalog file",
+		".git/objects/ab/cd.md":  "markdown, but git's",
 		"main.go":                "package main",
 	}
 
@@ -40,41 +41,21 @@ func TestDirAndTarballGlobAlike(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = local.Close() })
 
-	remote := &reconcile.Tarball{Repo: &fakeDownloader{files: files}}
-	if err := remote.Prepare(t.Context(), commit); err != nil {
-		t.Fatalf("Prepare: %v", err)
+	fromDir, err := local.Tree(t.Context(), commit)
+	if err != nil {
+		t.Fatalf("Dir.Tree: %v", err)
+	}
+	fromTarball, err := (&reconcile.Tarball{Repo: &fakeDownloader{files: files}}).Tree(t.Context(), commit)
+	if err != nil {
+		t.Fatalf("Tarball.Tree: %v", err)
 	}
 
-	patterns := []struct {
-		pattern string
-		want    []string
-	}{
-		// The case that shipped broken: `**` has to match no directories too,
-		// or `entities/**/*.md` silently skips every file directly under it.
-		{"entities/**/*.md", []string{"entities/dusk.md", "entities/net/switch.md"}},
-		{"entities/*.md", []string{"entities/dusk.md"}},
-		{"docs/**/*.md", []string{"docs/deep/guide.md"}},
-		{"*.md", []string{"dusk.md"}},
-		{"**/*.go", nil},
-		{"**/config", nil},
+	if !slices.Equal(fromDir.Paths(), fromTarball.Paths()) {
+		t.Errorf("the two sources disagree:\n  dir     = %v\n  tarball = %v", fromDir.Paths(), fromTarball.Paths())
 	}
 
-	for _, tt := range patterns {
-		t.Run(tt.pattern, func(t *testing.T) {
-			fromDir, err := local.Glob(t.Context(), commit, tt.pattern)
-			if err != nil {
-				t.Fatalf("Dir.Glob: %v", err)
-			}
-			fromTarball, err := remote.Glob(t.Context(), commit, tt.pattern)
-			if err != nil {
-				t.Fatalf("Tarball.Glob: %v", err)
-			}
-			if !slices.Equal(fromDir, fromTarball) {
-				t.Errorf("the two sources disagree:\n  dir     = %v\n  tarball = %v", fromDir, fromTarball)
-			}
-			if !slices.Equal(fromDir, tt.want) {
-				t.Errorf("Glob(%q) = %v, want %v", tt.pattern, fromDir, tt.want)
-			}
-		})
+	want := []string{".dusk/gotcha.md", "docs/deep/guide.md", "dusk.md", "entities/dusk.md", "entities/net/switch.md"}
+	if !slices.Equal(fromDir.Paths(), want) {
+		t.Errorf("tree = %v, want %v", fromDir.Paths(), want)
 	}
 }

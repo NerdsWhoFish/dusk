@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/FetchHQ/dusk/internal/reconcile"
+	"github.com/FetchHQ/dusk/pkg/catalogfs"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
 
@@ -42,7 +43,7 @@ func (f *fakeDownloader) ReadFileContents(_ context.Context, _, filePath string)
 	return &githubapp.FileContents{Data: []byte("---\n"), SHA: "blob"}, nil
 }
 
-func (f *fakeDownloader) Tarball(_ context.Context, at string, limits githubapp.Limits) (*githubapp.Tree, error) {
+func (f *fakeDownloader) Tarball(_ context.Context, at string, limits githubapp.Limits) (*catalogfs.Tree, error) {
 	f.downloads++
 	return githubapp.Extract(bytes.NewReader(tarballOf(f.files)), at, limits)
 }
@@ -76,14 +77,15 @@ func TestTarballReadsWithoutFurtherCalls(t *testing.T) {
 	}}
 	source := &reconcile.Tarball{Repo: downloader}
 
-	if err := source.Prepare(t.Context(), commit); err != nil {
-		t.Fatalf("Prepare: %v", err)
+	tree, err := source.Tree(t.Context(), commit)
+	if err != nil {
+		t.Fatalf("Tree: %v", err)
 	}
 
 	t.Run("every file comes from the one download", func(t *testing.T) {
 		for _, name := range []string{"dusk.md", "services/jellyfin/dusk.md", ".dusk/transcoding.md"} {
-			if _, err := source.ReadFile(t.Context(), commit, name); err != nil {
-				t.Errorf("ReadFile(%q): %v", name, err)
+			if _, err := tree.Read(name); err != nil {
+				t.Errorf("Read(%q): %v", name, err)
 			}
 		}
 		if downloader.downloads != 1 {
@@ -92,18 +94,19 @@ func TestTarballReadsWithoutFurtherCalls(t *testing.T) {
 	})
 
 	t.Run("non-markdown is not carried", func(t *testing.T) {
-		if _, err := source.ReadFile(t.Context(), commit, "main.go"); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := tree.Read("main.go"); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("main.go was kept, which is weight for nothing")
 		}
 	})
 
-	t.Run("globbing is local", func(t *testing.T) {
-		matches, err := source.Glob(t.Context(), commit, "services/*/dusk.md")
-		if err != nil {
-			t.Fatalf("Glob: %v", err)
+	// The loader asks again after the controller already has, and a second
+	// download would double the cost of every reconcile.
+	t.Run("asking again at the same commit does not download again", func(t *testing.T) {
+		if _, err := source.Tree(t.Context(), commit); err != nil {
+			t.Fatalf("Tree: %v", err)
 		}
-		if !slices.Equal(matches, []string{"services/jellyfin/dusk.md"}) {
-			t.Errorf("Glob = %v, want the one service", matches)
+		if downloader.downloads != 1 {
+			t.Errorf("downloaded %d times, want 1", downloader.downloads)
 		}
 	})
 }
@@ -114,9 +117,9 @@ func TestARepositoryWithoutDuskMdIsNeverDownloaded(t *testing.T) {
 	downloader := &fakeDownloader{noRootFile: true}
 	source := &reconcile.Tarball{Repo: downloader}
 
-	err := source.Prepare(t.Context(), commit)
+	_, err := source.Tree(t.Context(), commit)
 	if !errors.Is(err, reconcile.ErrNotParticipating) {
-		t.Fatalf("Prepare = %v, want ErrNotParticipating", err)
+		t.Fatalf("Tree = %v, want ErrNotParticipating", err)
 	}
 	if downloader.downloads != 0 {
 		t.Errorf("downloaded a repository that has not opted in")
@@ -126,45 +129,19 @@ func TestARepositoryWithoutDuskMdIsNeverDownloaded(t *testing.T) {
 	}
 }
 
-// `**` is what a documentation tree needs, and path.Match has no such thing.
-func TestGlobHandlesRecursion(t *testing.T) {
-	source := &reconcile.Tarball{Repo: &fakeDownloader{files: map[string]string{
-		"dusk.md":                rootFile,
-		"docs/a.md":              "x",
-		"docs/deep/b.md":         "x",
-		"docs/deeper/still/c.md": "x",
-		"elsewhere/d.md":         "x",
-		".dusk/notes/gotcha.md":  "x",
-	}}}
-	if err := source.Prepare(t.Context(), commit); err != nil {
-		t.Fatalf("Prepare: %v", err)
-	}
+// The controller resolves to decide whether to reconcile and the loader
+// resolves to pin its reads. Without memoizing, one ref would cost two calls.
+func TestResolveIsMemoized(t *testing.T) {
+	downloader := &fakeDownloader{files: map[string]string{"dusk.md": rootFile}}
+	source := &reconcile.Tarball{Repo: downloader}
 
-	tests := []struct {
-		pattern string
-		want    []string
-	}{
-		{"docs/**/*.md", []string{"docs/a.md", "docs/deep/b.md", "docs/deeper/still/c.md"}},
-		{"docs/*.md", []string{"docs/a.md"}},
-		{"**/*.md", nil},
+	for range 3 {
+		if _, err := source.Resolve(t.Context(), "refs/heads/main"); err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.pattern, func(t *testing.T) {
-			matches, err := source.Glob(t.Context(), commit, tt.pattern)
-			if err != nil {
-				t.Fatalf("Glob: %v", err)
-			}
-			if tt.want == nil {
-				if len(matches) == 0 {
-					t.Error("a bare ** matched nothing")
-				}
-				return
-			}
-			if !slices.Equal(matches, tt.want) {
-				t.Errorf("Glob(%q) = %v, want %v", tt.pattern, matches, tt.want)
-			}
-		})
+	if downloader.resolved != 1 {
+		t.Errorf("resolved %d times, want 1", downloader.resolved)
 	}
 }
 
@@ -188,10 +165,8 @@ func TestExtractionIsBounded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("extract: %v", err)
 		}
-		for _, name := range tree.Files() {
-			if strings.Contains(name, "..") {
-				t.Errorf("kept an escaping path: %q", name)
-			}
+		if slices.ContainsFunc(tree.Paths(), func(p string) bool { return strings.Contains(p, "..") }) {
+			t.Errorf("kept an escaping path: %v", tree.Paths())
 		}
 	})
 
@@ -218,11 +193,4 @@ func TestExtractionIsBounded(t *testing.T) {
 			t.Fatal("extract accepted more entries than the limit")
 		}
 	})
-}
-
-func TestReadingBeforePrepareIsAnError(t *testing.T) {
-	source := &reconcile.Tarball{Repo: &fakeDownloader{}}
-	if _, err := source.ReadFile(t.Context(), commit, "dusk.md"); err == nil {
-		t.Error("ReadFile succeeded with nothing downloaded")
-	}
 }

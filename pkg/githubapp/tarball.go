@@ -9,8 +9,9 @@ import (
 	"io"
 	"net/http"
 	"path"
-	"slices"
 	"strings"
+
+	"github.com/FetchHQ/dusk/pkg/catalogfs"
 )
 
 // Limits bound what an extraction accepts. A tarball is attacker-influenced
@@ -30,34 +31,10 @@ var DefaultLimits = Limits{
 	MaxFile:  8 << 20,
 }
 
-// Tree is a repository's markdown at one commit, held in memory. Only what a
-// reconcile can parse is kept; the rest of a repository would be weight carried
-// for nothing.
-type Tree struct {
-	Commit string
-	files  map[string][]byte
-}
-
-// Files returns every path held, in lexical order.
-func (t *Tree) Files() []string {
-	paths := make([]string, 0, len(t.files))
-	for p := range t.files {
-		paths = append(paths, p)
-	}
-	slices.Sort(paths)
-	return paths
-}
-
-// File returns one file's contents.
-func (t *Tree) File(p string) ([]byte, bool) {
-	data, ok := t.files[p]
-	return data, ok
-}
-
-// Tarball downloads the repository at commit and keeps the markdown from it.
-// One request replaces one per file, which is what makes a documentation tree
-// or a directory of notes affordable to read at all.
-func (r *Repository) Tarball(ctx context.Context, commit string, limits Limits) (*Tree, error) {
+// Tarball downloads the repository at commit and keeps the catalog files from
+// it. One request replaces one per file, which is what makes a documentation
+// tree or a directory of notes affordable to read at all.
+func (r *Repository) Tarball(ctx context.Context, commit string, limits Limits) (*catalogfs.Tree, error) {
 	resp, err := r.get(ctx, "/tarball/"+escapePath(commit), "application/vnd.github+json")
 	if err != nil {
 		return nil, err
@@ -68,35 +45,23 @@ func (r *Repository) Tarball(ctx context.Context, commit string, limits Limits) 
 		return nil, fmt.Errorf("githubapp: tarball %s at %s: %w", r.slug(), short(commit), statusError(resp))
 	}
 
-	tree, err := extract(resp.Body, limits)
+	tree, err := Extract(resp.Body, commit, limits)
 	if err != nil {
 		return nil, fmt.Errorf("githubapp: tarball %s at %s: %w", r.slug(), short(commit), err)
 	}
-	tree.Commit = commit
 	return tree, nil
 }
 
-// Extract reads a repository tarball into a Tree, dropping GitHub's wrapping
+// Extract reads a repository tarball into a tree, dropping GitHub's wrapping
 // directory and refusing anything that would escape it or exhaust the host.
-func Extract(body io.Reader, commit string, limits Limits) (*Tree, error) {
-	tree, err := extract(body, limits)
-	if err != nil {
-		return nil, err
-	}
-	tree.Commit = commit
-	return tree, nil
-}
-
-// extract reads the markdown out of a gzipped tar, dropping GitHub's wrapping
-// directory and refusing anything that would escape it or exhaust the host.
-func extract(body io.Reader, limits Limits) (*Tree, error) {
+func Extract(body io.Reader, commit string, limits Limits) (*catalogfs.Tree, error) {
 	gz, err := gzip.NewReader(body)
 	if err != nil {
 		return nil, fmt.Errorf("not gzip: %w", err)
 	}
 	defer func() { _ = gz.Close() }()
 
-	tree := &Tree{files: map[string][]byte{}}
+	files := map[string][]byte{}
 	reader := tar.NewReader(gz)
 	var total int64
 	var seen int
@@ -104,7 +69,7 @@ func extract(body io.Reader, limits Limits) (*Tree, error) {
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			return tree, nil
+			return catalogfs.New(commit, files), nil
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read: %w", err)
@@ -119,7 +84,7 @@ func extract(body io.Reader, limits Limits) (*Tree, error) {
 		}
 
 		name, ok := repoPath(header.Name)
-		if !ok || !IsMarkdown(name) {
+		if !ok || !catalogfs.IsCatalogFile(name) {
 			continue
 		}
 		if header.Size > limits.MaxFile {
@@ -134,7 +99,7 @@ func extract(body io.Reader, limits Limits) (*Tree, error) {
 		if total > limits.MaxBytes {
 			return nil, fmt.Errorf("markdown exceeds %d bytes in total", limits.MaxBytes)
 		}
-		tree.files[name] = data
+		files[name] = data
 	}
 }
 
@@ -154,11 +119,4 @@ func repoPath(name string) (string, bool) {
 		}
 	}
 	return rest, true
-}
-
-// IsMarkdown reports whether a path is kept by an extraction. It is exported
-// because a Tree holds only these, and anything listing a repository by other
-// means has to apply the same rule to agree with one.
-func IsMarkdown(name string) bool {
-	return strings.HasSuffix(strings.ToLower(name), ".md")
 }
