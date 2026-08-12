@@ -1,9 +1,8 @@
 // Package access answers who may read the catalog.
 //
-// One question, two credentials: an agent presents a bearer token and a browser
-// presents a cookie it got by proving it knew that same token. Both are the
-// same policy, so a deployment cannot end up with a locked agent surface and an
-// open UI, which is the mistake this package exists to make impossible.
+// One question, three credentials: a bearer token, a cookie proving the holder
+// knew that token, and a GitHub identity. All answer to one policy, so a
+// deployment cannot end up with a locked agent surface and an open UI.
 package access
 
 import (
@@ -41,10 +40,19 @@ const (
 	ModeOff Mode = "off"
 )
 
+// Identities recognizes somebody who signed in with GitHub.
+type Identities interface {
+	Identify(*http.Request) (Identity, bool)
+}
+
 // Policy decides who is let in.
 type Policy struct {
 	token   secret.String
 	trusted bool
+
+	// identities is nil until sign-in with GitHub is wired up, which leaves the
+	// shared token as the only credential.
+	identities Identities
 
 	// secure marks the cookie Secure, which a browser then refuses to send
 	// over plain http. Off for a local run, on for a real deployment.
@@ -157,12 +165,20 @@ func (p *Policy) LogOut(w http.ResponseWriter) {
 // Required reports whether a person has to log in at all.
 func (p *Policy) Required() bool { return p.Mode() == ModeToken }
 
+// Recognize teaches the policy about people signed in with GitHub. Without it
+// a successful sign-in sets a cookie no gate ever reads, and the browser lands
+// back on the login page holding a perfectly good identity.
+func (p *Policy) Recognize(identities Identities) { p.identities = identities }
+
 func (p *Policy) signedIn(r *http.Request) bool {
-	cookie, err := r.Cookie(SessionCookie)
-	if err != nil {
+	if cookie, err := r.Cookie(SessionCookie); err == nil && p.valid(cookie.Value) {
+		return true
+	}
+	if p.identities == nil {
 		return false
 	}
-	return p.valid(cookie.Value)
+	_, ok := p.identities.Identify(r)
+	return ok
 }
 
 // mint signs an expiry with a key derived from the token, so the cookie proves

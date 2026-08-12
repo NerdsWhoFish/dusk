@@ -2,6 +2,8 @@ package access_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -164,6 +166,57 @@ func TestOAuthRefusesAStateItNeverIssued(t *testing.T) {
 
 	if _, _, err := auth.Complete(t.Context(), "code", "invented"); err == nil {
 		t.Error("a state Dusk never issued was accepted")
+	}
+}
+
+// Signing in has to be a way in. Complete used to set an identity cookie that
+// no gate consulted, so a person finished the GitHub round trip and was
+// redirected straight back to the login page holding a valid identity.
+func TestASignedInPersonIsLetPastTheGate(t *testing.T) {
+	policy := access.New(secret.New("shared"), false, false)
+	auth := &access.OAuth{
+		Credentials: source("id", "shh"),
+		Policy:      policy,
+		GitHub:      &fakeGitHub{login: "joey", readable: []string{"acme/infra"}},
+	}
+	policy.Recognize(auth)
+
+	guarded := policy.Browsers(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Nobody signed in yet, so the gate should still turn a browser away.
+	cold := httptest.NewRecorder()
+	guarded.ServeHTTP(cold, httptest.NewRequest(http.MethodGet, "/", nil))
+	if cold.Code != http.StatusSeeOther {
+		t.Fatalf("an anonymous browser got %d, want a redirect to the login page", cold.Code)
+	}
+
+	target, err := auth.Begin()
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	signIn := httptest.NewRecorder()
+	id, _, err := auth.Complete(t.Context(), "code", parsed.Query().Get("state"))
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	auth.SetIdentity(signIn, id)
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, cookie := range signIn.Result().Cookies() {
+		request.AddCookie(cookie)
+	}
+
+	rec := httptest.NewRecorder()
+	guarded.ServeHTTP(rec, request)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a signed-in person got %d, want to be let through", rec.Code)
 	}
 }
 

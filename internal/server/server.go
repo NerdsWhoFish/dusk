@@ -131,6 +131,10 @@ func New(opts Options) (*Server, error) {
 		GitHub:      &access.Client{Credentials: s.signInCredentials},
 	}
 
+	// Without this a completed sign-in sets an identity no gate consults, and
+	// the browser is redirected straight back to the login page.
+	s.access.Recognize(s.oauth)
+
 	tmpl, err := template.New("").Parse(pages)
 	if err != nil {
 		return nil, err
