@@ -118,7 +118,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - The UI's responsive behaviour is unverified. It is written mobile first against [0025](../adr/0025-responsive-ui.md)'s rules, but the viewport matrix has never actually been run against it.
 - A browser session is a bearer token in a cookie by another name: it grants the whole catalog and cannot be revoked short of rotating `DUSK_MCP_TOKEN`, which signs it. Signing in with GitHub narrows a view; it does not close this path ([0036](../adr/0036-deriving-what-a-viewer-sees.md)).
 - A restricted viewer's drift, integrity and kind counts are not filtered, so those blocks can count things the viewer cannot open.
-- OAuth sign-in requests `repo` scope, which is far more than listing repository names needs. GitHub offers nothing narrower that still sees private repositories.
+- OAuth sign-in requests `repo` scope, which is far more than listing repository names needs. GitHub offers nothing narrower that still sees private repositories. A GitHub App ignores the scope entirely and grants what its installation permits, so this only bites a deployment pointed at a real OAuth App through the environment ([0036](../adr/0036-deriving-what-a-viewer-sees.md)).
 - Identity sessions live in memory, so a restart signs everybody out.
 - Every open pull request holds a partition of the index, rebuilt on every push to its branch. Nothing prunes an abandoned one until it closes ([0037](../adr/0037-pull-request-previews.md)).
 - A preview's drift and integrity are unfiltered for a restricted viewer, so those counts can include entities they cannot open.

@@ -97,3 +97,9 @@ Onboarding therefore takes effect without a restart: a Dusk that starts un-onboa
 
 An install onboarded before the App's owner was recorded has no owner stored, and an empty owner allows nothing.
 Rather than silently reconciling zero repositories, Dusk asks GitHub for the App's owner and carries on, logging that it did.
+
+Signing in with GitHub follows the same rule for the same reason.
+The App registered at `/setup` is itself an OAuth provider, its manifest already claims `/auth/callback`, and the exchange returns a client id and secret that are stored with the rest.
+So there is nothing to configure: the "Sign in with GitHub" button appears once an App is registered, on the pod that registered it, without a restart.
+
+`DUSK_GITHUB_CLIENT_ID` and `DUSK_GITHUB_CLIENT_SECRET` override it, and exist only to point a deployment at an app it did not register itself.

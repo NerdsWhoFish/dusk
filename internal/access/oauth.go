@@ -51,12 +51,16 @@ func (i Identity) MaySee(repository string) bool {
 	return slices.Contains(i.Readable, repository)
 }
 
+// CredentialSource supplies the client id and secret to sign in with. It
+// resolves per call because the App is registered after boot, through /setup,
+// and a process that started without one must pick it up without a restart.
+type CredentialSource func() (clientID string, clientSecret secret.String)
+
 // OAuth signs people in with GitHub.
 type OAuth struct {
-	ClientID     string
-	ClientSecret secret.String
-	Callback     string
-	GitHub       GitHub
+	Credentials CredentialSource
+	Callback    string
+	GitHub      GitHub
 
 	// Policy signs the identity cookie, reusing the session signing key so
 	// there is one secret to rotate rather than two.
@@ -69,7 +73,11 @@ type OAuth struct {
 
 // Configured reports whether sign-in with GitHub is available.
 func (o *OAuth) Configured() bool {
-	return o != nil && o.ClientID != "" && !o.ClientSecret.IsZero() && o.GitHub != nil
+	if o == nil || o.Credentials == nil || o.GitHub == nil {
+		return false
+	}
+	id, clientSecret := o.Credentials()
+	return id != "" && !clientSecret.IsZero()
 }
 
 // Begin starts the flow, returning the URL to send the browser to.
@@ -87,11 +95,15 @@ func (o *OAuth) Begin() (string, error) {
 	o.sweep()
 	o.mu.Unlock()
 
+	clientID, _ := o.Credentials()
 	query := url.Values{
-		"client_id":    {o.ClientID},
+		"client_id":    {clientID},
 		"redirect_uri": {o.Callback},
-		"scope":        {"read:user repo"},
-		"state":        {state},
+		// A GitHub App ignores this and grants what its installation already
+		// permits. It is sent for an OAuth App, which has no read-only scope
+		// covering private repositories.
+		"scope": {"read:user repo"},
+		"state": {state},
 	}
 	return "https://github.com/login/oauth/authorize?" + query.Encode(), nil
 }
@@ -214,11 +226,10 @@ func randomState() (string, error) {
 
 // Client talks to GitHub's OAuth and REST endpoints.
 type Client struct {
-	ClientID     string
-	ClientSecret secret.String
-	HTTP         *http.Client
-	BaseURL      string
-	OAuthURL     string
+	Credentials CredentialSource
+	HTTP        *http.Client
+	BaseURL     string
+	OAuthURL    string
 }
 
 func (c *Client) httpClient() *http.Client {
@@ -244,9 +255,10 @@ func (c *Client) oauth() string {
 
 // Exchange turns a callback code into a user access token.
 func (c *Client) Exchange(ctx context.Context, code string) (secret.String, error) {
+	clientID, clientSecret := c.Credentials()
 	form := url.Values{
-		"client_id":     {c.ClientID},
-		"client_secret": {c.ClientSecret.Reveal()},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret.Reveal()},
 		"code":          {code},
 	}
 

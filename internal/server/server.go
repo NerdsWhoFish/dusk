@@ -125,14 +125,10 @@ func New(opts Options) (*Server, error) {
 		strings.HasPrefix(s.cfg.PrivateHost, "https://"))
 
 	s.oauth = &access.OAuth{
-		ClientID:     s.cfg.OAuthClientID,
-		ClientSecret: s.cfg.OAuthClientSecret,
-		Callback:     s.cfg.SignInURL(),
-		Policy:       s.access,
-		GitHub: &access.Client{
-			ClientID:     s.cfg.OAuthClientID,
-			ClientSecret: s.cfg.OAuthClientSecret,
-		},
+		Credentials: s.signInCredentials,
+		Callback:    s.cfg.SignInURL(),
+		Policy:      s.access,
+		GitHub:      &access.Client{Credentials: s.signInCredentials},
 	}
 
 	tmpl, err := template.New("").Parse(pages)

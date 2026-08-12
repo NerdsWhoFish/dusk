@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -60,17 +61,17 @@ func (f *fakeGitHub) Convert(_ context.Context, code string) (*githubapp.Credent
 
 func newServer(t *testing.T, cs *fakeStore, gh *fakeGitHub) http.Handler {
 	t.Helper()
-	return build(t, cs, gh, externalURL, "")
+	return build(t, cs, gh, externalURL, "", nil)
 }
 
 // newServerWithHosts covers the split-host deployment, where GitHub reaches a
 // public forwarder and browsers reach a private hostname.
 func newServerWithHosts(t *testing.T, private, public string) http.Handler {
 	t.Helper()
-	return build(t, &fakeStore{}, &fakeGitHub{}, private, public)
+	return build(t, &fakeStore{}, &fakeGitHub{}, private, public, nil)
 }
 
-func build(t *testing.T, cs *fakeStore, gh *fakeGitHub, private, public string) http.Handler {
+func build(t *testing.T, cs *fakeStore, gh *fakeGitHub, private, public string, extra map[string]string) http.Handler {
 	t.Helper()
 
 	key, err := vault.NewKey()
@@ -81,6 +82,7 @@ func build(t *testing.T, cs *fakeStore, gh *fakeGitHub, private, public string) 
 	if public != "" {
 		env["DUSK_PUBLIC_HOST"] = public
 	}
+	maps.Copy(env, extra)
 	cfg, err := config.Load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatalf("config: %v", err)

@@ -89,3 +89,21 @@ Persisting sessions would mean storing a copy of GitHub's answer about who can r
 
 - **Option 1** was rejected because it would make a single-operator LAN deployment require a GitHub App registration to look at its own catalog, and because agents have no GitHub identity to present.
 - **Option 3** was rejected because [ADR-0012](0012-viewing-auth.md) is already accepted, and leaving it unimplemented while the UI grew would mean retrofitting a filter through every read later, which is how filters get missed.
+
+## Amendments
+
+### 2026-08-12: the registered App is the sign-in provider
+
+"Available when configured" was read as "configured by hand", and sign-in took its client id and secret only from `DUSK_GITHUB_CLIENT_ID` and `DUSK_GITHUB_CLIENT_SECRET`.
+Nothing set them, so the feature shipped unreachable and no test noticed, because the package had none.
+
+Dusk already holds what it needs.
+A GitHub App is an OAuth provider in its own right, the manifest in [ADR-0005](0005-github-app-and-access-modes.md)'s registration flow already claims `/auth/callback` as a callback URL, and the exchange returns a client id and secret that `store.Credentials` has been sealing on disk since the beginning.
+Making the operator create a second app and copy in credentials Dusk is already holding was ceremony guarding nothing.
+
+Sign-in now resolves credentials per call, preferring the environment and falling back to the registered App.
+Resolving per call rather than at construction is the load-bearing part: the App is registered through `/setup` *after* the process starts, so a value read once at boot is empty for the lifetime of the pod that onboarded.
+
+This also removes the `repo` scope in practice for most deployments, listed as a Bad consequence above.
+A GitHub App ignores the scope parameter and grants what its installation already permits, so `/user/repos` returns the repositories the App can see and the person can read, which is a better answer than the one an OAuth App's `repo` scope buys.
+The scope is still sent, because a deployment pointed at a genuine OAuth App through the environment still needs it.

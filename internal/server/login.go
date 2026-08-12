@@ -2,7 +2,24 @@ package server
 
 import (
 	"net/http"
+
+	"github.com/FetchHQ/dusk/pkg/secret"
 )
+
+// signInCredentials resolves who Dusk signs people in as. The registered App is
+// itself an OAuth provider and its manifest already claims the callback, so a
+// working install needs nothing configured. The environment wins where set.
+func (s *Server) signInCredentials() (string, secret.String) {
+	if s.cfg.OAuthConfigured() {
+		return s.cfg.OAuthClientID, s.cfg.OAuthClientSecret
+	}
+
+	app, err := s.credentials.Load()
+	if err != nil || app == nil {
+		return "", secret.String{}
+	}
+	return app.ClientID, app.ClientSecret
+}
 
 // handleLoginPage shows the sign-in form, or sends an already-signed-in browser
 // on. A deployment on a trusted network needs no login at all, so asking for
