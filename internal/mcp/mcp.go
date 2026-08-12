@@ -37,6 +37,7 @@ type Catalog interface {
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
+	Scopes(ctx context.Context) ([]index.Scope, error)
 }
 
 // Syncs reports what the controller last did, so an agent can tell a stale
@@ -90,9 +91,13 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
 - drift reports where the catalog and reality disagree: declared and nowhere to be found, or running and written down nowhere.
 
+- dusk_context returns this operator's inventory, tailored to the repository you are working in.
+
 Every result carries a ref of the form kind:namespace/name. Refs feed straight back into get.
 
-The catalog only knows what repositories have declared in a dusk.md. An entity being absent means nobody has written it down, not that it does not exist.`
+The catalog only knows what repositories have declared in a dusk.md, plus what an ingester observed by looking. An entity being absent means nobody has written it down, not that it does not exist.
+
+**Call dusk_context once at the start of a session**, passing the directory you are working in. It tells you what this operator has before you need to ask, and it is the difference between answering from their catalog and answering from a guess.`
 
 // Server is the MCP surface over the catalog.
 type Server struct {
@@ -147,6 +152,11 @@ func (s *Server) sdkServer() *sdk.Server {
 		Name:        "drift",
 		Description: "Where the catalog and reality disagree: declared but nowhere to be found, or running and written down nowhere. Ask before documenting an estate, and after something is decommissioned.",
 	}, s.drift)
+
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "dusk_context",
+		Description: "What this operator's catalog knows, tailored to the repository you are working in. Call this once at the start of a session, before assuming anything about their infrastructure.",
+	}, s.duskContext)
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		sdk.AddTool(server, &sdk.Tool{

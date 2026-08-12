@@ -140,9 +140,9 @@ func TestToolSurfaceIsSmall(t *testing.T) {
 		}
 	}
 
-	// Five reads. Adding one is a decision, not a default: this list is the
-	// budget, and the failure ADR-0010 names is thirty tools nobody chose.
-	want := "changes,drift,get,neighbors,search"
+	// Six reads. Adding one is a decision, not a default, and the failure
+	// ADR-0010 names is thirty tools nobody chose.
+	want := "changes,drift,dusk_context,get,neighbors,search"
 	if got := joinSorted(names); got != want {
 		t.Errorf("tools = %s, want %s", got, want)
 	}
