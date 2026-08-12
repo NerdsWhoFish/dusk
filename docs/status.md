@@ -73,14 +73,15 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## UI
 
-- [ ] **HTTP API**: the UI is an ordinary client of it, with no privileged path
-- [ ] **React app**: embedded via `go:embed`, dark only, Dracula Pro
-- [ ] **Pages**: blocks as queries, entity pages and portal pages ([0013](../adr/0013-layout-and-pages.md))
+- [x] **HTTP API**: `/api/search`, `/api/entities`, `/api/entities/{ref}`, `/api/overview`, `/api/status`. The UI is an ordinary client of it with no privileged path
+- [x] **React app**: React 19 and TypeScript, built by Vite, embedded via `go:embed`, dark only, Dracula Pro
+- [x] **Browser auth**: a session cookie exchanged for the same token agents present, so one policy covers both surfaces
+- [~] **Pages**: entity pages and a portal landing composed of blocks are built. The blocks are fixed rather than declared as queries in a markdown file, which is what [0013](../adr/0013-layout-and-pages.md) actually asks for
 - [ ] **PR previews**: render at an unmerged ref, semantic diff, comment bot ([0001](../adr/0001-git-as-source-of-truth.md))
-- [ ] **Viewing auth**: GitHub OAuth against repo access ([0012](../adr/0012-viewing-auth.md))
+- [ ] **Viewing auth**: GitHub OAuth against repo access. The session cookie answers "may you read", not "what may you read" ([0012](../adr/0012-viewing-auth.md))
 - [ ] **Admin**: plugin configuration forms, sensitive fields write-only ([0023](../adr/0023-plugin-configuration.md))
-- [ ] **Responsive layouts**: table to card, graph to list, diff to unified ([0025](../adr/0025-responsive-ui.md))
-- [ ] **Viewport matrix tests**: five viewports, no overflow, touch target minimums ([0025](../adr/0025-responsive-ui.md))
+- [~] **Responsive layouts**: mobile first, one breakpoint, wide content scrolls inside its own container. Nothing yet does the table-to-card or graph-to-list transform, because neither exists ([0025](../adr/0025-responsive-ui.md))
+- [ ] **Viewport matrix tests**: five viewports, no overflow, touch target minimums. **The matrix has never been run**: neither browser tool available could actually change the viewport, so the responsive layout is written but unverified ([0025](../adr/0025-responsive-ui.md))
 
 ## Plugins
 
@@ -110,3 +111,5 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - Notes are ranked by pinned-then-id. [0031](../adr/0031-notes-are-files.md) wants kind to drive ranking so a gotcha outranks a todo without being pinned by hand.
 - A note's refs are not checked against the catalog, so a typo attaches it to nothing, silently. Relations have the same weakness, for the same reason: the target may legitimately live in another repository.
 - A rate limit is recognised and logged but not waited out. A sweep that exhausts the budget gives up until the next one rather than resuming when the limit resets.
+- The UI's responsive behaviour is unverified. It is written mobile first against [0025](../adr/0025-responsive-ui.md)'s rules, but the viewport matrix has never actually been run against it.
+- A browser session is a bearer token in a cookie by another name: it grants the whole catalog and cannot be revoked short of rotating `DUSK_MCP_TOKEN`, which signs it.

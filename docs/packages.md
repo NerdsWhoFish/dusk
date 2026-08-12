@@ -54,6 +54,7 @@ graph TD
 
 | Package | Its job | Not its job |
 | --- | --- | --- |
+| `access` | Who may read the catalog, in both credentials: a bearer token for agents and a session cookie for browsers | Deciding *what* a reader may see. It answers yes or no for the whole catalog ([ADR-0012](../adr/0012-viewing-auth.md)) |
 | `config` | Reading and validating boot configuration, reporting every problem at once | Reaching the network to check whether a configured thing exists. Shape only; existence is checked at use |
 | `index` | The materialized graph in SQLite, partitioned by `(repository, git ref)`, and every query over it | Deciding what to store. It is disposable by contract and rebuilt from git |
 | `reconcile` | Turning a repository at a ref into a graph: resolving a commit, expanding includes, parsing what they reach | Talking to GitHub, and matching paths. A `Source` produces a tree; `catalogfs` matches over it |
@@ -63,6 +64,12 @@ graph TD
 | `server` | HTTP: onboarding, health, webhooks, and mounting the agent surface | Doing the work behind a request. A handler validates, dispatches, and answers |
 | `store` | Persisting the GitHub App credentials, encrypted | Choosing the encryption. That is `vault` |
 | `nextversion` | Release tooling ([ADR-0021](../adr/0021-release-tooling.md)) | Anything the running service does |
+
+`web/` is the React UI plus the `go:embed` that carries its build into the binary.
+It sits at the repository root rather than under `internal/` because the embed directive cannot reach outside its own directory, and copying build output into a Go package is a step that gets forgotten and ships a stale UI.
+
+The UI is an ordinary client of the HTTP API with no privileged path, so anything it renders is fetchable with curl.
+Styling is CSS custom properties rather than a utility framework, because those are the only thing that crosses into a plugin's shadow DOM and therefore the theming contract [ADR-0020](../adr/0020-plugin-ui.md)'s Web Components depend on.
 
 ## Where things commonly want to go, and where they belong
 
@@ -80,6 +87,8 @@ These are the calls that have actually been got wrong.
 | A rule about when to reconcile | `controller` |
 | A rule about whether a write is allowed | `proof` |
 | A new agent tool | `mcp`, as a thin call into `index` or `write` |
+| A rule about who may read | `access`. Both credentials, one policy, so a deployment cannot lock one surface and open another |
+| Anything the UI renders | An API endpoint first. The UI has no privileged path to the index |
 
 ## Adding a package
 
