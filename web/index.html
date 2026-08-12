@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- Nothing here pins or disables scaling (ADR-0025). Accidental zoom is
+         fixed with touch-action on controls instead, which is the actual
+         cause: a page that refuses to enlarge is one somebody cannot read. -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Dusk</title>

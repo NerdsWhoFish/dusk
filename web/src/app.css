@@ -29,12 +29,21 @@ body {
   background: var(--bg);
   color: var(--fg);
   font: 16px/1.6 var(--sans);
-  /* ADR-0025: the body never scrolls sideways. Wide content scrolls itself. */
-  overflow-x: hidden;
 }
 
 a {
   color: var(--purple);
+}
+
+/* Kills double-tap-to-zoom and the 300ms tap delay on controls, so tapping a
+   row feels like an app rather than a document. Pinch zoom is untouched,
+   because a page somebody cannot enlarge is a page they cannot read. */
+a,
+button,
+input,
+.row,
+.chip {
+  touch-action: manipulation;
 }
 
 :focus-visible {
@@ -125,10 +134,13 @@ a {
   padding: 2.5rem 0 1.75rem;
 }
 
+/* Bleeds vertically but never horizontally. A -50vw inset overflows the page,
+   which then needs overflow-x: hidden to mask it, which is what stops a
+   pinch-zoomed phone from panning sideways. */
 .hero::before {
   content: "";
   position: absolute;
-  inset: 0 -50vw;
+  inset: -2rem 0;
   z-index: -1;
   background:
     radial-gradient(60rem 12rem at 50% 100%, rgb(189 147 249 / 0.14), transparent 70%),
@@ -474,7 +486,7 @@ a {
 .identity::before {
   content: "";
   position: absolute;
-  inset: -6rem -50vw -4rem;
+  inset: -6rem 0 -4rem;
   z-index: -1;
   background: radial-gradient(
     40rem 14rem at 24% 50%,

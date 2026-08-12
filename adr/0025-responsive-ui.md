@@ -104,3 +104,20 @@ This is the same rule as [ADR-0017](0017-engineering-policy.md): assert the obse
 - Desktop only was rejected because the product's core use case happens away from a desk, and treating that as best effort means it does not work.
 - A separate mobile interface was rejected as two products. Feature parity would decay immediately, and every change would need building twice.
 - Screenshot comparison was rejected because its failures are usually noise, and a check people learn to approve without reading is worse than no check.
+
+## Amendments
+
+### 2026-08-12: accidental zoom is a touch-action problem, not a scale-lock one
+
+"No viewport-scale lock" above stands, and this records why it was nearly lost.
+
+A page that zooms when you did not mean it to reads as a document somebody forgot to finish rather than an application, and the obvious fix is `user-scalable=no`.
+That fix is wrong twice over: it is a WCAG 1.4.4 failure, and iOS Safari has ignored the tag since iOS 10, so on the platform this is most read from it does nothing at all.
+
+The actual cause is **double-tap to zoom** on controls, and the cure is `touch-action: manipulation` on links, buttons, inputs and rows.
+That removes double-tap zoom and the 300ms tap delay, leaving deliberate pinch zoom untouched.
+
+Two other things keep accidental zoom away, and both are now rules rather than accidents:
+
+- **Inputs are at least 16px.** Below that, iOS zooms the page when a field takes focus, which is the other common source of "why did it zoom".
+- **The layout never overflows horizontally**, so there is nothing to pan into by mistake. This is enforced by not overflowing rather than by `overflow-x: hidden`, which only hides the evidence and, on a zoomed phone, prevents panning to the content it hid.
