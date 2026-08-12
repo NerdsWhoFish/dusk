@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -296,19 +297,82 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 
 // SyncRepository reconciles one repository, which is what a webhook triggers.
 func (c *Controller) SyncRepository(ctx context.Context, installationID int64, account, owner, name, gitRef string) error {
+	return c.SyncPush(ctx, Push{
+		InstallationID: installationID,
+		Account:        account,
+		Owner:          owner,
+		Name:           name,
+		GitRef:         gitRef,
+	})
+}
+
+// Push is one delivery's worth of work.
+type Push struct {
+	InstallationID int64
+	Account        string
+	Owner          string
+	Name           string
+	GitRef         string
+
+	// Files is what the push touched. A nil slice means the delivery could not
+	// be trusted to list them, and the repository is read as if it had not said.
+	Files []string
+}
+
+func (p Push) slug() string { return p.Owner + "/" + p.Name }
+
+// SyncPush reconciles one repository from a delivery, skipping the read
+// entirely when the files the push touched cannot have changed the catalog.
+func (c *Controller) SyncPush(ctx context.Context, push Push) error {
 	tokens, appOwner, err := c.auth(ctx)
 	if err != nil {
 		c.opts.Logger.Info("delivery skipped: not onboarded yet", "reason", err)
 		return nil
 	}
-	if !c.Permitted(account, appOwner) {
+	if !c.Permitted(push.Account, appOwner) {
 		c.opts.Logger.Warn("delivery ignored: account is not allowed",
-			"account", account, "repository", owner+"/"+name)
+			"account", push.Account, "repository", push.slug())
 		return nil
 	}
-	c.remember(owner+"/"+name, installationID)
-	install := &githubapp.Install{Client: c.opts.Client, Tokens: tokens, ID: installationID}
-	return c.reconcileWithRetry(ctx, install, owner+"/"+name, gitRef)
+	if c.irrelevant(ctx, push) {
+		return nil
+	}
+
+	c.remember(push.slug(), push.InstallationID)
+	install := &githubapp.Install{Client: c.opts.Client, Tokens: tokens, ID: push.InstallationID}
+	return c.reconcileWithRetry(ctx, install, push.slug(), push.GitRef)
+}
+
+// irrelevant reports whether a push provably cannot have changed the catalog,
+// making it answerable for zero requests. A skip is never recorded as
+// reconciled, so a sweep still corrects this if the judgement was wrong.
+func (c *Controller) irrelevant(ctx context.Context, push Push) bool {
+	if push.Files == nil {
+		return false
+	}
+
+	participates, err := c.opts.Index.Participates(ctx, push.slug(), push.GitRef)
+	if err != nil {
+		c.opts.Logger.Warn("could not tell whether the repository participates, reading it",
+			"repository", push.slug(), "error", err)
+		return false
+	}
+
+	if participates {
+		if slices.ContainsFunc(push.Files, githubapp.IsMarkdown) {
+			return false
+		}
+		c.opts.Logger.Debug("delivery skipped: the push touched no markdown",
+			"repository", push.slug(), "files", len(push.Files))
+		return true
+	}
+
+	if slices.Contains(push.Files, reconcile.RootFile) {
+		return false
+	}
+	c.opts.Logger.Debug("delivery skipped: the repository has no dusk.md and the push did not add one",
+		"repository", push.slug(), "files", len(push.Files))
+	return true
 }
 
 // deliveryAttempts bounds a webhook-triggered reconcile. GitHub is answered

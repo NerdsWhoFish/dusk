@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FetchHQ/dusk/internal/config"
+	"github.com/FetchHQ/dusk/internal/controller"
 	"github.com/FetchHQ/dusk/internal/store"
 	"github.com/FetchHQ/dusk/pkg/githubapp"
 )
@@ -26,7 +27,7 @@ type credentialStore interface {
 // catalogController is the slice of the controller the webhook path needs,
 // declared here so the server does not depend on how reconciling works.
 type catalogController interface {
-	SyncRepository(ctx context.Context, installationID int64, account, owner, name, gitRef string) error
+	SyncPush(ctx context.Context, push controller.Push) error
 	Sync(ctx context.Context) error
 }
 

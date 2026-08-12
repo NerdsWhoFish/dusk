@@ -363,6 +363,20 @@ func (db *DB) Scopes(ctx context.Context) ([]Scope, error) {
 	return scopes, nil
 }
 
+// Participates reports whether a repository contributes to the catalog at this
+// ref. A delivery asks before spending a request on the push, so the answer
+// comes from SQLite, and unlike an in-memory one it survives a restart.
+func (db *DB) Participates(ctx context.Context, repository, gitRef string) (bool, error) {
+	var count int64
+	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
+		Where("repository = ? AND git_ref = ?", repository, gitRef).
+		Limit(1).Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("index: check participation of %q: %w", repository, err)
+	}
+	return count > 0, nil
+}
+
 // GitRefs lists the git refs currently materialized.
 func (db *DB) GitRefs(ctx context.Context) ([]string, error) {
 	var refs []string

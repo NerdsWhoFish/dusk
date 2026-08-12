@@ -57,6 +57,22 @@ A refusal for budget reasons is distinguished from a refusal for permission reas
 `errors.Is(err, githubapp.ErrRateLimited)` separates them, and a `*githubapp.RateLimitError` carries when the budget returns.
 Nothing retries into a rate limit.
 
+### A push that cannot have changed the catalog costs nothing
+
+A push payload lists the files each of its commits touched, and that list answers two questions without asking GitHub anything.
+
+A repository that declares nothing only becomes interesting when a root `dusk.md` appears in the push.
+A repository that does declare something cannot change without some markdown changing.
+Either way the answer comes from the index, which is SQLite, so the common case of a code push is free.
+
+The list is trusted only when it is complete.
+GitHub caps a payload at twenty commits and does not flag the truncation, so a payload at the cap is treated as unknown, as are a created branch, a force push, and a delivery carrying no commits.
+Unknown means read the repository, never skip it.
+
+**A skip is not recorded as reconciled.**
+The commit stays unrecorded, so if this judgement was ever wrong the next sweep still corrects it.
+Recording it would turn a mistake here into permanent silent staleness, which is the one failure this product cannot have.
+
 ## Failure never looks like deletion
 
 A sweep removes contents belonging to repositories it can no longer see, which is how an uninstall leaves the catalog.

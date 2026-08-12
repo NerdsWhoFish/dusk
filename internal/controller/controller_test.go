@@ -113,6 +113,22 @@ func (f *fakeGitHub) count(path string) {
 	f.calls[path]++
 }
 
+// total is every request made, which is the number the API budget is spent in.
+func (f *fakeGitHub) total() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var sum int
+	for path, n := range f.calls {
+		// Minting a token is not a catalog read and is cached across them.
+		if strings.Contains(path, "/access_tokens") {
+			continue
+		}
+		sum += n
+	}
+	return sum
+}
+
 func (f *fakeGitHub) writeInstallations(w http.ResponseWriter) {
 	out := make([]map[string]any, 0, len(f.installs))
 	for _, i := range f.installs {
@@ -198,10 +214,12 @@ func (f *fakeGitHub) writeTarball(w http.ResponseWriter, req *http.Request) {
 	_ = gz.Close()
 }
 
+// contentsOf returns a repository's dusk.md. Empty means the repository exists
+// but declares nothing, which is the majority case and not the same as absent.
 func (f *fakeGitHub) contentsOf(slug string) (string, bool) {
 	for _, i := range f.installs {
 		if content, ok := i.repos[slug]; ok {
-			return content, true
+			return content, content != ""
 		}
 	}
 	return "", false
@@ -277,6 +295,92 @@ func TestSyncReconcilesEveryRepository(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Most repositories in an installation declare nothing and never will, and
+// most pushes to the ones that do are code. Both are answerable from the index
+// alone, and doing so is what keeps a busy account inside its API budget.
+func TestAnIrrelevantPushCostsNothing(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id: 10, account: "example",
+		repos: map[string]string{
+			"example/homelab": rootFile("jellyfin"),
+			"example/website": "",
+		},
+	}}}
+	c, _ := newController(t, fake, "example", controller.Options{})
+
+	// Learn which repositories participate, the way a first sweep would.
+	if err := c.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	before := fake.total()
+
+	tests := []struct {
+		name  string
+		repo  string
+		files []string
+		reads bool
+	}{
+		{
+			name:  "a code push to a repository with no dusk.md",
+			repo:  "website",
+			files: []string{"index.html", "style.css"},
+		},
+		{
+			name:  "a code push to a repository that does participate",
+			repo:  "homelab",
+			files: []string{"main.go", "Dockerfile"},
+		},
+		{
+			name:  "a dusk.md appearing in a repository that had none",
+			repo:  "website",
+			files: []string{"dusk.md"},
+			reads: true,
+		},
+		{
+			name:  "markdown changing in a repository that participates",
+			repo:  "homelab",
+			files: []string{"services/jellyfin/dusk.md"},
+			reads: true,
+		},
+		// Nil is not "no files". An untrustworthy payload must be read.
+		{
+			name:  "a push whose files could not be trusted",
+			repo:  "homelab",
+			files: nil,
+			reads: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Move the commit so a read cannot be skipped for being unchanged,
+			// which would make this test pass for the wrong reason.
+			fake.sha = "deadbeef" + tt.name[:1]
+			at := fake.total()
+
+			err := c.SyncPush(t.Context(), controller.Push{
+				InstallationID: 10, Account: "example", Owner: "example",
+				Name: tt.repo, GitRef: mainRef, Files: tt.files,
+			})
+			if err != nil {
+				t.Fatalf("SyncPush: %v", err)
+			}
+
+			spent := fake.total() - at
+			if tt.reads && spent == 0 {
+				t.Error("the push was skipped, but it could have changed the catalog")
+			}
+			if !tt.reads && spent != 0 {
+				t.Errorf("spent %d requests on a push that cannot have changed anything", spent)
+			}
+		})
+	}
+
+	if fake.total() == before {
+		t.Fatal("no request was made by any case, so this test proves nothing")
+	}
 }
 
 // An unchanged commit is not read again. This is what makes sweeping an idle

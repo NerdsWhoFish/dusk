@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/FetchHQ/dusk/internal/controller"
 )
 
 // maxWebhookBody caps what is read before signature checking, so an unverified
@@ -136,6 +138,42 @@ type deliveryPayload struct {
 			Login string `json:"login"`
 		} `json:"account"`
 	} `json:"installation"`
+
+	Created bool `json:"created"`
+	Deleted bool `json:"deleted"`
+	Forced  bool `json:"forced"`
+	Commits []struct {
+		Added    []string `json:"added"`
+		Removed  []string `json:"removed"`
+		Modified []string `json:"modified"`
+	} `json:"commits"`
+}
+
+// pushCommitLimit is how many commits GitHub includes in a push payload. Past
+// it the list is truncated with no flag saying so, so the count is the flag.
+const pushCommitLimit = 20
+
+// touched returns the files this push changed, or nil when the payload cannot
+// be trusted to list them all. Nil means "look anyway"; an empty slice means
+// "nothing changed", and only the second lets a caller skip the read.
+func (p deliveryPayload) touched() []string {
+	if p.Created || p.Deleted || p.Forced || len(p.Commits) == 0 || len(p.Commits) >= pushCommitLimit {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	var files []string
+	for _, commit := range p.Commits {
+		for _, group := range [][]string{commit.Added, commit.Removed, commit.Modified} {
+			for _, file := range group {
+				if !seen[file] {
+					seen[file] = true
+					files = append(files, file)
+				}
+			}
+		}
+	}
+	return files
 }
 
 // dispatch turns an accepted delivery into work, off the request goroutine so
@@ -176,10 +214,19 @@ func (s *Server) reconcileRepository(ctx context.Context, delivery string, paylo
 		account = owner
 	}
 
+	work := controller.Push{
+		InstallationID: payload.Installation.ID,
+		Account:        account,
+		Owner:          owner,
+		Name:           name,
+		GitRef:         payload.Ref,
+		Files:          payload.touched(),
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reconcileTimeout)
 		defer cancel()
-		if err := s.controller.SyncRepository(ctx, payload.Installation.ID, account, owner, name, payload.Ref); err != nil {
+		if err := s.controller.SyncPush(ctx, work); err != nil {
 			s.log.Error("reconcile from delivery failed", "delivery", delivery, "error", err)
 		}
 	}()
