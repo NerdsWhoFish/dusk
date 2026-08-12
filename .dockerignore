@@ -1,5 +1,6 @@
-# The build stage needs the Go source and nothing else. Everything below either
-# bloats the context or invalidates the layer cache on an unrelated edit.
+# The build stages need the Go and web source and nothing else. Everything
+# below either bloats the context or invalidates the layer cache on an
+# unrelated edit.
 .git
 .github
 .golangci.yml
@@ -8,3 +9,8 @@ docs
 Dockerfile
 Makefile
 *.md
+
+# The image builds the UI itself, so a local build's output and dependencies
+# would only be shadowed by it.
+web/node_modules
+web/dist

@@ -1,6 +1,20 @@
 # syntax=docker/dockerfile:1
 
 ARG GO_VERSION=1.26
+ARG NODE_VERSION=24
+
+# The UI is built here rather than copied in, so `docker build` needs no node
+# and cannot pick up whatever happened to be in web/dist locally. It is
+# architecture independent, so it runs once on the build platform.
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS web
+
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --fund=false
+
+COPY web/ ./
+RUN npm run build
 
 # The build stage pins itself to the BUILD platform and cross-compiles with Go's
 # own GOOS/GOARCH. Letting Docker run an arm64 toolchain under QEMU instead
@@ -14,6 +28,10 @@ COPY go.mod go.sum* ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
+
+# After the source, so go:embed picks up the real bundle rather than the
+# placeholder committed to keep an unbuilt checkout compiling.
+COPY --from=web /web/dist ./web/dist
 
 ARG TARGETOS
 ARG TARGETARCH
