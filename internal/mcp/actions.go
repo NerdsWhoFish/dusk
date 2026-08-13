@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -50,16 +51,30 @@ func elicitor(session *sdk.ServerSession) plugin.Elicitor {
 		return nil
 	}
 	return func(ctx context.Context, ask plugin.Ask) (plugin.Answer, error) {
-		result, err := session.Elicit(ctx, &sdk.ElicitParams{
+		waited, stop := context.WithTimeout(ctx, elicitPatience)
+		defer stop()
+
+		result, err := session.Elicit(waited, &sdk.ElicitParams{
 			Message:         ask.Prompt,
 			RequestedSchema: ask.Schema,
 		})
 		if err != nil {
+			// A client that declares the capability and then does not answer is
+			// indistinguishable from one that cannot, so the plugin is told the
+			// same thing and decides for itself rather than waiting forever.
+			if errors.Is(waited.Err(), context.DeadlineExceeded) {
+				return plugin.Answer{Outcome: plugin.Unanswerable}, nil
+			}
 			return plugin.Answer{}, err
 		}
 		return plugin.Answer{Outcome: result.Action, Values: result.Content}, nil
 	}
 }
+
+// elicitPatience bounds one question. ADR-0046 bounded how many times a plugin
+// may ask, not how long an ask may take, so an unanswered one hung the whole
+// invocation. A variable so a test need not wait on it.
+var elicitPatience = 2 * time.Minute
 
 // canElicit reports whether this client declared the capability. Answering nil
 // rather than an erroring function keeps one path: no elicitor means the

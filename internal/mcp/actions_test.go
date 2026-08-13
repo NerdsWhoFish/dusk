@@ -3,8 +3,11 @@ package mcp_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -241,5 +244,84 @@ func TestConfigureWithNoSettingsReadsThem(t *testing.T) {
 	}
 	if !strings.Contains(body, "never here") {
 		t.Fatalf("reading should say where a credential is entered instead:\n%s", body)
+	}
+}
+
+// asking is a plugin that puts a question to whoever invoked it and reports
+// what came back, which is the only way to see the elicitor from outside.
+type asking struct {
+	offering
+	heard plugin.Answer
+}
+
+func (a *asking) Invoke(ctx context.Context, request plugin.Request) (*plugin.Outcome, error) {
+	if request.Elicit == nil {
+		a.heard = plugin.Answer{Outcome: plugin.Unanswerable}
+		return &plugin.Outcome{Done: true, OK: true, Message: "nobody to ask"}, nil
+	}
+	answer, err := request.Elicit(ctx, plugin.Ask{Prompt: "why?"})
+	if err != nil {
+		return nil, err
+	}
+	a.heard = answer
+	return &plugin.Outcome{Done: true, OK: true, Message: "heard " + answer.Outcome}, nil
+}
+
+// A client may declare the elicitation capability and then never answer. The
+// wait has to end anyway: ADR-0046 bounded how many times a plugin may ask and
+// not how long one ask may take, so an unanswered question hung the whole
+// invocation for as long as the connection lived.
+func TestAnUnansweredQuestionEndsRatherThanHanging(t *testing.T) {
+	t.Cleanup(mcp.SetElicitPatience(200 * time.Millisecond))
+
+	silent := &asking{offering: offering{
+		actions: []plugin.Action{{
+			Plugin: "asker", Name: "poke", Class: "read_only",
+			Kinds: []string{"service"}, Enabled: true,
+		}},
+	}}
+
+	httpServer := httptest.NewServer(mcp.New(mcp.Options{
+		Catalog: newIndex(t), Version: "test", Plugins: silent,
+	}).Handler())
+	t.Cleanup(httpServer.Close)
+
+	// A handler that declares the capability and then waits for the deadline
+	// rather than answering, which is what a wedged client looks like.
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "test"}, &sdk.ClientOptions{
+		ElicitationHandler: func(ctx context.Context, _ *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	})
+	session, err := client.Connect(t.Context(),
+		&sdk.StreamableClientTransport{Endpoint: httpServer.URL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	done := make(chan string, 1)
+	go func() {
+		result, err := session.CallTool(t.Context(), &sdk.CallToolParams{
+			Name:      "invoke",
+			Arguments: map[string]any{"ref": "service:home/thing", "action": "poke"},
+		})
+		if err != nil {
+			done <- "error: " + err.Error()
+			return
+		}
+		done <- fmt.Sprint(result.Content)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the invocation never returned, so an unanswered question still hangs it")
+	}
+
+	if silent.heard.Outcome != plugin.Unanswerable {
+		t.Errorf("the plugin heard %q, want %q so it can decide for itself",
+			silent.heard.Outcome, plugin.Unanswerable)
 	}
 }
