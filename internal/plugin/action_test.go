@@ -452,3 +452,88 @@ func TestAnInvocationIsRecordedAsAnEvent(t *testing.T) {
 		t.Fatalf("the event should say who asked and what served it, got %+v", recent[0])
 	}
 }
+
+// A plugin asking for input gets it, and the answer reaches the same action on
+// the turn that follows.
+func TestAPluginCanAskTheInvokerForInput(t *testing.T) {
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	manager, _, _, _ := acting(t, standIn{
+		ID:      "asker",
+		Kinds:   []string{"widget"},
+		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
+	}, observed)
+
+	var asked plugin.Ask
+	outcome, err := manager.Invoke(t.Context(), plugin.Request{
+		Ref: "widget:asker/one", Action: "poke",
+		Elicit: func(_ context.Context, ask plugin.Ask) (plugin.Answer, error) {
+			asked = ask
+			return plugin.Answer{Outcome: plugin.Accepted, Values: map[string]any{"reason": "because"}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+
+	if asked.Prompt != "what is the reason?" {
+		t.Errorf("prompt = %q, want the plugin's own question", asked.Prompt)
+	}
+	if asked.Schema["type"] != "object" {
+		t.Errorf("schema = %v, want the plugin's schema passed through", asked.Schema)
+	}
+	if !strings.Contains(outcome.Message, `accept: "because"`) {
+		t.Errorf("message = %q, want the answer to have reached the plugin", outcome.Message)
+	}
+}
+
+// A surface with nobody attached must not hang or fail on the plugin's behalf.
+// The plugin is told nobody can answer and decides for itself, which is what
+// keeps one declaration usable from the UI, a chain and a schedule (ADR-0046).
+func TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging(t *testing.T) {
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	manager, _, _, _ := acting(t, standIn{
+		ID:      "asker",
+		Kinds:   []string{"widget"},
+		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
+	}, observed)
+
+	outcome, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:asker/one", Action: "poke"})
+	if err != nil {
+		t.Fatalf("invoke with nobody to ask: %v", err)
+	}
+	if !outcome.OK {
+		t.Fatalf("the action failed instead of being told nobody could answer: %+v", outcome)
+	}
+	if !strings.Contains(outcome.Message, plugin.Unanswerable) {
+		t.Errorf("message = %q, want the plugin to have been told %q", outcome.Message, plugin.Unanswerable)
+	}
+}
+
+// A plugin that keeps asking however it is answered is looping, and Dusk stops
+// it rather than putting the same question to somebody forever.
+func TestAnEndlessElicitationIsStopped(t *testing.T) {
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	manager, _, _, _ := acting(t, standIn{
+		ID:    "asker",
+		Kinds: []string{"widget"},
+		Actions: []standInAction{{
+			Name: "poke", Class: readOnly, Kinds: []string{"widget"},
+			Asks: "reason", Insists: true,
+		}},
+	}, observed)
+
+	var asks int
+	_, err := manager.Invoke(t.Context(), plugin.Request{
+		Ref: "widget:asker/one", Action: "poke",
+		Elicit: func(_ context.Context, _ plugin.Ask) (plugin.Answer, error) {
+			asks++
+			return plugin.Answer{Outcome: plugin.Accepted, Values: map[string]any{"reason": "again"}}, nil
+		},
+	})
+	if err == nil {
+		t.Fatal("an endlessly asking plugin was not stopped")
+	}
+	if asks > 8 {
+		t.Errorf("the human was asked %d times before it stopped", asks)
+	}
+}

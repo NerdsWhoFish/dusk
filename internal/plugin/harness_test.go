@@ -65,6 +65,11 @@ type standInAction struct {
 	Preview  bool     `json:"preview"`
 	Refuse   string   `json:"refuse"`
 	Produces []string `json:"produces"`
+
+	// Asks makes the action elicit before doing anything, and Insists makes it
+	// keep asking however it is answered, for exercising the turn bound.
+	Asks    string `json:"asks"`
+	Insists bool   `json:"insists"`
 }
 
 func standInPlugin(encoded string) error {
@@ -182,10 +187,14 @@ func (s *standInServer) Invoke(_ context.Context, request *duskv1alpha1.InvokeRe
 		return &duskv1alpha1.InvokeResponse{Done: true, Ok: false, Message: action.Refuse}, nil
 	}
 
+	if ask := s.elicit(action, request); ask != nil {
+		return ask, nil
+	}
+
 	response := &duskv1alpha1.InvokeResponse{
 		Done:    !action.Async,
 		Ok:      true,
-		Message: "did " + action.Name,
+		Message: answered(action, request),
 		Detail:  detailOf(request),
 	}
 	if action.Async {
@@ -195,6 +204,46 @@ func (s *standInServer) Invoke(_ context.Context, request *duskv1alpha1.InvokeRe
 		response.Then = append(response.Then, &duskv1alpha1.Next{Action: next})
 	}
 	return response, nil
+}
+
+// elicit asks once, or every turn when the action insists, and answers nil once
+// it has what it wanted.
+func (s *standInServer) elicit(action standInAction, request *duskv1alpha1.InvokeRequest) *duskv1alpha1.InvokeResponse {
+	if action.Asks == "" {
+		return nil
+	}
+	if request.GetElicited() != nil && !action.Insists {
+		return nil
+	}
+
+	schema, err := structpb.NewStruct(map[string]any{
+		"type":       "object",
+		"properties": map[string]any{action.Asks: map[string]any{"type": "string"}},
+	})
+	if err != nil {
+		return &duskv1alpha1.InvokeResponse{Done: true, Ok: false, Message: err.Error()}
+	}
+	return &duskv1alpha1.InvokeResponse{Elicit: &duskv1alpha1.Elicit{
+		Prompt: "what is the " + action.Asks + "?",
+		Schema: schema,
+		Token:  "turn-" + action.Asks,
+	}}
+}
+
+// answered reports what the plugin heard back, so a test can tell an accepted
+// answer from nobody being there to give one.
+func answered(action standInAction, request *duskv1alpha1.InvokeRequest) string {
+	given := request.GetElicited()
+	if given == nil {
+		return "did " + action.Name
+	}
+	value := ""
+	if values := given.GetValues(); values != nil {
+		if held, ok := values.AsMap()[action.Asks].(string); ok {
+			value = held
+		}
+	}
+	return fmt.Sprintf("did %s, %s: %q", action.Name, given.GetOutcome(), value)
 }
 
 // detailOf echoes what the plugin was given, so a test can prove the instance's

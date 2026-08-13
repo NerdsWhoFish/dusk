@@ -44,7 +44,46 @@ type Request struct {
 
 	// Preview asks what would happen instead of doing it.
 	Preview bool
+
+	// Elicit answers a plugin asking the human something mid-action. Only a
+	// surface with somebody attached sets it; the rest leave it nil and the
+	// plugin is told nobody can answer (ADR-0046).
+	Elicit Elicitor
 }
+
+// Elicitor puts a plugin's question to whoever invoked the action.
+type Elicitor func(ctx context.Context, ask Ask) (Answer, error)
+
+// Ask is a plugin's question, as a prompt and the shape of the reply.
+type Ask struct {
+	Prompt string
+
+	// Schema is a JSON Schema object, flat and of primitives, which is all the
+	// MCP elicitation contract carries.
+	Schema map[string]any
+}
+
+// Answer is what came back, including the two ways of saying no.
+type Answer struct {
+	// Outcome is accept, decline, cancel, or unsupported when there was nobody
+	// to ask. A plugin may treat a considered no differently from walking away.
+	Outcome string
+
+	Values map[string]any
+}
+
+// How an elicitation ended. The first three are MCP's own vocabulary; the
+// fourth is Dusk saying there was nobody to ask.
+const (
+	Accepted     = "accept"
+	Declined     = "decline"
+	Cancelled    = "cancel"
+	Unanswerable = "unsupported"
+)
+
+// maxElicit bounds how many times one action may ask before Dusk stops it. A
+// plugin still asking after this is looping rather than gathering.
+const maxElicit = 4
 
 // Outcome is what happened, including every step of a composition.
 type Outcome struct {
@@ -236,7 +275,7 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 	event := events.Started(newID(), chain, target.running.ID, request.Ref, target.action.Name, request.Actor, m.now())
 	m.Events.Emit(event)
 
-	answer, err := target.running.client.Invoke(ctx, &duskv1alpha1.InvokeRequest{
+	answer, err := m.converse(ctx, target, request, &duskv1alpha1.InvokeRequest{
 		Ref:        request.Ref,
 		Action:     target.action.Name,
 		Params:     params,
@@ -284,6 +323,52 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 
 	outcome.Steps = m.compose(ctx, target, request, answer.GetThen(), chain, depth)
 	return outcome, nil
+}
+
+// converse invokes an action and answers whatever it asks for, until it stops
+// asking or runs out of turns. An elicitation ends a turn: nothing else in that
+// response is acted on, because the action has not finished (ADR-0046).
+func (m *Manager) converse(ctx context.Context, target chosen, request Request, call *duskv1alpha1.InvokeRequest) (*duskv1alpha1.InvokeResponse, error) {
+	for turn := 0; ; turn++ {
+		answer, err := target.running.client.Invoke(ctx, call)
+		if err != nil {
+			return nil, err
+		}
+
+		ask := answer.GetElicit()
+		if ask == nil {
+			return answer, nil
+		}
+		if turn >= maxElicit {
+			return nil, fmt.Errorf("plugin: %s asked for input more than %d times running %s, which is a loop rather than a conversation",
+				target.running.ID, maxElicit, target.action.Name)
+		}
+
+		given, err := m.ask(ctx, request, ask)
+		if err != nil {
+			return nil, err
+		}
+		call.Elicited = given
+	}
+}
+
+// ask puts one question to the invoker. Nobody attached is answered rather than
+// failed, so the plugin chooses between a default and its own refusal.
+func (m *Manager) ask(ctx context.Context, request Request, elicit *duskv1alpha1.Elicit) (*duskv1alpha1.Elicited, error) {
+	if request.Elicit == nil {
+		return &duskv1alpha1.Elicited{Token: elicit.GetToken(), Outcome: Unanswerable}, nil
+	}
+
+	given, err := request.Elicit(ctx, Ask{Prompt: elicit.GetPrompt(), Schema: elicit.GetSchema().AsMap()})
+	if err != nil {
+		return nil, fmt.Errorf("plugin: that question could not be put to anybody: %w", err)
+	}
+
+	values, err := structpb.NewStruct(given.Values)
+	if err != nil {
+		return nil, fmt.Errorf("plugin: that answer cannot be sent back: %w", err)
+	}
+	return &duskv1alpha1.Elicited{Token: elicit.GetToken(), Values: values, Outcome: given.Outcome}, nil
 }
 
 // compose runs what an invocation asked for next. Only an action its descriptor

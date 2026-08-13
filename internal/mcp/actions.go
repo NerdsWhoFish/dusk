@@ -42,11 +42,42 @@ type invokeInput struct {
 // invoke is the one tool a plugin's capability arrives through. Installing a
 // tenth plugin adds no tools, which is what keeps ADR-0010's budget intact
 // against an unbounded marketplace (ADR-0041).
-func (s *Server) invoke(ctx context.Context, _ *sdk.CallToolRequest, in invokeInput) (*sdk.CallToolResult, any, error) {
+// elicitor lets a plugin put a question to whoever is driving this session. A
+// client without the capability answers unsupported rather than failing, so an
+// action that can proceed without asking still runs (ADR-0046).
+func elicitor(session *sdk.ServerSession) plugin.Elicitor {
+	if !canElicit(session) {
+		return nil
+	}
+	return func(ctx context.Context, ask plugin.Ask) (plugin.Answer, error) {
+		result, err := session.Elicit(ctx, &sdk.ElicitParams{
+			Message:         ask.Prompt,
+			RequestedSchema: ask.Schema,
+		})
+		if err != nil {
+			return plugin.Answer{}, err
+		}
+		return plugin.Answer{Outcome: result.Action, Values: result.Content}, nil
+	}
+}
+
+// canElicit reports whether this client declared the capability. Answering nil
+// rather than an erroring function keeps one path: no elicitor means the
+// manager tells the plugin nobody can answer.
+func canElicit(session *sdk.ServerSession) bool {
+	if session == nil {
+		return false
+	}
+	params := session.InitializeParams()
+	return params != nil && params.Capabilities != nil && params.Capabilities.Elicitation != nil
+}
+
+func (s *Server) invoke(ctx context.Context, req *sdk.CallToolRequest, in invokeInput) (*sdk.CallToolResult, any, error) {
 	request := plugin.Request{
 		Ref: in.Ref, Action: in.Action, Params: in.Params, Proof: in.Proof,
 		Plugin: in.Plugin, Confirm: in.Confirm, Preview: in.Preview,
-		Actor: "agent",
+		Actor:  "agent",
+		Elicit: elicitor(req.Session),
 	}
 
 	run := s.opts.Plugins.Invoke
