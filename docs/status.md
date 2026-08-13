@@ -93,7 +93,12 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
 - [ ] **Plugin UI**: declarative view spec, then Web Components ([0020](../adr/0020-plugin-ui.md))
 - [ ] **Actions**: invoke, dry run, classification, approval, events ([0015](../adr/0015-plugin-actions-and-events.md))
-- [ ] **Plugin-contributed MCP tools**: a plugin's actions reaching agents through `/mcp` without one tool per plugin, which is the failure [0010](../adr/0010-mcp-surface.md) exists to prevent. Undecided
+- [ ] **Plugin capability over MCP**: `invoke` and discovery folded into `get`, so installing a plugin adds no tools ([0041](../adr/0041-plugins-reach-agents-as-actions.md))
+- [ ] **Configuring a plugin over MCP**: non-sensitive fields through `declare`, since they are already frontmatter in the config repository. Sensitive fields stay UI-only ([0041](../adr/0041-plugins-reach-agents-as-actions.md), [0023](../adr/0023-plugin-configuration.md))
+- [ ] **Marketplace**: `dusk-plugin-*` repositories in allowlisted GitHub orgs, listed in the UI ([0042](../adr/0042-installing-plugins.md))
+- [ ] **Install and update**: download a release asset, verify its checksum, record the version, and never update without a human saying so ([0042](../adr/0042-installing-plugins.md))
+- [ ] **Plugin cache on disk**: installed binaries live in the data directory, so a restart needs no network and a rollout does not race a rate limit. Makes the PVC hold something not rebuildable from git ([0042](../adr/0042-installing-plugins.md))
+- [ ] **Shared plugin release workflow**: GoReleaser with conventional-commit notes, living once in `FetchHQ/.github` and called by every plugin rather than copied ([0021](../adr/0021-release-tooling.md))
 
 GitHub is not on this list. It is core and stays there: git is the source of truth, so GitHub is substrate rather than a source among sources ([0040](../adr/0040-core-and-plugins.md)).
 

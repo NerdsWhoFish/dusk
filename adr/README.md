@@ -49,6 +49,8 @@ That is what stops the same argument happening again in six months.
 | [0038](0038-what-drift-may-say.md) | Drift only speaks where something is watching | Extends 0011's rule that "I could not look" is not "it is not there" to kinds nobody observes. Coverage is derived from observations, and a declaration over its own observation stops reading as a conflict |
 | [0039](0039-one-plugin-transport.md) | gRPC is the only plugin transport | Supersedes 0002's transport half. The stdout tier cannot answer a request, so it cannot serve an asset or an action. `PluginService` already exists, so this deletes a tier rather than adding one. Shell script plugins are the cost |
 | [0040](0040-core-and-plugins.md) | GitHub is core, Kubernetes is the first plugin | Core owns what Dusk cannot function without. Git is the source of truth so GitHub is substrate; Kubernetes is merely observed. The in-tree ingester goes only once the plugin replaces it |
+| [0041](0041-plugins-reach-agents-as-actions.md) | A plugin reaches agents through the tools that already exist | Installing a plugin adds no MCP tools, or 0010's budget dies against an unbounded marketplace. Capabilities are 0015 actions surfaced through `invoke` and `get`; configuration is `declare`, and secrets stay UI-only |
+| [0042](0042-installing-plugins.md) | Plugins are found by org, installed from a release, and cached on disk | The naming convention is the registry: `dusk-plugin-*` in an allowlisted GitHub org. Checksums verified, updates approved by a human, binaries on the PVC so boot needs no network. A plugin runs with Dusk's permissions, stated plainly |
 
 ## Writing one
 

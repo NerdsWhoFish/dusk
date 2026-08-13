@@ -55,3 +55,14 @@ make test    # go test -race ./...
 - **Update [`docs/status.md`](docs/status.md) in the same change that moves an item.**
 - **Anything deferred gets a line in [`docs/status.md`](docs/status.md), in the change that defers it.** Choosing not to build something now is fine. Leaving no trace of the choice is not, because "later" and "forgotten" look identical from outside. A `[ ]` item, a `[~]` with what is missing, or a Known gaps entry: whichever fits, but one of them, written while the decision is fresh enough to explain.
 - **This repository is public.** Never commit anything about a particular person's deployment: hostnames, cluster names, domains, or the names of private repositories. Examples use `example.com` and generic names.
+
+## Plugin repositories
+
+A plugin lives in its own repository named `dusk-plugin-<name>`, because that prefix is how the marketplace finds it ([ADR-0042](adr/0042-installing-plugins.md)). It follows this repository's conventions: ADRs in `adr/`, one sentence per line, tests on observable results, `make check` as what CI runs.
+
+Two things differ, both because a plugin ships a binary and Dusk ships a service:
+
+- **Every plugin releases with GoReleaser**, with release notes generated from conventional commits, and the same dispatch-with-scope-and-bump flow this repository uses ([ADR-0021](adr/0021-release-tooling.md)). Dusk itself deliberately does not use GoReleaser: it publishes a container image, so GoReleaser would only wrap `docker buildx` and has nothing else to do. That reasoning does not transfer to a plugin, which publishes per-platform binaries that Dusk downloads from a GitHub release. Do not "fix" either repository to match the other.
+- **The release workflow is called, not copied.** It lives once in `FetchHQ/.github` and every plugin references it with `uses:`. Copied CI drifts silently, and a marketplace whose plugins each package themselves slightly differently is one where installing is different every time.
+
+Because a release artifact is what Dusk downloads and executes, the checksums GoReleaser produces are not decoration. [ADR-0042](adr/0042-installing-plugins.md) verifies them on install.
