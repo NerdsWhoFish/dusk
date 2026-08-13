@@ -88,4 +88,19 @@ They now share `useSchemaForm`, `SchemaForm` and `ParamInput` rather than each h
 
 ## Amendments
 
-None yet.
+### 2026-08-13: the form validates shape, and completeness is the plugin's
+
+The decision above says the form "validates against the schema it was handed and refuses to submit".
+Written that way it enforced two different things, and one of them was not its business.
+
+Refusing a **shape** the plugin cannot accept is right: an unparseable JSON box or a string where an array belongs is something the browser knows and the plugin can only refuse less clearly.
+
+Refusing an **incomplete** form is wrong, and it broke the feature it sits next to.
+[ADR-0046](0046-plugins-can-ask.md) exists so a plugin can ask for what it was not given.
+A form that will not submit until every required field is filled means the plugin is never invoked, never notices anything missing, and therefore can never ask.
+The one surface where a human is present to answer an elicitation was the one surface that could not trigger one.
+
+Required fields are still marked, and the form still refuses a bad shape.
+Whether enough was supplied is answered by the plugin, which is the only thing that knows.
+
+Found by trying to use it: the first attempt to test elicitation in the browser could not press Run.

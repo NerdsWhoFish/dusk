@@ -60,7 +60,7 @@ function ActionCard({
   onRan?: () => void;
 }) {
   const fields = schemaFields(action.params);
-  const form = useSchemaForm(fields);
+  const form = useSchemaForm();
 
   const [outcome, setOutcome] = useState<Outcome>();
   const [asking, setAsking] = useState<string>();
@@ -264,10 +264,10 @@ type Problems = Record<string, string>;
 
 const needed = "this one is needed";
 
-// useSchemaForm holds what a form has been given and what is wrong with it.
-// Dusk relays a schema it does not validate (ADR-0046), so the browser is the
-// only place a bad shape is caught before the plugin refuses it.
-function useSchemaForm(fields: ParamField[]) {
+// useSchemaForm holds what a form has been given and what is wrong with its
+// shape. Dusk relays a schema it does not validate (ADR-0046), so the browser
+// is the only place a bad shape is caught before the plugin refuses it.
+function useSchemaForm() {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [problems, setProblems] = useState<Problems>({});
 
@@ -295,24 +295,12 @@ function useSchemaForm(fields: ParamField[]) {
     });
   };
 
-  // ready refuses a form already known to be wrong, and says why against the
-  // field rather than leaving the plugin to say it less clearly.
+  // ready refuses a form whose shape is wrong, and only that. Whether enough
+  // was given is the plugin's to answer, because a missing field is what it
+  // asks about (ADR-0046), and blocking here means it can never ask.
   const ready = (): boolean => {
-    const found: Problems = { ...problems };
-    for (const field of fields) {
-      // An unticked box is an answer, so a boolean is never missing.
-      if (field.control === "check" || !field.required) {
-        continue;
-      }
-      // Never over a reason already given: a box that did not parse is empty,
-      // and "this one is needed" is the less useful of the two things to say.
-      if (blank(values[field.name])) {
-        found[field.name] ??= needed;
-      }
-    }
-
-    setProblems(found);
-    return Object.keys(found).length === 0;
+    setProblems(problems);
+    return Object.keys(problems).length === 0;
   };
 
   return { values, problems, change, ready };
@@ -359,7 +347,7 @@ function Question({
   onAnswer: (answer: Answered) => void;
 }) {
   const fields = schemaFields(ask.schema);
-  const form = useSchemaForm(fields);
+  const form = useSchemaForm();
 
   return (
     <div className="action-form action-asking">
