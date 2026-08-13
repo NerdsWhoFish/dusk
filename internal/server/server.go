@@ -253,6 +253,7 @@ func (s *Server) apiRoutes() http.Handler {
 	// gate as everything else and are POST rather than GET.
 	api.HandleFunc("POST /observations/forget", s.handleAPIForget)
 	api.HandleFunc("GET /plugins", s.handleAPIPlugins)
+	api.HandleFunc("POST /plugins/refresh", s.handleAPIRefresh)
 	api.HandleFunc("POST /plugins/{id}/install", s.handleAPIInstall)
 	api.HandleFunc("POST /plugins/{id}/uninstall", s.handleAPIUninstall)
 	api.HandleFunc("POST /plugins/{id}/config", s.handleAPIConfigure)

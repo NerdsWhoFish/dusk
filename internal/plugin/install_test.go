@@ -200,8 +200,8 @@ func TestInstallKeepsConfigurationAcrossAnUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	configured.Config = map[string]any{"cluster": "mini-2"}
-	configured.Instances = map[string]map[string]any{"other": {"cluster": "mini-1"}}
+	configured.Config = map[string]any{"cluster": "prod"}
+	configured.Instances = map[string]map[string]any{"other": {"cluster": "staging"}}
 	if err := store.Write(*configured); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestInstallKeepsConfigurationAcrossAnUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read after update: %v", err)
 	}
-	if after.Config["cluster"] != "mini-2" {
+	if after.Config["cluster"] != "prod" {
 		t.Errorf("config = %v, want the update to have kept it", after.Config)
 	}
 	if _, ok := after.Instances["other"]; !ok {

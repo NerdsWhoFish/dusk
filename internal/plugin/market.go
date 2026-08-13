@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -42,9 +44,31 @@ type Market struct {
 	// BaseURL is GitHub's API, overridable for tests.
 	BaseURL string
 
-	// Token is optional. Unauthenticated GitHub allows 60 requests an hour per
-	// address, which one refresh across a few orgs can exhaust.
-	Token string
+	// Token takes GitHub's limit from 60 requests an hour to 5,000. It is the
+	// App's own installation token, not a second credential: any authenticated
+	// identity raises the limit. A function because such a token expires.
+	Token func(context.Context) (string, error)
+
+	// TTL is how long a listing is reused. Browsing the marketplace must not
+	// cost API budget per page view, which is the ungated periodic traffic
+	// ADR-0017 names as the failure mode.
+	TTL time.Duration
+
+	mu     sync.Mutex
+	cached []Listing
+	fresh  time.Time
+}
+
+// cacheFor defaults the TTL. A day, because browsing the marketplace should
+// cost nothing and a plugin release is not news that has to arrive within the
+// hour. Refresh is how somebody asks for it sooner.
+const cacheFor = 24 * time.Hour
+
+func (m *Market) ttl() time.Duration {
+	if m.TTL > 0 {
+		return m.TTL
+	}
+	return cacheFor
 }
 
 func (m *Market) orgs() []string {
@@ -59,6 +83,20 @@ func (m *Market) httpClient() *http.Client {
 		return m.HTTP
 	}
 	return &http.Client{Timeout: 30 * time.Second}
+}
+
+// token asks for an App token and shrugs if there is none. An unauthenticated
+// listing still works, just against a much smaller budget, so failing to mint
+// one must not take the marketplace down.
+func (m *Market) token(ctx context.Context) string {
+	if m.Token == nil {
+		return ""
+	}
+	token, err := m.Token(ctx)
+	if err != nil {
+		return ""
+	}
+	return token
 }
 
 func (m *Market) api() string {
@@ -93,6 +131,55 @@ type assetJSON struct {
 // before any release is fetched, so the request count is bounded by how many
 // plugins an org publishes rather than how many repositories it has.
 func (m *Market) List(ctx context.Context) ([]Listing, error) {
+	m.mu.Lock()
+	if m.cached != nil && time.Since(m.fresh) < m.ttl() {
+		cached := m.cached
+		m.mu.Unlock()
+		return cached, nil
+	}
+	m.mu.Unlock()
+
+	listings, err := m.fetch(ctx)
+	if err != nil {
+		// Stale beats empty. A rate limit should not make the marketplace look
+		// like an org that publishes nothing.
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.cached != nil {
+			return m.cached, err
+		}
+		return nil, err
+	}
+
+	m.mu.Lock()
+	m.cached, m.fresh = listings, time.Now()
+	m.mu.Unlock()
+	return listings, nil
+}
+
+// Refresh fetches regardless of the cache, for somebody asking whether there
+// is an update rather than waiting a day to be told.
+func (m *Market) Refresh(ctx context.Context) ([]Listing, error) {
+	listings, err := m.fetch(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	m.cached, m.fresh = listings, time.Now()
+	m.mu.Unlock()
+	return listings, nil
+}
+
+// Checked is when the listing was last fetched, so the UI can say how old what
+// it is showing actually is.
+func (m *Market) Checked() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.fresh
+}
+
+func (m *Market) fetch(ctx context.Context) ([]Listing, error) {
 	var listings []Listing
 
 	for _, org := range m.orgs() {
@@ -161,8 +248,8 @@ func (m *Market) get(ctx context.Context, target string, into any) error {
 		return err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
-	if m.Token != "" {
-		request.Header.Set("Authorization", "Bearer "+m.Token)
+	if token := m.token(ctx); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	response, err := m.httpClient().Do(request)
@@ -171,6 +258,16 @@ func (m *Market) get(ctx context.Context, target string, into any) error {
 	}
 	defer func() { _ = response.Body.Close() }()
 
+	// A rate limit is the expected failure here and reads as a permissions
+	// problem, so it says which it is and what fixes it.
+	if response.StatusCode == http.StatusForbidden && response.Header.Get("X-RateLimit-Remaining") == "0" {
+		unauthenticated := ""
+		if m.token(ctx) == "" {
+			unauthenticated = ". Dusk could not mint an App token, so the request was anonymous and limited to 60 an hour"
+		}
+		return fmt.Errorf("github's rate limit is spent, and resets at %s%s",
+			resetAt(response.Header.Get("X-RateLimit-Reset")), unauthenticated)
+	}
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("github answered %s for %s", response.Status, target)
 	}
@@ -188,6 +285,15 @@ func hasAsset(release *releaseJSON, id string) bool {
 		}
 	}
 	return false
+}
+
+// resetAt turns GitHub's epoch seconds into a time somebody can act on.
+func resetAt(header string) string {
+	seconds, err := strconv.ParseInt(header, 10, 64)
+	if err != nil {
+		return "an unknown time"
+	}
+	return time.Unix(seconds, 0).Format(time.Kitchen)
 }
 
 // assetName is what a release calls the binary for this machine. GoReleaser's

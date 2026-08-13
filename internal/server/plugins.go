@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 )
@@ -13,6 +14,8 @@ import (
 // here so the server does not depend on how installing works.
 type Plugins interface {
 	Available(ctx context.Context) ([]plugin.Offer, error)
+	Refresh(ctx context.Context) ([]plugin.Offer, error)
+	Checked() time.Time
 	Install(ctx context.Context, id string) (*plugin.Installed, error)
 	Uninstall(id string) error
 	Configure(ctx context.Context, id string, config map[string]any) error
@@ -57,14 +60,31 @@ func (s *Server) handleAPIPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 
 	offers, err := s.plugins.Available(r.Context())
+
+	// The error rides alongside the offers rather than replacing them: a rate
+	// limit must not hide the plugins somebody has installed and is running.
+	answer := map[string]any{"plugins": offers, "checked": s.plugins.Checked()}
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"plugins": []any{},
-			"problem": err.Error(),
-		})
+		answer["problem"] = err.Error()
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
+// handleAPIRefresh answers POST /api/plugins/refresh by asking GitHub now.
+// The listing is cached for a day, so this is how somebody checks for an
+// update without waiting for it.
+func (s *Server) handleAPIRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.plugins == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"plugins": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plugins": offers})
+
+	offers, err := s.plugins.Refresh(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"plugins": offers, "checked": s.plugins.Checked()})
 }
 
 // handleAPIInstall answers POST /api/plugins/{id}/install. Installing an

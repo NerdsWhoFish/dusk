@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -20,6 +21,25 @@ import (
 type Rotation interface {
 	Add(ingest.Ingester)
 	Remove(name string)
+
+	// Status is what each ingester last did. Without it a plugin reads as
+	// "running" while every observation it attempts fails, which is the quiet
+	// failure this catalog exists to prevent.
+	Status() []ingest.Result
+}
+
+// Health is what a plugin's last run did, per configured instance.
+type Health struct {
+	// Instance is empty for the plugin's own configuration.
+	Instance string `json:"instance,omitempty"`
+
+	Entities  int       `json:"entities"`
+	Relations int       `json:"relations"`
+	At        time.Time `json:"at"`
+
+	// Problem is why the last run failed. The catalog still serves what that
+	// plugin last observed, so this is a warning rather than an outage.
+	Problem string `json:"problem,omitempty"`
 }
 
 // Manager owns what is installed and what is running.
@@ -47,6 +67,10 @@ type Offer struct {
 
 	Running bool   `json:"running"`
 	Problem string `json:"problem,omitempty"`
+
+	// Health is what each of this plugin's instances last did. A plugin can be
+	// running and failing every run, and the page has to say so.
+	Health []Health `json:"health,omitempty"`
 
 	// Fields is what the plugin says it needs configuring, so the UI renders a
 	// form from a typed description rather than knowing about any plugin.
@@ -111,9 +135,13 @@ func (m *Manager) Restore(ctx context.Context) {
 	}
 }
 
-// Available lists the marketplace, annotated with what is installed here.
+// Available joins what is installed here with what the marketplace offers.
+// Installed plugins come from disk and are listed even when GitHub cannot be
+// reached, so a rate limit cannot hide what somebody is running.
 func (m *Manager) Available(ctx context.Context) ([]Offer, error) {
-	listings, err := m.Market.List(ctx)
+	listings, listErr := m.Market.List(ctx)
+
+	installed, err := m.Store.List()
 	if err != nil {
 		return nil, err
 	}
@@ -121,26 +149,92 @@ func (m *Manager) Available(ctx context.Context) ([]Offer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	offers := make([]Offer, 0, len(listings))
+	offers := make([]Offer, 0, len(listings)+len(installed))
+	seen := map[string]bool{}
+
 	for _, listing := range listings {
 		offer := Offer{Listing: listing}
 		if record, err := m.Store.Read(listing.ID); err == nil {
-			offer.Installed = true
-			offer.InstalledVersion = record.Version
-			offer.UpdateAvailable = listing.Version != "" && listing.Version != record.Version
-			offer.Config = record.Config
-			offer.Instances = record.Instances
+			m.describeInstalled(&offer, *record, listing.Version)
 		}
+		m.describeRunning(&offer, listing.ID)
 
-		// Only a running plugin can say what it needs: the fields come from
-		// Describe, so a stopped one offers no form rather than a stale one.
-		if running, ok := m.running[listing.ID]; ok {
-			offer.Running = true
-			offer.Fields = fieldsOf(running.Describe)
-		}
+		seen[listing.ID] = true
 		offers = append(offers, offer)
 	}
-	return offers, nil
+
+	// Anything installed the listing did not mention: unreachable marketplace,
+	// or a plugin whose repository is gone. Either way it is still running here.
+	for _, record := range installed {
+		if seen[record.ID] {
+			continue
+		}
+		offer := Offer{Listing: Listing{ID: record.ID, Repository: record.Repository}}
+		m.describeInstalled(&offer, record, "")
+		m.describeRunning(&offer, record.ID)
+		offers = append(offers, offer)
+	}
+
+	return offers, listErr
+}
+
+// Refresh asks GitHub now rather than reusing the day-old listing, which is
+// what "check for updates" means.
+func (m *Manager) Refresh(ctx context.Context) ([]Offer, error) {
+	if _, err := m.Market.Refresh(ctx); err != nil {
+		return nil, err
+	}
+	return m.Available(ctx)
+}
+
+// Checked is when the marketplace was last fetched.
+func (m *Manager) Checked() time.Time { return m.Market.Checked() }
+
+func (m *Manager) describeInstalled(offer *Offer, record Installed, latest string) {
+	offer.Installed = true
+	offer.InstalledVersion = record.Version
+	offer.UpdateAvailable = latest != "" && latest != record.Version
+	offer.Config = record.Config
+	offer.Instances = record.Instances
+}
+
+// describeRunning fills in what only a live plugin can say. The configuration
+// fields come from Describe, so a stopped one offers no form rather than a
+// stale one.
+func (m *Manager) describeRunning(offer *Offer, id string) {
+	running, ok := m.running[id]
+	if !ok {
+		return
+	}
+	offer.Running = true
+	offer.Fields = fieldsOf(running.Describe)
+	offer.Health = m.healthOf(id)
+}
+
+// healthOf pulls this plugin's runs out of the rotation's status. Names are
+// `plugin:<id>` with `:instance` appended, so the prefix is the plugin and
+// what follows is which of its configurations.
+func (m *Manager) healthOf(id string) []Health {
+	prefix := "plugin:" + id
+
+	var health []Health
+	for _, result := range m.Rota.Status() {
+		if result.Ingester != prefix && !strings.HasPrefix(result.Ingester, prefix+":") {
+			continue
+		}
+
+		entry := Health{
+			Instance:  strings.TrimPrefix(strings.TrimPrefix(result.Ingester, prefix), ":"),
+			Entities:  result.Entities,
+			Relations: result.Relations,
+			At:        result.At,
+		}
+		if result.Err != nil {
+			entry.Problem = result.Err.Error()
+		}
+		health = append(health, entry)
+	}
+	return health
 }
 
 // Install downloads a plugin and starts it. Installing an already-installed

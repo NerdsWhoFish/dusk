@@ -204,8 +204,8 @@ func (m *Market) download(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if m.Token != "" {
-		request.Header.Set("Authorization", "Bearer "+m.Token)
+	if token := m.token(ctx); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	response, err := m.httpClient().Do(request)
