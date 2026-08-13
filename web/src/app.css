@@ -362,6 +362,12 @@ input,
   font-size: 0.9375rem;
 }
 
+/* Something went wrong reads as muted help without this, which is the one
+   thing on a form that must not look optional. */
+.err {
+  color: var(--red);
+}
+
 .note-compact {
   padding: 0.75rem 0.875rem;
   background: var(--bg);
@@ -539,7 +545,12 @@ input,
   font-weight: 400;
 }
 
-.plugin-field input {
+/* A JSON Schema string may contain newlines, so a text field is a textarea and
+   an input cannot hold what the schema allows. `format` only decides how tall
+   it starts, which is the contract in docs/plugins.md. */
+.plugin-field input,
+.plugin-field select,
+.plugin-field textarea {
   width: 100%;
   min-height: 44px;
   padding: 0.5rem 0.75rem;
@@ -550,9 +561,65 @@ input,
   font: inherit;
 }
 
-.plugin-field input:focus {
+.plugin-field textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* A tick is not a box you type in, and stretched to a field's width it reads
+   as one. The whole label is the tap target, so it loses nothing. */
+.plugin-field input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+}
+
+/* JSON is read by its shape, so it is monospaced and never rewrapped. */
+.plugin-field textarea.code {
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  white-space: pre;
+}
+
+.plugin-field input:focus,
+.plugin-field select:focus,
+.plugin-field textarea:focus {
   border-color: var(--purple);
   outline: none;
+}
+
+/* A field that will be refused has to be findable without reading, so the box
+   carries it as well as the message under it. */
+.plugin-field [aria-invalid="true"] {
+  border-color: var(--red);
+}
+
+.plugin-field .hint {
+  font-size: 0.8125rem;
+}
+
+/* Everything under a field is help except the reason it will be refused, and
+   :not is what keeps this from out-specifying .err and muting it. */
+.plugin-field .hint:not(.err) {
+  color: var(--muted);
+}
+
+/* A declared object is its own small form, ruled off so its fields read as
+   part of it rather than as more of the one around it. */
+.plugin-group {
+  display: block;
+  margin: 0;
+  padding: 0 0 0 0.75rem;
+  border: none;
+  border-left: 2px solid var(--line);
+}
+
+.plugin-group-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .plugin-instance {

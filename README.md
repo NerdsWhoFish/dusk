@@ -28,6 +28,7 @@ Dusk assumes the agents doing the work can also do the documenting, so the catal
 - [docs/storage.md](docs/storage.md) covers the materialized graph: how it is keyed, what it stores, and how search works.
 - [docs/ingest.md](docs/ingest.md) covers the half of the catalog nobody types: what an ingester promises, why a failure never deletes, and why every one of them is a plugin.
 - [docs/pages.md](docs/pages.md) is the homepage: the `.dusk/home.md` a config repository declares, every block type, and the query grammar behind them.
+- [docs/plugins.md](docs/plugins.md) is for plugin authors: what an action's parameter schema may contain, which shape becomes which control, and what a form refuses before the plugin sees it.
 - [docs/packages.md](docs/packages.md) maps every package to its job, and the rules for adding one. Read it before writing anything new.
 - [docs/philosophy.md](docs/philosophy.md) is the posture behind the design.
 - [docs/status.md](docs/status.md) tracks what is built and what is not.
