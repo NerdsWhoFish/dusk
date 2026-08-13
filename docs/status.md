@@ -88,12 +88,39 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [ ] **Host runtime**: subprocess lifecycle and a gRPC client over a unix socket. One transport, not two ([0039](../adr/0039-one-plugin-transport.md))
 - [ ] **`GetAsset` RPC**: `PluginService` has no call that returns bytes, so [0020](../adr/0020-plugin-ui.md)'s Web Component delivery is unimplementable as written. v1alpha1 has to grow it before it stabilises ([0039](../adr/0039-one-plugin-transport.md))
 - [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
-- [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md))
+- [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md)). Being moved out to `FetchHQ/dusk-plugin-kubernetes` as the first plugin, and removed from here only once that replaces it ([0040](../adr/0040-core-and-plugins.md))
+- [~] **Kubernetes plugin**: serves `PluginService` over a host-provided unix socket, observes a real cluster, and ports the namespace and plumbing filters intact. Nothing runs it until the host lands
 - [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
-- [ ] **Flux ingester**
-- [ ] **GitHub ingester**
 - [ ] **Plugin UI**: declarative view spec, then Web Components ([0020](../adr/0020-plugin-ui.md))
 - [ ] **Actions**: invoke, dry run, classification, approval, events ([0015](../adr/0015-plugin-actions-and-events.md))
+- [ ] **Plugin-contributed MCP tools**: a plugin's actions reaching agents through `/mcp` without one tool per plugin, which is the failure [0010](../adr/0010-mcp-surface.md) exists to prevent. Undecided
+
+GitHub is not on this list. It is core and stays there: git is the source of truth, so GitHub is substrate rather than a source among sources ([0040](../adr/0040-core-and-plugins.md)).
+
+### Planned plugins
+
+Written down so the order is a choice rather than whatever comes to mind next. Kubernetes is first because it already works in tree, so the protocol is measured against real behaviour. AirTrail is second because it is small enough to prove a plugin written from nothing.
+
+**Observe only**, at least to begin with:
+
+- [ ] **AirTrail**: flights as entities. The second plugin
+- [ ] **Flux**: what GitOps believes is deployed, against what Kubernetes reports running. The pair is drift with a cause attached
+- [ ] **OCI registries**: Harbor, GHCR and friends: images, tags and what is actually pulled
+- [ ] **Firewalla**: the network layer under everything else: devices, rules, what is reachable
+- [ ] **Karakeep**: bookmarks and reading as catalog notes
+- [ ] **Perplexity**: research answers attached to the entity they are about
+
+**Observe and act.** These are what make [0015](../adr/0015-plugin-actions-and-events.md) load-bearing rather than speculative, and why every one of them will need `ACTION_CLASS_DESTRUCTIVE` to mean something:
+
+- [ ] **Spacelift**: stacks, runs and their state, and creating or managing them rather than only reporting
+- [ ] **ADRs**: decision records as first-class entities, with authoring, superseding and retiring as actions. The tooling this repository's own conventions are currently enforced by hand
+- [ ] **Claude**: sessions and their work as catalog history
+- [ ] **Home Assistant**: entities, automations and the ability to run them
+- [ ] **Cloudflare**: DNS, tunnels and workers, edited rather than only read
+- [ ] **Obsidian**: notes both ways, which is the closest thing to Dusk's own knowledge layer
+- [ ] **GitHub Projects**: boards and cards as work, alongside the repositories core already reads
+- [ ] **LubeLogger**: vehicle maintenance, where logging a service is the point
+- [ ] **Music Assistant**: players and playback
 
 ---
 
