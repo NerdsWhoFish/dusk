@@ -55,29 +55,35 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
   }, [kind]);
 
   const searching = query.trim().length > 0;
-  const kinds = home?.blocks.find((block) => block.type === "kinds")?.kinds ?? [];
+  const kinds =
+    home?.blocks.find((block) => block.type === "kinds")?.kinds ?? [];
   const total = kinds.reduce((sum, entry) => sum + entry.Count, 0);
+
+  // Absent means yes: a page that says nothing about search still gets it.
+  const searchable = home?.search !== false;
 
   return (
     <>
-      <div className="hero">
-        <label className="visually-hidden" htmlFor="q">
-          Search the catalog
-        </label>
-        <input
-          id="q"
-          type="search"
-          value={query}
-          autoFocus
-          spellCheck={false}
-          autoComplete="off"
-          placeholder="A service, a host, something you half remember"
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {home && !searching && total > 0 && (
-          <p className="hero-sub">{plural(total, "thing")} in the catalog</p>
-        )}
-      </div>
+      {searchable && (
+        <div className="hero">
+          <label className="visually-hidden" htmlFor="q">
+            Search the catalog
+          </label>
+          <input
+            id="q"
+            type="search"
+            value={query}
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="A service, a host, something you half remember"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {home && !searching && total > 0 && (
+            <p className="hero-sub">{plural(total, "thing")} in the catalog</p>
+          )}
+        </div>
+      )}
 
       {problem && <p className="problem">{problem}</p>}
       {home?.problem && (
@@ -139,8 +145,9 @@ function Portal({
   if (kinds.length === 0 && home.blocks.every((block) => empty(block))) {
     return (
       <p className="empty">
-        Nothing here yet. Add a <code>dusk.md</code> to a repository Dusk can see, or point
-        it at a cluster with <code>DUSK_KUBERNETES</code>, and it appears on the next pass.
+        Nothing here yet. Add a <code>dusk.md</code> to a repository Dusk can
+        see, or install a plugin to observe something, and it appears on the
+        next pass.
       </p>
     );
   }
@@ -188,7 +195,13 @@ function Portal({
   );
 }
 
-function empty(block: { entities?: unknown[]; notes?: unknown[]; drift?: unknown[]; problems?: unknown[]; reads?: unknown[] }): boolean {
+function empty(block: {
+  entities?: unknown[];
+  notes?: unknown[];
+  drift?: unknown[];
+  problems?: unknown[];
+  reads?: unknown[];
+}): boolean {
   return (
     (block.entities?.length ?? 0) === 0 &&
     (block.notes?.length ?? 0) === 0 &&

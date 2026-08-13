@@ -20,8 +20,12 @@ type Ingester interface {
 An `Observation` is **complete by contract**: anything previously observed and absent from it is treated as gone.
 A partial view has to be an error instead, because the alternative is deleting a catalog because one API call was slow.
 
-Ingesters live in tree for now, ahead of the plugin protocol ([ADR-0034](../adr/0034-ingesters-in-tree-first.md)).
-The machinery is the hard part and the protocol is a second implementation of it.
+**Every ingester is now a plugin.**
+Kubernetes was built in tree first, deliberately, so the protocol was designed against something that already worked rather than against a guess ([ADR-0034](../adr/0034-ingesters-in-tree-first.md)).
+It moved out to `dusk-plugin-kubernetes` once that was true, and core carries no ingester at all ([ADR-0040](../adr/0040-core-and-plugins.md)).
+
+What stayed is this package: the interface, the completeness contract, the scheduler, and the never-delete rule.
+A plugin joins the same rotation as an ordinary `Ingester`, so none of that is reimplemented per plugin, and a plugin cannot opt out of it.
 
 ## Failure never deletes
 
@@ -31,8 +35,10 @@ The previous observation stays, with the `observed_at` it was last seen with, so
 
 This is the rule most easily broken by an implementation that clears a scope before it knows the run succeeded, and it has a named test: `TestADR0011_FailedIngestDoesNotDelete`.
 
-A source that cannot even be reached at boot becomes an ingester that reports that failure.
+A source that cannot be reached at all still runs, and reports the failure every pass.
 Refusing to start would take the whole catalog down over one bad credential, and the catalog is still correct about everything else.
+
+That failure is visible rather than only logged: each instance carries its last error and how many runs have failed in a row, which the plugins page shows on the row.
 
 ## Where observations live
 
@@ -57,41 +63,17 @@ One broken source cannot spend the budget the others need.
 Not built: the shared per-source API budget from [ADR-0011](../adr/0011-ingester-scheduling.md).
 Each ingester is bounded only by its own interval, so two GitHub ingesters would each assume they had the whole quota.
 
-## The Kubernetes ingester
+## Where the ingesters went
 
-Point it at clusters with `DUSK_KUBERNETES`:
+Install one from the plugins page.
+A plugin is configured there too, in a form rendered from the fields it declares, so Dusk holds no per-plugin configuration and there is no environment variable to set ([ADR-0023](../adr/0023-plugin-configuration.md), [ADR-0042](../adr/0042-installing-plugins.md)).
 
-```console
-DUSK_KUBERNETES=mini-2                          # in-cluster credentials
-DUSK_KUBERNETES=mini-2,mini-1=/etc/dusk/mini-1  # and one over a kubeconfig
-```
+One plugin may be configured several times, each instance with its own scope and its own place in the rotation.
+Two clusters are two instances of one plugin rather than two installs, and they fail apart.
 
-**The context is the cluster's own name**, not the kubeconfig's `current-context`, and a missing one is an error listing what is available.
-Falling back would observe one cluster and label everything with the name of another, which is the quiet kind of wrong this project exists to avoid.
-
-In-cluster credentials need the ServiceAccount token mounted and read access to nodes and services.
-Nothing else: a catalog has no business reading secrets or pod specs.
-
-### What it leaves out
-
-A catalog is for things somebody would describe, and every row of machinery stands between the reader and something real.
-
-Skipped namespaces: `kube-system`, `kube-public`, `kube-node-lease`, `flux-system`, `cnpg-system`, `cert-manager`, `local-path-storage`.
-
-Skipped services:
-
-- **Headless**, which back a StatefulSet rather than being a thing themselves.
-- **ExternalName**, which alias something already catalogued.
-- **`default/kubernetes`**, which is the API server.
-
-On one real cluster this is the difference between 33 entities and 18, and the 18 are the ones worth declaring.
-
-### Naming
-
-Refs are `service:<cluster>/<namespace>-<name>`, `host:<cluster>/<node>`, `cluster:<cluster>/<cluster>`.
-
-Normalization happens here rather than downstream ([ADR-0018](../adr/0018-normalization-at-the-edge.md)).
-It is ugly where a namespace and service share a name, giving `karakeep-karakeep`, which is the cost of a scheme that cannot collide.
+Normalization is the plugin's job, not Dusk's ([ADR-0018](../adr/0018-normalization-at-the-edge.md)).
+A plugin decides what a ref looks like, what is worth cataloguing at all, and what is machinery a reader would never describe.
+Dusk never re-derives any of it, which is why adding a plugin cannot change how an existing one is read.
 
 ## Saying which observed thing is yours
 
@@ -99,7 +81,7 @@ A human and an ingester never independently pick the same name.
 
 ```yaml
 observed_as:
-  - service:mini-2/media-jellyfin
+  - service:prod/media-jellyfin
 ```
 
 Without the mapping, drift reports your declaration as missing and the observed service as undeclared, forever.
@@ -112,8 +94,8 @@ Declaring `host:prod/node-1` when that is what the ingester calls it makes them 
 
 Drift only judges kinds something observes ([ADR-0038](../adr/0038-what-drift-may-say.md)).
 
-The Kubernetes ingester reports services, hosts and clusters, so a declared `repository:` or `team:` is never reported as missing however long it has been gone.
+A Kubernetes plugin reports services, hosts and clusters, so with only that installed a declared `repository:` or `team:` is never reported as missing however long it has been gone.
 Nothing is watching for it, and a report that named every unwatched kind would be noise on the first page.
 
-The cost is the reverse case: removing the only ingester for a kind makes drift go quiet about that kind rather than raising an alarm.
-Watch the ingester's own health for that, not drift.
+The cost is the reverse case: uninstalling the only plugin that observes a kind makes drift go quiet about that kind rather than raising an alarm.
+Watch the plugin's own health for that, not drift.

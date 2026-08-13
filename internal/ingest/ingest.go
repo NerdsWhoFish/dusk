@@ -45,25 +45,6 @@ type Observation struct {
 	Relations []*duskv1alpha1.Relation
 }
 
-// Unreachable stands in for a source that could not be constructed, so a
-// misconfigured cluster appears in the status feed and backs off like any
-// other failure. It never deletes anything, because it never succeeds.
-func Unreachable(name string, cause error) Ingester {
-	return unreachable{name: name, cause: cause}
-}
-
-type unreachable struct {
-	name  string
-	cause error
-}
-
-func (u unreachable) Name() string            { return "kubernetes:" + u.name }
-func (u unreachable) Interval() time.Duration { return time.Hour }
-
-func (u unreachable) Observe(context.Context) (*Observation, error) {
-	return nil, u.cause
-}
-
 // Scope is where an ingester's observations live. The index owns the shape,
 // because it is what partitions and orders by it.
 func Scope(name string) string { return index.ObservedScope(name) }

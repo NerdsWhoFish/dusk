@@ -200,12 +200,24 @@ func TestSchedulerBacksOffAndRecovers(t *testing.T) {
 
 func clock() func() time.Time { return func() time.Time { return observedAt } }
 
+// failing is an ingester that can never look, which is how a plugin whose
+// credentials are wrong behaves.
+type failing struct {
+	name  string
+	cause error
+}
+
+func (f failing) Name() string            { return f.name }
+func (f failing) Interval() time.Duration { return time.Hour }
+
+func (f failing) Observe(context.Context) (*ingest.Observation, error) { return nil, f.cause }
+
 // A source Dusk cannot even connect to must not stop the process. Refusing to
 // start would take the whole catalog down over one bad credential, and the
 // catalog is still correct about everything else.
 func TestAnUnreachableSourceReportsRatherThanCrashing(t *testing.T) {
 	db := newIndex(t)
-	broken := ingest.Unreachable("mini-2", errors.New("no service account token"))
+	broken := failing{name: "cluster", cause: errors.New("no service account token")}
 
 	result := ingest.Run(t.Context(), broken, db, clock())
 	if result.Err == nil {
@@ -214,7 +226,7 @@ func TestAnUnreachableSourceReportsRatherThanCrashing(t *testing.T) {
 	if !strings.Contains(result.Err.Error(), "no service account token") {
 		t.Errorf("err = %v, want the original cause", result.Err)
 	}
-	if result.Ingester != "kubernetes:mini-2" {
+	if result.Ingester != "cluster" {
 		t.Errorf("ingester = %q, want it named so status can show it", result.Ingester)
 	}
 

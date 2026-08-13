@@ -82,3 +82,21 @@ Deleting first would regress a working feature into a partially built one, which
 
 - **Option 1** was rejected because a GitHub plugin would need duplicate credentials to describe the system Dusk is already authenticated against, and because git being the source of truth makes GitHub substrate rather than a source among sources.
 - **Option 2** was rejected because it contradicts [ADR-0034](0034-ingesters-in-tree-first.md)'s own stated destination, leaves a heavy dependency in every binary forever, and would let the plugin protocol be published without ever being proven by something real.
+
+## Amendments
+
+### 2026-08-13: step 3 is done, and core carries no ingester
+
+The three-step order above is complete. `internal/ingest/kubernetes.go` is gone, `DUSK_KUBERNETES` and the `Cluster` configuration with it, and `dusk-plugin-kubernetes` observes the cluster that in-tree code used to.
+
+`go mod tidy` removed 119 lines of dependency, all of `k8s.io/*` and `sigs.k8s.io/*` among them. That is the cost [ADR-0034](0034-ingesters-in-tree-first.md) named in its own Bad consequences, paid.
+
+Two things this makes true that were only claimed before:
+
+**Core has no ingester at all.** The scheduler is constructed empty and plugins join it as they start, so there is no in-tree path for an observation to take. A rule with no exception is one nobody has to remember.
+
+**"Two ways to observe a cluster" is closed.** That was listed as a Bad consequence with a deliberate expiry, and it expired.
+
+What survived the move is the part worth keeping: the `Ingester` interface, the completeness contract, the scheduler, the backoff and the never-delete rule. A plugin cannot opt out of any of it, because it joins the rotation as an ordinary ingester rather than being scheduled specially.
+
+One consequence not anticipated here: **removing an ingester renames its scope**, and the observations under the old name keep answering with nothing left to refresh them, so every ref reads as declared twice. That is reported as an integrity problem and cleared by hand rather than automatically, because an ingester merely unconfigured for a while would otherwise lose history it is about to re-observe.

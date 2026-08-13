@@ -84,10 +84,6 @@ func serveCommand() *cli.Command {
                         owner/name of the repository notes are written to. It
                         needs its own dusk.md, like any other. Unset means the
                         note tool is not offered; nothing else is affected.
-  DUSK_KUBERNETES       Clusters to observe, comma separated. A bare name uses
-                        in-cluster credentials; name=/path/to/kubeconfig uses
-                        that file. For example: mini-2,mini-1=/etc/dusk/mini-1
-                        Unset means Dusk observes nothing and only reads git.
   DUSK_GITHUB_CLIENT_ID, DUSK_GITHUB_CLIENT_SECRET
                         An OAuth app, enabling sign-in with GitHub. A viewer
                         then sees only what the repositories they can read
@@ -150,11 +146,13 @@ func serve(parent context.Context) error {
 		return err
 	}
 
-	observers := clusterObservers(cfg, idx, log)
+	// Empty: plugins are the only observers now, and they join as they start
+	// (ADR-0040).
+	observers := ingest.NewScheduler(idx, log, time.Now)
 
 	plugins := &plugin.Manager{
 		Store:  &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins")},
-		Market: &plugin.Market{Orgs: cfg.PluginOrgs},
+		Market: &plugin.Market{Orgs: cfg.PluginOrgs, Token: appToken(credentials, &githubapp.Client{})},
 		Rota:   observers,
 		Log:    log,
 	}
@@ -233,28 +231,6 @@ func serve(parent context.Context) error {
 	}
 }
 
-// clusterObservers builds an ingester per configured cluster. An unreachable
-// one becomes an ingester that reports its failure rather than stopping the
-// process, because one bad source must not take the whole catalog down.
-func clusterObservers(cfg *config.Config, idx *index.DB, log *slog.Logger) *ingest.Scheduler {
-	ingesters := make([]ingest.Ingester, 0, len(cfg.Clusters))
-
-	for _, cluster := range cfg.Clusters {
-		observer, err := ingest.NewKubernetes(cluster.Name, cluster.Kubeconfig)
-		if err != nil {
-			log.Error("cannot reach a configured cluster, it will be retried and reported",
-				"cluster", cluster.Name, "error", err)
-			ingesters = append(ingesters, ingest.Unreachable(cluster.Name, err))
-			continue
-		}
-		ingesters = append(ingesters, observer)
-		log.Info("observing a kubernetes cluster",
-			"cluster", cluster.Name, "in_cluster", cluster.InCluster(), "every", observer.Interval())
-	}
-
-	return ingest.NewScheduler(idx, log, time.Now, ingesters...)
-}
-
 // syncStatus adapts the controller's status to what the MCP surface reports,
 // so neither package has to know the other's shape.
 type syncStatus struct{ controller *controller.Controller }
@@ -314,5 +290,35 @@ func announce(log *slog.Logger, cfg *config.Config, onboarded bool, agentMode st
 	}
 	if !onboarded {
 		log.Info("not onboarded yet", "setup", cfg.PrivateHost+"/setup")
+	}
+}
+
+// appToken mints an installation token for the marketplace, so listing plugins
+// costs GitHub's authenticated budget rather than the 60 anonymous requests an
+// hour that one page refresh can exhaust.
+//
+// Any installation will do. The marketplace reads public repositories, and what
+// raises the limit is being somebody rather than being permitted.
+func appToken(credentials *store.Store, client *githubapp.Client) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		saved, err := credentials.Load()
+		if err != nil {
+			return "", err
+		}
+
+		app := githubapp.App{ID: saved.AppID, PrivateKey: saved.PrivateKey}
+		installations, err := client.Installations(ctx, app)
+		if err != nil {
+			return "", err
+		}
+		if len(installations) == 0 {
+			return "", fmt.Errorf("the App is installed nowhere, so there is no token to mint")
+		}
+
+		token, err := client.InstallationToken(ctx, app, installations[0].ID)
+		if err != nil {
+			return "", err
+		}
+		return token.Token.Reveal(), nil
 	}
 }

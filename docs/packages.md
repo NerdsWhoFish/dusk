@@ -57,7 +57,7 @@ graph TD
 | `access` | Who may read the catalog, in both credentials: a bearer token for agents and a session cookie for browsers | Deciding *what* a reader may see. It answers yes or no for the whole catalog ([ADR-0012](../adr/0012-viewing-auth.md)) |
 | `config` | Reading and validating boot configuration, reporting every problem at once | Reaching the network to check whether a configured thing exists. Shape only; existence is checked at use |
 | `index` | The materialized graph in SQLite, partitioned by `(repository, git ref)`, and every query over it: search, drift, integrity, visibility, and the semantic diff between two refs | Deciding what to store. It is disposable by contract and rebuilt from git |
-| `ingest` | Observing infrastructure and storing what it found: the `Ingester` interface, the scheduler, and the Kubernetes ingester ([ADR-0034](../adr/0034-ingesters-in-tree-first.md)) | Deciding what an observation means. It normalizes at the edge and stores; comparing it to what was declared is the index's job |
+| `ingest` | Observing infrastructure and storing what it found: the `Ingester` interface, the completeness contract, the scheduler and the never-delete rule. It contains no ingester, because every source is a plugin ([ADR-0040](../adr/0040-core-and-plugins.md)) | Deciding what an observation means. Plugins normalize at the edge and this stores; comparing it to what was declared is the index's job |
 | `page` | Turning a portal page's declared blocks into resolved queries ([ADR-0035](../adr/0035-blocks-resolve-server-side.md)) | Rendering. A block carries its result; how that looks is the browser's decision |
 | `reconcile` | Turning a repository at a ref into a graph: resolving a commit, expanding includes, parsing what they reach | Talking to GitHub, and matching paths. A `Source` produces a tree; `catalogfs` matches over it |
 | `controller` | Keeping the catalog in step with GitHub: the sweep, the poll floor, webhook-driven reconciles, retries, and the API budget | Parsing, storing, or serving. It decides *when* to reconcile, not how |
@@ -90,7 +90,7 @@ These are the calls that have actually been got wrong.
 | A rule about whether a write is allowed | `proof` |
 | A new agent tool | `mcp`, as a thin call into `index` or `write` |
 | A rule about who may read | `access`. Both credentials, one policy, so a deployment cannot lock one surface and open another |
-| A new source of entities | `ingest`, as an `Ingester`. Its only job is producing a complete observation or an error |
+| A new source of entities | A plugin, in its own `dusk-plugin-*` repository. Never in tree: core carries no ingester ([ADR-0040](../adr/0040-core-and-plugins.md)) |
 | A new thing a portal page can show | `page`, as a block type. A block is a query, not a widget |
 | Anything the UI renders | An API endpoint first. The UI has no privileged path to the index |
 

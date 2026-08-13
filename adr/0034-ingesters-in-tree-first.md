@@ -91,3 +91,15 @@ A human wrote it deliberately and an ingester inferred it. The observed copy is 
 
 - **Option 1** was rejected on sequencing rather than merit. It is where this ends up. Doing it first means the never-delete rule and the subprocess contract are both new at the same moment, and a bug in either presents identically.
 - **Option 3** was rejected because [ADR-0002](0002-plugin-protocol.md) already settled that a stranger should be able to extend Dusk without forking it, and because a catalog whose sources are fixed at compile time cannot describe an estate its author did not anticipate.
+
+## Amendments
+
+### 2026-08-13: the sequencing finished, and the bet paid
+
+This ADR was explicit that in-tree was a stage rather than a destination. That stage is over: the Kubernetes ingester now lives in `dusk-plugin-kubernetes`, and core carries none ([ADR-0040](0040-core-and-plugins.md)).
+
+Three of the Bad consequences above expired with it. `k8s.io/client-go` is out of the binary. Ingesters no longer need a release to add. There are no longer two ways to get entities into the index.
+
+The remaining one did not expire: a reserved scope still looks like a repository to anything that does not check, which is exactly how it bit later. Removing an in-tree ingester renames its scope, and the orphaned observations under the old name read as a second declaration of every ref. Nothing was watching for a scope nothing refreshes.
+
+The bet itself was right, and worth recording because the cheaper path was so obviously available. Building the machinery in-process meant the never-delete rule, the completeness contract and the scheduler were all proven against real infrastructure before a subprocess and a wire format existed to confuse the diagnosis. When the plugin host arrived it implemented an interface that already worked, and every bug found in that work was a plugin bug rather than an ambiguity about what an ingester is.

@@ -73,25 +73,7 @@ type Config struct {
 	// repositories Dusk will offer and run. Adding one is the security
 	// decision, because a plugin runs with Dusk's permissions (ADR-0042).
 	PluginOrgs []string
-
-	// Clusters are the Kubernetes clusters to observe. Empty means none, so
-	// ingestion is opt in and Dusk never reaches for credentials it was not
-	// pointed at.
-	Clusters []Cluster
 }
-
-// Cluster is one Kubernetes cluster to observe.
-type Cluster struct {
-	// Name identifies it in refs, so it must be stable.
-	Name string
-
-	// Kubeconfig is the path to credentials. Empty means in-cluster, which is
-	// how Dusk observes the cluster it is running in.
-	Kubeconfig string
-}
-
-// InCluster reports whether this cluster is the one Dusk is deployed to.
-func (c Cluster) InCluster() bool { return c.Kubeconfig == "" }
 
 // ConfigRepositoryParts splits the config repository into owner and name.
 func (c *Config) ConfigRepositoryParts() (owner, name string, ok bool) {
@@ -129,7 +111,6 @@ func Load(getenv func(string) string) (*Config, error) {
 		AllowedAccounts:  splitAccounts(getenv("DUSK_ALLOWED_ACCOUNTS")),
 		TrustedNetwork:   strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
 		ConfigRepository: strings.Trim(strings.TrimSpace(getenv("DUSK_CONFIG_REPOSITORY")), "/"),
-		Clusters:         splitClusters(getenv("DUSK_KUBERNETES")),
 		PluginOrgs:       splitAccounts(getenv("DUSK_PLUGIN_ORGS")),
 
 		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
@@ -147,7 +128,6 @@ func Load(getenv func(string) string) (*Config, error) {
 	problems = append(problems, c.readEncryptionKey(getenv)...)
 	problems = append(problems, c.readAgentAccess()...)
 	problems = append(problems, c.readConfigRepository()...)
-	problems = append(problems, c.readClusters()...)
 	problems = append(problems, c.readOAuth()...)
 
 	if len(problems) > 0 {
@@ -185,42 +165,6 @@ func (c *Config) readEncryptionKey(getenv func(string) string) []error {
 	}
 	c.EncryptionKey = secret.New(rawKey)
 	return nil
-}
-
-// splitClusters parses "name" or "name=/path/to/kubeconfig", comma separated.
-// A bare name means in-cluster credentials.
-func splitClusters(raw string) []Cluster {
-	var clusters []Cluster
-	for entry := range strings.SplitSeq(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		name, kubeconfig, _ := strings.Cut(entry, "=")
-		clusters = append(clusters, Cluster{
-			Name:       strings.TrimSpace(name),
-			Kubeconfig: strings.TrimSpace(kubeconfig),
-		})
-	}
-	return clusters
-}
-
-// readClusters checks that every cluster is named, because the name ends up in
-// every ref the cluster produces and an empty one would be permanent.
-func (c *Config) readClusters() []error {
-	seen := map[string]bool{}
-	var problems []error
-
-	for _, cluster := range c.Clusters {
-		switch {
-		case cluster.Name == "":
-			problems = append(problems, errors.New("DUSK_KUBERNETES has an entry with no cluster name: use name or name=/path/to/kubeconfig"))
-		case seen[cluster.Name]:
-			problems = append(problems, fmt.Errorf("DUSK_KUBERNETES names %q twice, and their observations would overwrite each other", cluster.Name))
-		}
-		seen[cluster.Name] = true
-	}
-	return problems
 }
 
 // SignInURL is where GitHub returns the browser after an OAuth sign-in.
