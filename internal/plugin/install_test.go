@@ -22,10 +22,11 @@ import (
 // release builds a GitHub that publishes one plugin, so install can be
 // exercised end to end without reaching the real one.
 type release struct {
-	archive  []byte
-	checksum string
-	corrupt  bool
-	omitSums bool
+	archive   []byte
+	checksum  string
+	corrupt   bool
+	omitSums  bool
+	omitAsset bool
 }
 
 func newRelease(t *testing.T, id, contents string) *release {
@@ -71,8 +72,11 @@ func (r *release) serve(t *testing.T, id string) *plugin.Market {
 		}})
 	})
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
-		assets := []map[string]any{
-			{"name": asset, "browser_download_url": base + "/download"},
+		var assets []map[string]any
+		if !r.omitAsset {
+			assets = append(assets, map[string]any{
+				"name": asset, "browser_download_url": base + "/download",
+			})
 		}
 		if !r.omitSums {
 			assets = append(assets, map[string]any{
@@ -114,6 +118,23 @@ func TestListFindsPrefixedRepositories(t *testing.T) {
 	}
 	if listings[0].Version != "v1.2.3" {
 		t.Errorf("version = %q", listings[0].Version)
+	}
+}
+
+// `dusk-plugin-sdk` matches the prefix and is the contract every plugin
+// compiles against, not a plugin. It was offered in the marketplace until
+// publishing an installable asset became the test.
+func TestListSkipsPrefixedRepositoriesWithNothingToInstall(t *testing.T) {
+	built := newRelease(t, "kubernetes", "binary")
+	built.omitAsset = true
+	market := built.serve(t, "kubernetes")
+
+	listings, err := market.List(t.Context())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(listings) != 0 {
+		t.Errorf("offered %+v, want nothing installable to be offered", listings)
 	}
 }
 

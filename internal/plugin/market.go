@@ -106,17 +106,22 @@ func (m *Market) List(ctx context.Context) ([]Listing, error) {
 				continue
 			}
 
-			listing := Listing{
+			// The prefix alone offers `dusk-plugin-sdk`, which is the contract
+			// every plugin compiles against rather than a plugin. Publishing
+			// something installable is the test, not a list of names to skip.
+			release, err := m.latest(ctx, repo.FullName)
+			if err != nil || !hasAsset(release, strings.TrimPrefix(repo.Name, Prefix)) {
+				continue
+			}
+
+			listings = append(listings, Listing{
 				ID:          strings.TrimPrefix(repo.Name, Prefix),
 				Org:         org,
 				Repository:  repo.FullName,
 				Description: repo.Description,
 				URL:         repo.HTMLURL,
-			}
-			if release, err := m.latest(ctx, repo.FullName); err == nil {
-				listing.Version = release.TagName
-			}
-			listings = append(listings, listing)
+				Version:     release.TagName,
+			})
 		}
 	}
 	return listings, nil
@@ -170,6 +175,19 @@ func (m *Market) get(ctx context.Context, target string, into any) error {
 		return fmt.Errorf("github answered %s for %s", response.Status, target)
 	}
 	return json.NewDecoder(response.Body).Decode(into)
+}
+
+// hasAsset reports whether a release carries a binary for this machine. A
+// plugin that builds for other platforms is not offered here, because offering
+// something that cannot be installed is worse than not listing it.
+func hasAsset(release *releaseJSON, id string) bool {
+	wanted := assetName(id)
+	for _, asset := range release.Assets {
+		if asset.Name == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // assetName is what a release calls the binary for this machine. GoReleaser's
