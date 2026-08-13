@@ -3,17 +3,19 @@ import { useState } from "react";
 import { api, type Drift, type Problem, type ResolvedBlock } from "./api";
 import { Block } from "./Block";
 import { Markdown } from "./Markdown";
+import { PluginBlock } from "./PluginView";
 import { Rows } from "./Rows";
 
 // renderBlock turns one resolved query into a panel. The server decided what
 // the block asked (ADR-0035); this only decides how the answer looks.
-export function renderBlock(block: ResolvedBlock, onOpen: (ref: string) => void) {
+export function renderBlock(
+  block: ResolvedBlock,
+  onOpen: (ref: string) => void,
+) {
   if (block.error) {
     return (
       <Block title={block.title} key={block.title}>
-        <p className="quiet">
-          This block could not be filled: {block.error}
-        </p>
+        <p className="quiet">This block could not be filled: {block.error}</p>
       </Block>
     );
   }
@@ -45,8 +47,8 @@ export function renderBlock(block: ResolvedBlock, onOpen: (ref: string) => void)
         <Block title={block.title} wide={block.wide} key={block.title}>
           {(block.notes ?? []).length === 0 ? (
             <p className="quiet">
-              Nothing written down yet. Notes are what an agent records when it works
-              something out, and they show up here.
+              Nothing written down yet. Notes are what an agent records when it
+              works something out, and they show up here.
             </p>
           ) : (
             (block.notes ?? []).map((note) => (
@@ -64,6 +66,27 @@ export function renderBlock(block: ResolvedBlock, onOpen: (ref: string) => void)
         <Block title={block.title} wide={block.wide} key={block.title}>
           <DriftList drift={block.drift ?? []} onOpen={onOpen} />
           <Truncated block={block} />
+        </Block>
+      );
+
+    case "view":
+      // A plugin renders itself here, the same element an entity page mounts,
+      // pointed at whatever ref the block named.
+      return block.source && block.element ? (
+        <PluginBlock
+          key={block.title}
+          view={{
+            plugin: block.plugin ?? "",
+            element: block.element,
+            title: block.title,
+            source: block.source,
+          }}
+          entityRef={block.ref ?? ""}
+          entities={block.entities}
+        />
+      ) : (
+        <Block title={block.title} wide={block.wide} key={block.title}>
+          <p className="quiet">{block.error ?? "That view is unavailable."}</p>
         </Block>
       );
 
@@ -89,7 +112,9 @@ export function renderBlock(block: ResolvedBlock, onOpen: (ref: string) => void)
                     {read.observed ? seenBy(read.repository) : read.repository}
                     {read.observed && <span className="seen">observed</span>}
                   </span>
-                  <span className={read.error ? "reads-state bad" : "reads-state"}>
+                  <span
+                    className={read.error ? "reads-state bad" : "reads-state"}
+                  >
                     {read.error
                       ? "failed"
                       : `${read.entities} ${read.entities === 1 ? "entity" : "entities"}`}
@@ -122,8 +147,8 @@ function DriftList({
   if (drift.length === 0) {
     return (
       <p className="quiet">
-        Nothing has drifted. Everything declared is running, and everything running is
-        declared.
+        Nothing has drifted. Everything declared is running, and everything
+        running is declared.
       </p>
     );
   }
@@ -142,7 +167,9 @@ function DriftList({
             <span className="row-sub ref">{item.Ref}</span>
           </span>
           <span
-            className={item.Kind === "declared_not_observed" ? "tag gone" : "tag unknown"}
+            className={
+              item.Kind === "declared_not_observed" ? "tag gone" : "tag unknown"
+            }
           >
             {item.Kind === "declared_not_observed" ? "not found" : "undeclared"}
           </span>
@@ -166,7 +193,9 @@ function ProblemList({ problems }: { problems: Problem[] }) {
           {problem.Where.length > 0 && (
             <p className="ref where">{problem.Where.join(" · ")}</p>
           )}
-          {problem.Kind === "orphaned_observations" && <Forget scope={problem.Ref} />}
+          {problem.Kind === "orphaned_observations" && (
+            <Forget scope={problem.Ref} />
+          )}
         </li>
       ))}
     </ul>
@@ -181,7 +210,9 @@ function Forget({ scope }: { scope: string }) {
   const [problem, setProblem] = useState<string>();
 
   if (state === "done") {
-    return <p className="quiet">Forgotten. It will disappear on the next read.</p>;
+    return (
+      <p className="quiet">Forgotten. It will disappear on the next read.</p>
+    );
   }
 
   return (

@@ -12,8 +12,8 @@ func TestParseADeclaredPage(t *testing.T) {
 title: Home
 blocks:
   - type: entities
-    title: Everything on mini-2
-    query: kind:service mini-2
+    title: Everything on prod
+    query: kind:service prod
     limit: 10
   - type: drift
   - type: recent-notes
@@ -34,7 +34,7 @@ What this operator runs.
 	if len(parsed.Blocks) != 3 {
 		t.Fatalf("blocks = %d, want 3", len(parsed.Blocks))
 	}
-	if parsed.Blocks[0].Query != "kind:service mini-2" {
+	if parsed.Blocks[0].Query != "kind:service prod" {
 		t.Errorf("query = %q", parsed.Blocks[0].Query)
 	}
 	if !parsed.Blocks[2].Wide {

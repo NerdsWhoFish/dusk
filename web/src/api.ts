@@ -115,7 +115,18 @@ export type Read = {
 // ResolvedBlock is one declared query with its result. The server runs the
 // query (ADR-0035), so the browser only decides how a result looks.
 export type ResolvedBlock = {
-  type: "entities" | "recent-notes" | "drift" | "integrity" | "kinds" | "reads";
+  type:
+    | "entities"
+    | "recent-notes"
+    | "drift"
+    | "integrity"
+    | "kinds"
+    | "reads"
+    | "view";
+  plugin?: string;
+  element?: string;
+  ref?: string;
+  source?: string;
   title: string;
   wide?: boolean;
   entities?: Entity[];
@@ -131,6 +142,7 @@ export type ResolvedBlock = {
 export type Home = {
   title: string;
   prose: string;
+  search?: boolean;
   blocks: ResolvedBlock[];
   problem?: string;
 };
@@ -154,6 +166,14 @@ export type PluginField = {
 
 export type PluginConfig = Record<string, unknown>;
 
+export type PluginHealth = {
+  instance?: string;
+  entities: number;
+  relations: number;
+  at: string;
+  problem?: string;
+};
+
 export type PluginOffer = {
   id: string;
   org: string;
@@ -169,6 +189,7 @@ export type PluginOffer = {
   fields?: PluginField[];
   config?: PluginConfig;
   instances?: Record<string, PluginConfig>;
+  health?: PluginHealth[];
 };
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -190,7 +211,10 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 
 export const api = {
   viewer: () => get<Viewer>("/viewer"),
-  plugins: () => get<{ plugins: PluginOffer[]; problem?: string }>("/plugins"),
+  plugins: () =>
+    get<{ plugins: PluginOffer[]; problem?: string; checked?: string }>("/plugins"),
+  refreshPlugins: () =>
+    post<{ plugins: PluginOffer[]; checked?: string }>("/plugins/refresh"),
   install: (id: string) =>
     post<{ id: string; version: string }>(
       `/plugins/${encodeURIComponent(id)}/install`,

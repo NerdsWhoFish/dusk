@@ -37,12 +37,20 @@ func (failing) Integrity(context.Context, string) ([]index.Problem, error) { ret
 
 func (failing) Kinds(context.Context, string) ([]index.KindCount, error) { return nil, errBroken }
 
+func (failing) Neighbors(context.Context, string, string) ([]*duskv1alpha1.Relation, error) {
+	return nil, errBroken
+}
+
 func (failing) Scopes(context.Context) ([]index.Scope, error) { return nil, errBroken }
 
 // recording captures what a block actually asked the catalog.
 type recording struct{}
 
-var recorded struct{ searched, listedKind string }
+var recorded struct {
+	searched, listedKind, neighborsOf string
+	relations                         []*duskv1alpha1.Relation
+	listed                            []*duskv1alpha1.Entity
+}
 
 func (*recording) Search(_ context.Context, _, query string, _ int) ([]index.SearchResult, error) {
 	recorded.searched = query
@@ -51,7 +59,7 @@ func (*recording) Search(_ context.Context, _, query string, _ int) ([]index.Sea
 
 func (*recording) List(_ context.Context, _, kind string) ([]*duskv1alpha1.Entity, error) {
 	recorded.listedKind = kind
-	return nil, nil
+	return recorded.listed, nil
 }
 
 func (*recording) Get(context.Context, string, string) (*duskv1alpha1.Entity, error) {
@@ -69,3 +77,10 @@ func (*recording) Integrity(context.Context, string) ([]index.Problem, error) { 
 func (*recording) Kinds(context.Context, string) ([]index.KindCount, error) { return nil, nil }
 
 func (*recording) Scopes(context.Context) ([]index.Scope, error) { return nil, nil }
+
+// Neighbors backs a `related:` query. It returns whatever relations the test
+// gave it, regardless of ref, because what is under test is the filtering.
+func (*recording) Neighbors(_ context.Context, _, ref string) ([]*duskv1alpha1.Relation, error) {
+	recorded.neighborsOf = ref
+	return recorded.relations, nil
+}

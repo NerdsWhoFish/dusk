@@ -10,7 +10,15 @@ const loaded = new Set<string>();
 // PluginBlock mounts a plugin's custom element. React renders the tag like any
 // other, which is why ADR-0020 chose Web Components: the plugin brings its own
 // rendering and shares no runtime with this app.
-export function PluginBlock({ view, entityRef }: { view: View; entityRef: string }) {
+export function PluginBlock({
+  view,
+  entityRef,
+  entities,
+}: {
+  view: View;
+  entityRef: string;
+  entities?: unknown[];
+}) {
   const [problem, setProblem] = useState<string>();
   const [ready, setReady] = useState(loaded.has(view.source));
 
@@ -42,7 +50,10 @@ export function PluginBlock({ view, entityRef }: { view: View; entityRef: string
       ) : ready ? (
         // createElement rather than JSX: the tag is a string only known at
         // runtime, and JSX would treat it as a component.
-        createElement(view.element, { "entity-ref": entityRef })
+        // React 19 assigns non-string values to a custom element as
+        // properties rather than attributes, which is how a resolved query
+        // reaches the element without being stringified into markup.
+        createElement(view.element, { "entity-ref": entityRef, entities })
       ) : (
         <p className="quiet">Loading {view.plugin}.</p>
       )}
