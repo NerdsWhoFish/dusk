@@ -121,6 +121,7 @@ Written down so the order is a choice rather than whatever comes to mind next. K
 - [ ] **GitHub Projects**: boards and cards as work, alongside the repositories core already reads
 - [ ] **LubeLogger**: vehicle maintenance, where logging a service is the point
 - [ ] **Music Assistant**: players and playback
+- [ ] **Calendar**: what is scheduled, and booking or moving it. The one plugin whose actions are mostly about a human's time rather than a system's state, so approval means something different here
 
 ---
 
