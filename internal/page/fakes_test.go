@@ -31,7 +31,9 @@ func (failing) Notes(context.Context, string, index.NoteFilter) ([]*duskv1alpha1
 	return nil, errBroken
 }
 
-func (failing) Drift(context.Context, string) ([]index.Drift, error) { return nil, errBroken }
+func (failing) Drift(context.Context, string, index.DriftFilter) ([]index.Drift, error) {
+	return nil, errBroken
+}
 
 func (failing) Integrity(context.Context, string) ([]index.Problem, error) { return nil, errBroken }
 
@@ -70,7 +72,9 @@ func (*recording) Notes(context.Context, string, index.NoteFilter) ([]*duskv1alp
 	return nil, nil
 }
 
-func (*recording) Drift(context.Context, string) ([]index.Drift, error) { return nil, nil }
+func (*recording) Drift(context.Context, string, index.DriftFilter) ([]index.Drift, error) {
+	return nil, nil
+}
 
 func (*recording) Integrity(context.Context, string) ([]index.Problem, error) { return nil, nil }
 

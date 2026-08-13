@@ -43,7 +43,7 @@ type Catalog interface {
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
-	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
+	Drift(ctx context.Context, gitRef string, filter index.DriftFilter) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 }
 
@@ -170,7 +170,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	// with "what should I go and do", which are different sessions.
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "drift",
-		Description: "Where the catalog and reality disagree: declared but nowhere to be found, or running and written down nowhere. Ask before documenting an estate, and after something is decommissioned.",
+		Description: "What the catalog claims and reality does not support: declared and nowhere to be found, or a note pointing at a ref nothing holds. This is the maintenance queue, so ask after something is decommissioned. Pass undeclared to also list what is running and written down nowhere.",
 	}, s.drift)
 
 	sdk.AddTool(server, &sdk.Tool{
@@ -532,25 +532,36 @@ func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) erro
 	return nil
 }
 
-type driftInput struct{}
+// sortDrift splits one list into the three questions it answers, which read
+// differently enough that one list of them is worse than three.
+func sortDrift(drifts []index.Drift) (missing, notes, undeclared []index.Drift) {
+	for _, drift := range drifts {
+		switch drift.Kind {
+		case index.DriftMissing:
+			missing = append(missing, drift)
+		case index.DriftNoteRef:
+			notes = append(notes, drift)
+		default:
+			undeclared = append(undeclared, drift)
+		}
+	}
+	return missing, notes, undeclared
+}
 
-func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, _ driftInput) (*sdk.CallToolResult, any, error) {
-	drifts, err := s.opts.Catalog.Drift(ctx, "")
+type driftInput struct {
+	Undeclared bool `json:"undeclared,omitempty" jsonschema:"also list what is running and written down nowhere. Off by default: that is a description of reality rather than work, and it buries what needs acting on"`
+}
+
+func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInput) (*sdk.CallToolResult, any, error) {
+	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{Undeclared: in.Undeclared})
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(drifts) == 0 {
-		return text("Nothing has drifted. Everything declared is observed, and everything observed is declared.\n\nIf no ingester is configured there is nothing to compare against, and this answer means only that."), nil, nil
+		return text("Nothing the catalog claims is unsupported: everything declared is observed, and every note points at something real.\n\nThis says nothing about what is running and undeclared. Pass `undeclared` for that. And if no ingester is configured there is nothing to compare against, in which case this answer means only that."), nil, nil
 	}
 
-	var missing, undeclared []index.Drift
-	for _, drift := range drifts {
-		if drift.Kind == index.DriftMissing {
-			missing = append(missing, drift)
-		} else {
-			undeclared = append(undeclared, drift)
-		}
-	}
+	missing, notes, undeclared := sortDrift(drifts)
 
 	var out strings.Builder
 	out.WriteString("# Drift\n\n")
@@ -562,6 +573,14 @@ func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, _ driftInput
 				drift.Ref, displayName(drift.Title, ""), drift.Declared)
 		}
 		out.WriteString("\nEither these are gone and their declarations should be removed, or nothing is watching where they run.\n\n")
+	}
+
+	if len(notes) > 0 {
+		fmt.Fprintf(&out, "## %d note ref(s) pointing at nothing\n\n", len(notes))
+		for _, drift := range notes {
+			fmt.Fprintf(&out, "- `%s`, written down in %s\n", drift.Ref, drift.Declared)
+		}
+		out.WriteString("\nThe notes are findable by search and will never appear on the thing they are about. Repoint them with `note`, or close them with status done or dropped.\n\n")
 	}
 
 	if len(undeclared) > 0 {

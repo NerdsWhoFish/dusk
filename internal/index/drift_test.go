@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
@@ -28,7 +29,7 @@ func TestDriftIsSilentWithNoIngesters(t *testing.T) {
 	mustPut(t, db, testRepo, mainRef,
 		[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}, nil)
 
-	drifts, err := db.Drift(t.Context(), mainRef)
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestADR0038_DriftIsSilentWhereNothingObserves(t *testing.T) {
 	}, nil)
 	observe(t, db, "kubernetes", entity("service:home/surprise", "surprise", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef)
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -67,8 +68,8 @@ func TestADR0038_DriftIsSilentWhereNothingObserves(t *testing.T) {
 	}
 }
 
-// The two questions worth asking of an estate: what did I write down that is
-// gone, and what is running that nobody wrote down.
+// Both directions still compare correctly when the undeclared half is asked
+// for. ADR-0045 moved the default, not the comparison.
 func TestDriftComparesDeclaredAgainstObserved(t *testing.T) {
 	db := newDB(t)
 
@@ -81,7 +82,7 @@ func TestDriftComparesDeclaredAgainstObserved(t *testing.T) {
 		entity("service:home/surprise", "surprise", ""),
 	)
 
-	drifts, err := db.Drift(t.Context(), mainRef)
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true})
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -139,7 +140,7 @@ func TestDriftFollowsObservedAsAliases(t *testing.T) {
 
 	observe(t, db, "kubernetes", entity("service:prod/media-jellyfin", "media-jellyfin", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef)
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -167,12 +168,111 @@ func TestDriftStillReportsAnAliasThatMatchesNothing(t *testing.T) {
 
 	observe(t, db, "kubernetes", entity("service:prod/media-jellyfin", "media-jellyfin", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef)
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true})
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
 	if len(drifts) != 2 {
 		t.Errorf("drift = %+v, want both sides reported when the alias matches nothing", drifts)
+	}
+}
+
+// An observed entity is reality reporting itself, not a task, so drift stays
+// quiet about it until asked. ADR-0045's load-bearing rule.
+func TestADR0045_DriftIsSilentAboutWhatIsMerelyObserved(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, testRepo, mainRef,
+		[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}, nil)
+	observe(t, db, "kubernetes",
+		entity("service:home/jellyfin", "jellyfin", ""),
+		entity("service:home/surprise", "surprise", ""),
+	)
+
+	quiet, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+	if len(quiet) != 0 {
+		t.Errorf("drift reported %d items by default, want silence about what is only observed: %+v", len(quiet), quiet)
+	}
+
+	asked, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true})
+	if err != nil {
+		t.Fatalf("Drift asking for undeclared: %v", err)
+	}
+	if !slices.ContainsFunc(asked, func(d index.Drift) bool {
+		return d.Ref == "service:home/surprise" && d.Kind == index.DriftUndeclared
+	}) {
+		t.Errorf("asking for the undeclared half did not return it: %+v", asked)
+	}
+}
+
+// A note outlives what it was about. When the declaration goes, the note is
+// still there pointing at nothing, and drift is where that surfaces.
+func TestDriftReportsANoteWhoseSubjectIsGone(t *testing.T) {
+	db := newDB(t)
+	notes := []*duskv1alpha1.Note{{
+		Id:   "notes/jellyfin-transcoding.md",
+		Kind: "gotcha",
+		Refs: []string{"service:home/jellyfin"},
+	}}
+	if err := db.Put(t.Context(), testRepo, mainRef, nil, nil, notes); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := db.SetDefaultView(t.Context(), testRepo, mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+
+	if !slices.ContainsFunc(drifts, func(d index.Drift) bool {
+		return d.Ref == "service:home/jellyfin" && d.Kind == index.DriftNoteRef
+	}) {
+		t.Fatalf("a note pointing at nothing was not reported: %+v", drifts)
+	}
+}
+
+// ADR-0031 accepted that a note's refs go unchecked at write time. Only the
+// ref that resolves to nothing is reported, not the whole note.
+func TestDriftReportsOnlyTheNoteRefThatResolvesToNothing(t *testing.T) {
+	db := newDB(t)
+	err := db.Put(t.Context(), testRepo, mainRef,
+		declare([]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}),
+		nil,
+		[]*duskv1alpha1.Note{{
+			Id: ".dusk/a.md", Kind: "gotcha", Body: "x",
+			Refs: []string{"service:home/jellyfin", "service:home/jellifyn"},
+		}},
+	)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := db.SetDefaultView(t.Context(), testRepo, mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+
+	var reported []index.Drift
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+	for _, drift := range drifts {
+		if drift.Kind == index.DriftNoteRef {
+			reported = append(reported, drift)
+		}
+	}
+
+	if len(reported) != 1 {
+		t.Fatalf("found %d note refs pointing at nothing, want 1: %+v", len(reported), reported)
+	}
+	if reported[0].Ref != "service:home/jellifyn" {
+		t.Errorf("ref = %q, want the typo", reported[0].Ref)
+	}
+	if !strings.Contains(reported[0].Declared, ".dusk/a.md") {
+		t.Errorf("declared = %q, want the note holding the typo", reported[0].Declared)
 	}
 }
 
@@ -185,7 +285,7 @@ func TestDriftDoesNotReportTwoIngestersAgreeing(t *testing.T) {
 	observe(t, db, "kubernetes", entity("service:home/jellyfin", "jellyfin", ""))
 	observe(t, db, "docker", entity("service:home/jellyfin", "jellyfin", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef)
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}

@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Drift is a disagreement between what somebody wrote down and what an
@@ -29,10 +30,23 @@ const (
 	// ingester cannot see where it lives.
 	DriftMissing = "declared_not_observed"
 
-	// DriftUndeclared is running and written down nowhere. The common case at
-	// first contact, and the queue of things worth documenting.
+	// DriftUndeclared is running and written down nowhere. A description of
+	// reality rather than a task, so it is reported only when asked for
+	// (ADR-0045).
 	DriftUndeclared = "observed_not_declared"
+
+	// DriftNoteRef is a note attached to a ref nothing holds. Usually what
+	// removing a declaration leaves behind.
+	DriftNoteRef = "note_ref_missing"
 )
+
+// DriftFilter narrows what Drift answers with. The zero value is everything
+// written down that no longer resolves, which is the half an operator keeps.
+type DriftFilter struct {
+	// Undeclared adds what is running and nobody wrote down. Off by default:
+	// it is reality reporting itself, and it buries the rows worth acting on.
+	Undeclared bool
+}
 
 type driftRow struct {
 	Ref        string
@@ -40,19 +54,59 @@ type driftRow struct {
 	Repository string
 }
 
-// Drift compares the declared half of the catalog against the observed half.
-// Nothing is missing until something is looking for it, so a kind no ingester
-// reports is left alone rather than named as entirely gone.
-func (db *DB) Drift(ctx context.Context, gitRef string) ([]Drift, error) {
-	missing, err := db.declaredNotObserved(ctx, gitRef)
+// Drift reports what the catalog claims and reality does not support: an
+// entity declared and nowhere found, and a note pointing at a ref nothing
+// holds. What is running and undeclared comes only on request (ADR-0045).
+func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter) ([]Drift, error) {
+	drifts, err := db.declaredNotObserved(ctx, gitRef)
 	if err != nil {
 		return nil, err
+	}
+	notes, err := db.notesWithoutEntity(ctx, gitRef)
+	if err != nil {
+		return nil, err
+	}
+	drifts = append(drifts, notes...)
+
+	if !filter.Undeclared {
+		return drifts, nil
 	}
 	undeclared, err := db.observedNotDeclared(ctx, gitRef)
 	if err != nil {
 		return nil, err
 	}
-	return append(missing, undeclared...), nil
+	return append(drifts, undeclared...), nil
+}
+
+// notesWithoutEntity finds notes attached to a ref nothing holds. ADR-0031
+// accepted that a note's refs go unchecked at write time, so this is where a
+// typo, or a declaration somebody removed, stops being silent.
+func (db *DB) notesWithoutEntity(ctx context.Context, gitRef string) ([]Drift, error) {
+	clause, args := scopeClause("note_refs", gitRef)
+	entityScope, entityArgs := scopeClause("e", gitRef)
+
+	var rows []danglingRow
+	err := db.gorm.WithContext(ctx).
+		Model(&noteRefRow{}).
+		Select("note_refs.ref as target, group_concat(DISTINCT note_refs.note_id) as places").
+		Where(clause, args...).
+		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = note_refs.ref AND "+entityScope+")", entityArgs...).
+		Group("note_refs.ref").
+		Order("note_refs.ref").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: find notes without an entity: %w", err)
+	}
+
+	drifts := make([]Drift, 0, len(rows))
+	for _, row := range rows {
+		drifts = append(drifts, Drift{
+			Kind: DriftNoteRef, Ref: row.Target,
+			Declared: strings.Join(splitOn(row.Places, ","), ", "),
+			Detail:   "notes point at this and nothing holds it. Either the ref is wrong, or what it named is gone and the notes want moving or closing",
+		})
+	}
+	return drifts, nil
 }
 
 func (db *DB) declaredNotObserved(ctx context.Context, gitRef string) ([]Drift, error) {

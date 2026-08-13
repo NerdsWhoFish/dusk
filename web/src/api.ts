@@ -176,7 +176,7 @@ export type Overview = {
 };
 
 export type Drift = {
-  Kind: "declared_not_observed" | "observed_not_declared";
+  Kind: "declared_not_observed" | "observed_not_declared" | "note_ref_missing";
   Ref: string;
   Title: string;
   Declared: string;

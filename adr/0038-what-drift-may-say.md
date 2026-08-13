@@ -95,3 +95,15 @@ Recorded as an amendment on [ADR-0033](0033-graph-integrity.md).
 - **Option 1** was rejected because a report whose first page is structurally unfixable is one nobody reads twice, and the noise arrives exactly when a new operator is deciding whether to trust it.
 - **Option 2** was rejected because it fails silently in both directions and asks the operator to maintain a list Dusk can derive.
 - **Option 4** was rejected for now on sequencing, not merit. It needs an ingester interface change to carry coverage, and option 3 gets most of the benefit today without one. It stays the intended destination.
+
+## Amendments
+
+### 2026-08-13: the undeclared half is no longer reported by default
+
+This ADR left both directions in the report, on the reasoning that "something running and written down nowhere is actionable regardless of kind".
+That held while every ingester observed infrastructure.
+It stopped holding once a plugin observed a domain where declaring each entity is meaningless, and the undeclared half grew to outnumber the actionable half ten to one.
+
+[ADR-0045](0045-drift-is-a-maintenance-queue.md) makes the observed direction opt in through `DriftFilter{Undeclared: true}`.
+Nothing in the comparison logic above changes, including the load-bearing rule that absence needs a witness.
+Only which halves are returned by default.

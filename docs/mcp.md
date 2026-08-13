@@ -47,7 +47,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `get(ref)` | Everything about one entity, including its connections |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
-| `drift()` | Where the catalog and reality disagree |
+| `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
 | `dusk_context(directory?)` | The operator's estate, tailored to the repository being worked in |
 | `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |

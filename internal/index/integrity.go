@@ -36,10 +36,6 @@ const (
 	// declares. The graph looks connected and is not.
 	ProblemDanglingRelation = "dangling_relation"
 
-	// ProblemDanglingNote is a note attached to an entity nobody declares,
-	// usually a typo, which silently attaches the note to nothing.
-	ProblemDanglingNote = "dangling_note_ref"
-
 	// ProblemOrphanedObservations is a scope no ingester will refresh, left by
 	// one renamed or removed. Nothing clears it, because a failed run must
 	// never look like a deletion (ADR-0011), so forgetting it is asked for.
@@ -58,15 +54,9 @@ func (db *DB) Integrity(ctx context.Context, gitRef string) ([]Problem, error) {
 	if err != nil {
 		return nil, err
 	}
-	notes, err := db.danglingNotes(ctx, gitRef)
-	if err != nil {
-		return nil, err
-	}
-
-	problems := make([]Problem, 0, len(duplicates)+len(relations)+len(notes))
+	problems := make([]Problem, 0, len(duplicates)+len(relations))
 	problems = append(problems, duplicates...)
 	problems = append(problems, relations...)
-	problems = append(problems, notes...)
 	return problems, nil
 }
 
@@ -190,37 +180,6 @@ func (db *DB) danglingRelations(ctx context.Context, gitRef string) ([]Problem, 
 			Kind:   ProblemDanglingRelation,
 			Ref:    row.Target,
 			Detail: "pointed at by a relation but declared nowhere. Either it is a typo, or it lives in a repository Dusk cannot see",
-			Where:  splitOn(row.Places, ","),
-		})
-	}
-	return problems, nil
-}
-
-// danglingNotes finds notes attached to entities nobody declares. ADR-0031
-// accepted this weakness at write time; this is where it stops being silent.
-func (db *DB) danglingNotes(ctx context.Context, gitRef string) ([]Problem, error) {
-	clause, args := scopeClause("note_refs", gitRef)
-	entityScope, entityArgs := scopeClause("e", gitRef)
-
-	var rows []danglingRow
-	err := db.gorm.WithContext(ctx).
-		Model(&noteRefRow{}).
-		Select("note_refs.ref as target, group_concat(DISTINCT note_refs.note_id) as places").
-		Where(clause, args...).
-		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = note_refs.ref AND "+entityScope+")", entityArgs...).
-		Group("note_refs.ref").
-		Order("note_refs.ref").
-		Find(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("index: find dangling note refs: %w", err)
-	}
-
-	problems := make([]Problem, 0, len(rows))
-	for _, row := range rows {
-		problems = append(problems, Problem{
-			Kind:   ProblemDanglingNote,
-			Ref:    row.Target,
-			Detail: "notes are attached to this, but nothing declares it. The note is findable by search and will never appear on the thing it is about",
 			Where:  splitOn(row.Places, ","),
 		})
 	}

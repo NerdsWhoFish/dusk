@@ -34,7 +34,7 @@ func TestDriftSeparatesGoneFromUndeclared(t *testing.T) {
 	}
 
 	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
-	body := call(t, session, "drift", map[string]any{})
+	body := call(t, session, "drift", map[string]any{"undeclared": true})
 
 	if !strings.Contains(body, "service:home/surprise") {
 		t.Errorf("drift did not report the undeclared service:\n%s", body)

@@ -182,34 +182,6 @@ func TestIntegrityFindsADanglingRelation(t *testing.T) {
 	}
 }
 
-// ADR-0031 accepted that a note's refs are unchecked at write time. This is
-// where that stops being silent.
-func TestIntegrityFindsANoteAttachedToNothing(t *testing.T) {
-	db := newDB(t)
-	err := db.Put(t.Context(), testRepo, mainRef,
-		declare([]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}),
-		nil,
-		[]*duskv1alpha1.Note{{
-			Id: ".dusk/a.md", Kind: "gotcha", Body: "x",
-			Refs: []string{"service:home/jellyfin", "service:home/jellifyn"},
-		}},
-	)
-	if err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-
-	problems := integrityOf(t, db, index.ProblemDanglingNote)
-	if len(problems) != 1 {
-		t.Fatalf("found %d dangling note refs, want 1: %+v", len(problems), problems)
-	}
-	if problems[0].Ref != "service:home/jellifyn" {
-		t.Errorf("ref = %q, want the typo", problems[0].Ref)
-	}
-	if !slices.Contains(problems[0].Where, ".dusk/a.md") {
-		t.Errorf("Where = %v, want the note holding the typo", problems[0].Where)
-	}
-}
-
 // An entity declared in one repository and referenced from another is normal
 // and correct. Reporting it would make the signal noise.
 func TestIntegrityAcceptsACrossRepositoryReference(t *testing.T) {

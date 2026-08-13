@@ -32,7 +32,7 @@ type Catalog interface {
 	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
-	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
+	Drift(ctx context.Context, gitRef string, filter index.DriftFilter) ([]index.Drift, error)
 	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
 	Diff(ctx context.Context, base, head string) ([]index.Change, error)
 	Orphans(ctx context.Context, live []string) ([]index.Problem, error)
@@ -466,10 +466,11 @@ func (s *Server) handleAPIForget(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"forgot": body.Scope})
 }
 
-// handleAPIDrift answers GET /api/drift: where the catalog and reality
-// disagree.
+// handleAPIDrift answers GET /api/drift: what the catalog claims and reality
+// does not support. `?undeclared=true` adds the other direction.
 func (s *Server) handleAPIDrift(w http.ResponseWriter, r *http.Request) {
-	drifts, err := s.catalog.Drift(r.Context(), "")
+	filter := index.DriftFilter{Undeclared: r.URL.Query().Get("undeclared") == "true"}
+	drifts, err := s.catalog.Drift(r.Context(), "", filter)
 	if err != nil {
 		writeError(w, err)
 		return

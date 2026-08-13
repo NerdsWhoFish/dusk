@@ -84,10 +84,11 @@ observed_as:
   - service:prod/media-jellyfin
 ```
 
-Without the mapping, drift reports your declaration as missing and the observed service as undeclared, forever.
+Without the mapping, drift reports your declaration as missing forever, and the observed service reads as undeclared whenever anyone asks for that half.
 See [dusk-md.md](dusk-md.md).
 
 The mapping is unnecessary when you declare an entity at the ref the ingester already reports, which is the shortest path from the undeclared list to a documented estate.
+That list is `drift` with `undeclared` set, since what is merely running is not a maintenance task ([ADR-0045](../adr/0045-drift-is-a-maintenance-queue.md)).
 Declaring `host:prod/node-1` when that is what the ingester calls it makes them the same entity, the declaration wins the read, and no alias is involved.
 
 ## What drift will not tell you

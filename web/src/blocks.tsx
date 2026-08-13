@@ -141,11 +141,17 @@ function DriftList({
   drift: Drift[];
   onOpen: (ref: string) => void;
 }) {
+  const driftTag: Record<Drift["Kind"], { className: string; label: string }> = {
+    declared_not_observed: { className: "tag gone", label: "not found" },
+    note_ref_missing: { className: "tag gone", label: "note points nowhere" },
+    observed_not_declared: { className: "tag unknown", label: "undeclared" },
+  };
+
   if (drift.length === 0) {
     return (
       <p className="quiet">
-        Nothing has drifted. Everything declared is running, and everything
-        running is declared.
+        Nothing the catalog claims is unsupported. Everything declared is
+        running, and every note points at something real.
       </p>
     );
   }
@@ -163,12 +169,8 @@ function DriftList({
             <span className="row-title">{item.Title || item.Ref}</span>
             <span className="row-sub ref">{item.Ref}</span>
           </span>
-          <span
-            className={
-              item.Kind === "declared_not_observed" ? "tag gone" : "tag unknown"
-            }
-          >
-            {item.Kind === "declared_not_observed" ? "not found" : "undeclared"}
+          <span className={driftTag[item.Kind].className}>
+            {driftTag[item.Kind].label}
           </span>
         </button>
       ))}

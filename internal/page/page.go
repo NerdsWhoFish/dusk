@@ -127,7 +127,7 @@ type Catalog interface {
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
-	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
+	Drift(ctx context.Context, gitRef string, filter index.DriftFilter) ([]index.Drift, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
@@ -285,8 +285,11 @@ func onlyRelated(ctx context.Context, catalog Catalog, entities []*duskv1alpha1.
 	return kept, nil
 }
 
+// driftFor reads `undeclared` out of the block query rather than taking a
+// field of its own, because a block is a query (ADR-0013).
 func driftFor(ctx context.Context, catalog Catalog, block Block) ([]index.Drift, bool, error) {
-	drifts, err := catalog.Drift(ctx, "")
+	filter := index.DriftFilter{Undeclared: strings.Contains(block.Query, "undeclared")}
+	drifts, err := catalog.Drift(ctx, "", filter)
 	if err != nil {
 		return nil, false, err
 	}
