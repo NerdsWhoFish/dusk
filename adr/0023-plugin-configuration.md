@@ -98,3 +98,15 @@ Storage encryption is irrelevant to this risk and must not be presented as mitig
 - JSON Schema for configuration was rejected because it makes `sensitive` an easily missed annotation, and it drags a schema-driven form renderer into the UI for no gain on human-facing forms.
 - Storing everything in the encrypted store was rejected because it removes plugin configuration from review and from GitOps, which is most of why the config repository exists.
 - Storing everything in markdown was rejected because it puts credentials in git.
+
+## Amendments
+
+### 2026-08-13: non-sensitive configuration does not live in git
+
+The storage split above was decided and only half built.
+Non-sensitive configuration was never written to the config repository: both halves lived in the record beside the plugin binary, and `sensitive` was a form hint that rendered a password box and nothing else, so every plugin credential sat in readable JSON on the volume and was returned by the plugins API.
+
+The sensitive half is now what this ADR describes: sealed under the master key, reaching the plugin only over its own socket, never read back.
+
+The non-sensitive half deliberately stays beside the record rather than moving to git, because putting it there makes a plugin's ability to start depend on a network call and a completed reconcile, against [ADR-0042](0042-installing-plugins.md)'s offline boot.
+[ADR-0043](0043-plugin-configuration-stays-out-of-git.md) records that decision and its cost, which is that plugin configuration has no review and no history.

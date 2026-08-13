@@ -19,6 +19,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/events"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
@@ -150,14 +151,19 @@ func serve(parent context.Context) error {
 	// (ADR-0040).
 	observers := ingest.NewScheduler(idx, log, time.Now)
 
+	tokens := &proof.Store{}
+	ran := &events.Log{Slog: log}
+
 	plugins := &plugin.Manager{
-		Store:  &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins"), Master: master},
-		Market: &plugin.Market{Orgs: cfg.PluginOrgs, Token: appToken(credentials, &githubapp.Client{})},
-		Rota:   observers,
-		Log:    log,
+		Store:   &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins"), Master: master},
+		Market:  &plugin.Market{Orgs: cfg.PluginOrgs, Token: appToken(credentials, &githubapp.Client{})},
+		Rota:    observers,
+		Log:     log,
+		Catalog: idx,
+		Proof:   tokens,
+		Events:  ran,
 	}
 
-	tokens := &proof.Store{}
 	writer := &write.Writer{
 		Catalog:          idx,
 		Repositories:     catalog,
@@ -170,6 +176,7 @@ func serve(parent context.Context) error {
 		Version: version,
 		Tokens:  tokens,
 		Writer:  writer,
+		Plugins: plugins,
 	})
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
 
@@ -182,6 +189,8 @@ func serve(parent context.Context) error {
 		Pages:       writer,
 		Plugins:     plugins,
 		Rotation:    observers,
+		Events:      ran,
+		Tokens:      tokens,
 		MCP:         agentSurface,
 		Logger:      log,
 	})

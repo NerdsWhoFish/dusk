@@ -88,6 +88,10 @@ type Options struct {
 	// still answer, but nothing can be written.
 	Tokens *proof.Store
 	Writer Declarer
+
+	// Plugins is what an entity can have done to it. Optional: a deployment
+	// with none offers no invoke tool rather than one that always refuses.
+	Plugins Plugins
 }
 
 // instructions is the portable half of ADR-0014's context injection: an
@@ -102,6 +106,7 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - neighbors walks the graph outward from an entity.
 - changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
 - drift reports where the catalog and reality disagree: declared and nowhere to be found, or running and written down nowhere.
+- invoke does something to an entity. What can be done is part of what get returns, so read a thing to learn what you can do to it. Anything that changes something needs the proof token from the read it names; anything destructive needs confirm; pass preview to see what would happen first.
 
 - dusk_context returns this operator's inventory, tailored to the repository you are working in.
 
@@ -169,6 +174,21 @@ func (s *Server) sdkServer() *sdk.Server {
 		Name:        "dusk_context",
 		Description: "What this operator's catalog knows, tailored to the repository you are working in. Call this once at the start of a session, before assuming anything about their infrastructure.",
 	}, s.duskContext)
+
+	// One tool, however many plugins are installed. A plugin's capability is an
+	// action, not a tool, so the surface does not grow with the marketplace
+	// (ADR-0041).
+	if s.opts.Plugins != nil {
+		sdk.AddTool(server, &sdk.Tool{
+			Name:        "invoke",
+			Description: "Do something to an entity, from the actions get listed for it. Anything that changes something needs the proof token from the read it names, and anything destructive needs confirm. Pass preview to see what would happen instead.",
+		}, s.invoke)
+
+		sdk.AddTool(server, &sdk.Tool{
+			Name:        "configure",
+			Description: "Read or set a plugin's configuration. Pass settings to change fields, which are merged over what is there; omit it to see the current values. Credentials are entered in Dusk's own interface and cannot be set here.",
+		}, s.configure)
+	}
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		sdk.AddTool(server, &sdk.Tool{
@@ -285,7 +305,14 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		seen[note.GetId()] = note.GetContentHash()
 	}
 
-	return text(renderEntity(entity, relations) + renderNotes(notes) + s.issue(proof.FromGet, seen)), nil, nil
+	// What can be done to a thing is part of the picture of that thing, and get
+	// is deliberately fat for exactly this reason (ADR-0041).
+	actions := ""
+	if s.opts.Plugins != nil {
+		actions = renderActions(s.opts.Plugins.Actions(entity.GetKind()))
+	}
+
+	return text(renderEntity(entity, relations) + renderNotes(notes) + actions + s.issue(proof.FromGet, seen)), nil, nil
 }
 
 // renderNotes lists what is attached to an entity. Notes are the half of the
@@ -516,6 +543,12 @@ func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesI
 
 	if err := s.renderIntegrity(ctx, &out); err != nil {
 		return nil, nil, err
+	}
+
+	// An observation nothing refreshes is a stale answer with no marker on it,
+	// so how much to trust the catalog has to include whether its plugins work.
+	if s.opts.Plugins != nil {
+		out.WriteString(renderPlugins(s.opts.Plugins.Report()))
 	}
 	return text(out.String()), nil, nil
 }

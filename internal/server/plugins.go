@@ -18,13 +18,27 @@ type Plugins interface {
 	Checked() time.Time
 	Install(ctx context.Context, id string) (*plugin.Installed, error)
 	Uninstall(id string) error
-	Configure(ctx context.Context, id string, config map[string]any) error
-	ConfigureInstance(ctx context.Context, id, instance string, config map[string]any) error
+	Configure(ctx context.Context, id, instance string, config map[string]any) error
 
 	// Views and Asset are how a plugin renders itself: Dusk mounts the element
 	// and serves its JavaScript from its own origin (ADR-0020).
 	Views(kind string) []plugin.View
 	Asset(id, sha string) (plugin.Asset, bool)
+
+	// Actions and PluginActions are the same declaration the UI turns into a
+	// button and an agent invokes, so an author declares a capability once and
+	// does not choose an audience (ADR-0041).
+	Actions(kind string) []plugin.Action
+	PluginActions(id string) []plugin.Action
+	Enable(id, action string, on bool) error
+
+	Invoke(ctx context.Context, request plugin.Request) (*plugin.Outcome, error)
+	Preview(ctx context.Context, request plugin.Request) (*plugin.Outcome, error)
+	Status(ctx context.Context, id, handle string) (*plugin.Outcome, error)
+
+	// Output is what a plugin printed, so diagnosing it does not mean reading
+	// the pod that runs Dusk.
+	Output(id string) []plugin.Line
 }
 
 // handlePluginAsset answers GET /plugin-assets/{plugin}/{name}. Content
@@ -119,9 +133,9 @@ func (s *Server) handleAPIUninstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"uninstalled": r.PathValue("id")})
 }
 
-// handleAPIConfigure answers POST /api/plugins/{id}/config. Only non-sensitive
-// fields arrive here: ADR-0041 keeps secrets off every surface an agent can
-// reach, and this endpoint is one of them.
+// handleAPIConfigure answers the config routes, for a plugin's own
+// configuration and for a named instance. It is the one surface a sensitive
+// value may be entered on, being the one that records it nowhere (ADR-0041).
 func (s *Server) handleAPIConfigure(w http.ResponseWriter, r *http.Request) {
 	if s.plugins == nil {
 		http.Error(w, `{"error":"plugins are not enabled"}`, http.StatusNotImplemented)
@@ -134,31 +148,15 @@ func (s *Server) handleAPIConfigure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.plugins.Configure(r.Context(), r.PathValue("id"), config); err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"configured": r.PathValue("id")})
-}
-
-// handleAPIConfigureInstance answers POST /api/plugins/{id}/config/{instance},
-// which is how one plugin observes a second source without a second install.
-func (s *Server) handleAPIConfigureInstance(w http.ResponseWriter, r *http.Request) {
-	if s.plugins == nil {
-		http.Error(w, `{"error":"plugins are not enabled"}`, http.StatusNotImplemented)
-		return
-	}
-
-	var config map[string]any
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&config); err != nil {
-		http.Error(w, `{"error":"that configuration could not be read"}`, http.StatusBadRequest)
-		return
-	}
-
 	id, instance := r.PathValue("id"), r.PathValue("instance")
-	if err := s.plugins.ConfigureInstance(r.Context(), id, instance, config); err != nil {
+	if err := s.plugins.Configure(r.Context(), id, instance, config); err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"configured": id, "instance": instance})
+
+	answer := map[string]any{"configured": id}
+	if instance != "" {
+		answer["instance"] = instance
+	}
+	writeJSON(w, http.StatusOK, answer)
 }

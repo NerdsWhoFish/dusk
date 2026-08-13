@@ -275,10 +275,10 @@ func TestAnActionRunsAgainstTheInstanceThatObservedTheEntity(t *testing.T) {
 		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}}},
 	}, observed)
 
-	if err := manager.Configure(t.Context(), "many", map[string]any{"cluster": "production"}); err != nil {
+	if err := manager.Configure(t.Context(), "many", "", map[string]any{"cluster": "production"}); err != nil {
 		t.Fatalf("configure: %v", err)
 	}
-	if err := manager.ConfigureInstance(t.Context(), "many", "staging", map[string]any{"cluster": "staging"}); err != nil {
+	if err := manager.Configure(t.Context(), "many", "staging", map[string]any{"cluster": "staging"}); err != nil {
 		t.Fatalf("configure the instance: %v", err)
 	}
 

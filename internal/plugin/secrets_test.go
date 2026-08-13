@@ -28,7 +28,7 @@ func configuredPlugin(t *testing.T, id string, config map[string]any) (*plugin.M
 	manager.Restore(t.Context())
 	t.Cleanup(manager.Stop)
 
-	if err := manager.Configure(t.Context(), id, config); err != nil {
+	if err := manager.Configure(t.Context(), id, "", config); err != nil {
 		t.Fatalf("configure: %v", err)
 	}
 	return manager, rotation
@@ -106,7 +106,7 @@ func TestASensitiveFieldSubmittedEmptyKeepsWhatIsStored(t *testing.T) {
 	})
 
 	// What a write-only form submits when the field was not retyped.
-	if err := manager.Configure(t.Context(), "kept", map[string]any{
+	if err := manager.Configure(t.Context(), "kept", "", map[string]any{
 		"base_url": "https://two.example.com",
 		"api_key":  "",
 	}); err != nil {
@@ -128,7 +128,7 @@ func TestASensitiveFieldSubmittedNullIsForgotten(t *testing.T) {
 		"api_key":  "s3cret-value",
 	})
 
-	if err := manager.Configure(t.Context(), "forgotten", map[string]any{
+	if err := manager.Configure(t.Context(), "forgotten", "", map[string]any{
 		"base_url": "https://example.com",
 		"api_key":  nil,
 	}); err != nil {
@@ -193,7 +193,7 @@ func TestConfiguringAPluginThatIsNotRunningSaysWhy(t *testing.T) {
 	manager, _ := manager(t)
 	install(t, manager.Store, standIn{ID: "stopped", Fields: []string{"api_key"}, Sensitive: []string{"api_key"}})
 
-	err := manager.Configure(context.Background(), "stopped", map[string]any{"api_key": "x"})
+	err := manager.Configure(context.Background(), "stopped", "", map[string]any{"api_key": "x"})
 	if err == nil {
 		t.Fatal("expected configuring a stopped plugin to be refused rather than guessed at")
 	}

@@ -72,3 +72,14 @@ That split decides this one. Non-sensitive configuration is *already* a file in 
 
 - **Option 1** was rejected because it reproduces the exact failure ADR-0010 was written to prevent, with the number of tools now set by how many plugins somebody installed rather than by anyone's design.
 - **Option 2** was rejected because it grows the tool list linearly with plugins, more slowly than option 1 but without bound, and each such tool is a small DSL of the kind ADR-0010 rejected as option 2 for pushing difficulty onto the agent.
+
+## Amendments
+
+### 2026-08-13: configuration is a `configure` tool, not `declare`
+
+"Configuration over MCP, except the secrets" reasoned from a premise that turned out to be false: non-sensitive configuration was **not** already a file in git, so there was no declaration for `declare` to edit.
+[ADR-0043](0043-plugin-configuration-stays-out-of-git.md) explains why it stays out of git rather than being moved there.
+
+An agent configures a plugin through a single fixed `configure` tool, which merges over what is stored rather than replacing it.
+The decision this ADR exists to make is unchanged: the surface does not grow when a plugin is installed, and one more fixed tool is not growth with the marketplace.
+Sensitive fields are still never settable here, for the reason given above, and are now refused by name rather than accepted and silently dropped.

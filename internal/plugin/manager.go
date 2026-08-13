@@ -336,18 +336,31 @@ func (m *Manager) Uninstall(id string) error {
 	return m.Store.Remove(id)
 }
 
-// Configure saves a plugin's configuration and restarts it with it.
-func (m *Manager) Configure(ctx context.Context, id string, config map[string]any) error {
-	return m.configure(ctx, id, "", config)
+// Settings is a plugin's non-sensitive configuration and the fields it
+// declares, which is everything a caller needs to change one of them without
+// having to know anything about the plugin.
+func (m *Manager) Settings(id, instance string) (map[string]any, []Field, error) {
+	record, err := m.Store.Read(id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("plugin: %q is not installed", id)
+	}
+
+	described, running := m.Describe(id)
+	if !running {
+		return nil, nil, fmt.Errorf("plugin: %s is not running, so what it can be configured with is not known", id)
+	}
+
+	settings := record.Config
+	if instance != "" {
+		settings = record.Instances[instance]
+	}
+	return settings, fieldsOf(described), nil
 }
 
-// ConfigureInstance saves one named configuration of a plugin, which is how the
-// same plugin observes a second cluster without being installed twice.
-func (m *Manager) ConfigureInstance(ctx context.Context, id, instance string, config map[string]any) error {
-	return m.configure(ctx, id, instance, config)
-}
-
-func (m *Manager) configure(ctx context.Context, id, instance string, config map[string]any) error {
+// Configure saves one of a plugin's configurations and restarts it with it.
+// Empty names the plugin's own; a named instance is how one plugin observes a
+// second source without being installed twice.
+func (m *Manager) Configure(ctx context.Context, id, instance string, config map[string]any) error {
 	record, err := m.Store.Read(id)
 	if err != nil {
 		return fmt.Errorf("plugin: %q is not installed", id)

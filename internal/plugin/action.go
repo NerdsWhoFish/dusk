@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -189,6 +190,63 @@ func (m *Manager) snapshot() []*Running {
 	}
 	slices.SortFunc(running, func(a, b *Running) int { return strings.Compare(a.ID, b.ID) })
 	return running
+}
+
+// Report is what one installed plugin is doing, answered from what is running
+// here rather than from the marketplace, so asking costs no network.
+type Report struct {
+	ID      string   `json:"id"`
+	Version string   `json:"version"`
+	Running bool     `json:"running"`
+	Health  []Health `json:"health,omitempty"`
+	Actions []Action `json:"actions,omitempty"`
+}
+
+// Failing reports whether every one of this plugin's configurations errored on
+// its last run, which is the difference between one unreachable source and a
+// plugin that is broken.
+func (r Report) Failing() bool {
+	if len(r.Health) == 0 {
+		return false
+	}
+	for _, health := range r.Health {
+		if health.Problem == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// Report answers plugin health without reaching the marketplace, so the agent
+// surface can see a broken plugin rather than that being a UI-only answer.
+func (m *Manager) Report() []Report {
+	installed, err := m.Store.List()
+	if err != nil {
+		m.log().Error("could not read installed plugins", "error", err)
+		return nil
+	}
+
+	m.mu.Lock()
+	running := maps.Clone(m.running)
+	m.mu.Unlock()
+
+	reports := make([]Report, 0, len(installed))
+	for _, record := range installed {
+		report := Report{ID: record.ID, Version: record.Version}
+		if live, ok := running[record.ID]; ok {
+			report.Running = true
+			report.Version = live.Version
+			report.Actions = actionsOf(live, record.Enabled)
+
+			m.mu.Lock()
+			report.Health = m.healthOf(record.ID)
+			m.mu.Unlock()
+		}
+		reports = append(reports, report)
+	}
+
+	slices.SortFunc(reports, func(a, b Report) int { return strings.Compare(a.ID, b.ID) })
+	return reports
 }
 
 // Enable turns an action on or off. Denied by default is only meaningful if

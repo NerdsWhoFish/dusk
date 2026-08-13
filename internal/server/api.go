@@ -14,6 +14,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // Catalog is the slice of the index the API serves. The UI is an ordinary
@@ -192,19 +193,31 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Views ride along with the entity rather than costing a second request,
-	// for the same reason `get` is fat: this is one question.
+	// Views and actions ride along with the entity rather than costing a second
+	// request, for the same reason `get` is fat: this is one question.
 	var views []plugin.View
+	var actions []plugin.Action
 	if s.plugins != nil {
 		views = s.plugins.Views(entity.GetKind())
+		actions = s.plugins.Actions(entity.GetKind())
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	answer := map[string]any{
 		"entity":    asEntity(entity),
 		"relations": asRelations(relations),
 		"notes":     asNotes(notes),
 		"views":     views,
-	})
+		"actions":   actions,
+	}
+
+	// The browser meets the same read-before-write contract an agent does, so
+	// an entity that changed while the page was open refuses the action rather
+	// than acting on what is no longer true (ADR-0009).
+	if s.tokens != nil {
+		seen := map[string]string{ref: entity.GetProvenance().GetVersion()}
+		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
+	}
+	writeJSON(w, http.StatusOK, answer)
 }
 
 // handleAPIDependents answers GET /api/entities/{ref}/dependents?depth=

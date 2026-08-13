@@ -13,8 +13,10 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/access"
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/events"
 	"github.com/NerdsWhoFish/dusk/internal/store"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // credentialStore is the slice of store.Store the server needs, declared here
@@ -49,6 +51,8 @@ type Server struct {
 	rotation    Rotation
 	syncs       Syncs
 	pages       Pages
+	events      *events.Log
+	tokens      *proof.Store
 	access      *access.Policy
 	oauth       *access.OAuth
 	mcp         http.Handler
@@ -90,6 +94,15 @@ type Options struct {
 	// abandoned observation scope from a live one, so it reports neither.
 	Rotation Rotation
 
+	// Events is what has been run. Optional: without it the events route
+	// answers empty rather than failing.
+	Events *events.Log
+
+	// Tokens issues the proof an action presents. The browser gets one on every
+	// entity read, which is the same read-before-write contract an agent meets
+	// and gives the UI optimistic concurrency for free (ADR-0009).
+	Tokens *proof.Store
+
 	// MCP serves the agent-facing surface. Optional, so a deployment can run
 	// without it and so tests need not stand one up.
 	MCP    http.Handler
@@ -116,6 +129,8 @@ func New(opts Options) (*Server, error) {
 		pages:       opts.Pages,
 		plugins:     opts.Plugins,
 		rotation:    opts.Rotation,
+		events:      opts.Events,
+		tokens:      opts.Tokens,
 		mcp:         opts.MCP,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
@@ -257,7 +272,16 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("POST /plugins/{id}/install", s.handleAPIInstall)
 	api.HandleFunc("POST /plugins/{id}/uninstall", s.handleAPIUninstall)
 	api.HandleFunc("POST /plugins/{id}/config", s.handleAPIConfigure)
-	api.HandleFunc("POST /plugins/{id}/config/{instance}", s.handleAPIConfigureInstance)
+	api.HandleFunc("POST /plugins/{id}/config/{instance}", s.handleAPIConfigure)
+	api.HandleFunc("GET /plugins/{id}/output", s.handleAPIOutput)
+
+	// One declaration, three surfaces: these run the same actions an agent
+	// invokes and the same ones the entity page offers (ADR-0041).
+	api.HandleFunc("POST /entities/{ref}/actions/{action}", s.handleAPIInvoke)
+	api.HandleFunc("POST /plugins/{id}/actions/{action}", s.handleAPIPluginInvoke)
+	api.HandleFunc("POST /plugins/{id}/actions/{action}/enabled", s.handleAPIEnableAction)
+	api.HandleFunc("GET /plugins/{id}/handles/{handle}", s.handleAPIActionStatus)
+	api.HandleFunc("GET /events", s.handleAPIEvents)
 	return api
 }
 

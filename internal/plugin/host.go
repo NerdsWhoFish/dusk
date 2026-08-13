@@ -69,6 +69,7 @@ type Running struct {
 	socket string
 	log    *slog.Logger
 	assets map[string]Asset
+	output *output
 }
 
 // maxAssetBytes bounds a plugin's JavaScript. A view is tens of kilobytes; a
@@ -93,17 +94,19 @@ func Start(ctx context.Context, id, binary string, config *structpb.Struct, log 
 		return nil, err
 	}
 
+	printed := &output{}
+
 	cmd := exec.Command(binary)
 	cmd.Env = append(os.Environ(), SocketEnv+"="+socket, TokenEnv+"="+token)
-	cmd.Stdout = logWriter{log: log, id: id, stream: "stdout"}
-	cmd.Stderr = logWriter{log: log, id: id, stream: "stderr"}
+	cmd.Stdout = logWriter{log: log, id: id, stream: "stdout", kept: printed}
+	cmd.Stderr = logWriter{log: log, id: id, stream: "stderr", kept: printed}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("plugin: start %s: %w", id, err)
 	}
 
 	running := &Running{
 		ID: id, config: config, interval: defaultInterval,
-		cmd: cmd, socket: socket, log: log,
+		cmd: cmd, socket: socket, log: log, output: printed,
 	}
 
 	conn, err := grpc.NewClient("unix://"+socket,
@@ -381,15 +384,18 @@ func socketFor(id string) (string, error) {
 	return socket, nil
 }
 
-// logWriter puts a plugin's output in Dusk's log, attributed. A plugin that
-// prints to stderr and is never read is a plugin nobody can debug.
+// logWriter puts a plugin's output in Dusk's log, attributed, and keeps it
+// where the plugin's own page can show it. A plugin that prints to stderr and
+// is never read is a plugin nobody can debug.
 type logWriter struct {
 	log    *slog.Logger
 	id     string
 	stream string
+	kept   *output
 }
 
 func (w logWriter) Write(p []byte) (int, error) {
 	w.log.Info("plugin output", "plugin", w.id, "stream", w.stream, "message", string(p))
+	w.kept.write(w.stream, string(p))
 	return len(p), nil
 }
