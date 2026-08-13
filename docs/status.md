@@ -44,11 +44,11 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **GitHub source**: `githubapp.Repository`, reading over the API at a commit resolved once, with a tree cache that needs no invalidation ([0029](../adr/0029-reading-repositories.md))
 - [x] **Installation auth**: App assertions and installation tokens, reused until close to expiry ([0005](../adr/0005-github-app-and-access-modes.md))
 - [x] **Storage**: `internal/index`, SQLite partitioned by repository and git ref, FTS5 search with ranking and snippets, transactional replace, cheap per-ref garbage collection ([0008](../adr/0008-storage.md))
-- [~] **Entity graph**: relations and inbound traversal to a bounded depth are built. Drift between declared and observed waits on there being an observed side ([0007](../adr/0007-entity-schema.md))
+- [x] **Entity graph**: relations and inbound traversal to a bounded depth, and drift between the declared and observed halves now that plugins supply the observed one ([0007](../adr/0007-entity-schema.md))
 - [x] **Poll floor**: periodic sweep of every permitted installation, running whether or not webhooks are configured ([0006](../adr/0006-reconcile-triggering.md))
 - [x] **Webhook triggering**: a push reconciles one repository, an installation change triggers a sweep, both answered before the work runs ([0006](../adr/0006-reconcile-triggering.md))
 - [x] **Account allowlist**: only the App's own account by default, checked on both the sweep and the delivery ([0030](../adr/0030-account-allowlist.md))
-- [x] **Sync observability**: per-repository status with commit, counts, and last error, surfaced to agents through the MCP `changes` tool. No human-facing surface yet
+- [x] **Sync observability**: per-repository status with commit, counts, and last error, through the MCP `changes` tool and the homepage's `reads` block
 
 ## Write path
 
@@ -65,7 +65,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## MCP
 
-- [x] **Read tools**: `search`, `get`, `neighbors`, `changes` over streamable HTTP at `/mcp`, answering in markdown ([0010](../adr/0010-mcp-surface.md))
+- [x] **Read tools**: `search`, `get`, `neighbors`, `changes`, `drift` and `dusk_context` over streamable HTTP at `/mcp`, answering in markdown ([0010](../adr/0010-mcp-surface.md))
 - [x] **Agent surface access**: bearer token, or an explicit trusted-network mode, and off until one of them says. Never a default ([0012](../adr/0012-viewing-auth.md))
 - [ ] **Authorization derived from repository access**: an agent presents a GitHub token and sees only the repositories it can read. The index is already partitioned by repository, so this is a predicate rather than a permission model. Deferred until there is a second reader ([0012](../adr/0012-viewing-auth.md))
 - [~] **Write tools**: `declare`, `note` and `page` are built, and every read issues the proof token they need. `relate`, `mintKind` and `push` are not ([0010](../adr/0010-mcp-surface.md))
@@ -74,13 +74,13 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## UI
 
-- [x] **HTTP API**: `/api/search`, `/api/entities`, `/api/entities/{ref}`, `/api/overview`, `/api/status`. The UI is an ordinary client of it with no privileged path
+- [x] **HTTP API**: search, entities and their dependents, overview, status, drift, integrity, home, viewer, diff, and the plugin routes. The UI is an ordinary client of it with no privileged path
 - [x] **React app**: React 19 and TypeScript, built by Vite, embedded via `go:embed`, dark only, Dracula Pro
 - [x] **Browser auth**: a session cookie exchanged for the same token agents present, so one policy covers both surfaces
-- [x] **Pages**: the homepage is `.dusk/home.md` in the config repository, an ordered list of typed blocks, each a query rather than a widget. What is declared is the whole page, so removing a default block is deleting a line. Entities blocks take the query grammar including `related:` in either direction and sorting by any attribute, which is what makes "the latest three flights" a block. Documented in [docs/pages.md](pages.md) ([0013](../adr/0013-layout-and-pages.md))
+- [x] **Pages**: the homepage is `.dusk/home.md` in the config repository, an ordered list of typed blocks, each a query rather than a widget. What is declared is the whole page, so removing a default block is deleting a line. Entities blocks take the query grammar including `related:` in either direction and sorting by any attribute, which is what makes "the latest three flights" a block. Blocks resolve server side, so a page is one request rather than one per block ([0013](../adr/0013-layout-and-pages.md), [0035](../adr/0035-blocks-resolve-server-side.md)). Documented in [docs/pages.md](pages.md)
 - [x] **PR previews**: the catalog rendered at an unmerged ref, a semantic diff, and one comment edited in place ([0001](../adr/0001-git-as-source-of-truth.md), [0037](../adr/0037-pull-request-previews.md))
 - [x] **Viewing auth**: sign in with GitHub using the App Dusk registered, visibility derived from repository access, observed entities hidden unless allowed ([0012](../adr/0012-viewing-auth.md), [0036](../adr/0036-deriving-what-a-viewer-sees.md))
-- [ ] **Admin**: plugin configuration forms, sensitive fields write-only ([0023](../adr/0023-plugin-configuration.md))
+- [x] **Admin**: the plugins page installs, updates, uninstalls and configures, with sensitive fields write-only ([0023](../adr/0023-plugin-configuration.md))
 - [~] **Responsive layouts**: mobile first, one breakpoint, wide content scrolls inside its own container. Nothing yet does the table-to-card or graph-to-list transform, because neither exists ([0025](../adr/0025-responsive-ui.md))
 - [~] **Viewport matrix tests**: run by hand at 320, 390, 430, 768, 1024 and 1440 against a real catalog, on the landing and entity pages. No overflow and no touch target under 44px at any of them. Not automated, so nothing stops the next change regressing it ([0025](../adr/0025-responsive-ui.md))
 
@@ -92,7 +92,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
 - [x] **Kubernetes moved out of core**: `internal/ingest/kubernetes.go`, `DUSK_KUBERNETES` and the cluster configuration are gone, and `k8s.io/client-go` with them. Core now carries no ingester at all: the scheduler is constructed empty and plugins join it as they start, so there is no in-tree path an observation can take ([0034](../adr/0034-ingesters-in-tree-first.md), [0040](../adr/0040-core-and-plugins.md))
 - [x] **Kubernetes plugin**: `NerdsWhoFish/dusk-plugin-kubernetes` serves `PluginService` over a host-provided unix socket, observes a real cluster, and ports the namespace and plumbing filters intact
-- [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
+- [x] **Drift**: declared against observed, matched through `observed_as`, and limited to kinds something actually watches ([0038](../adr/0038-what-drift-may-say.md))
 - [ ] **Declarative view spec**: [0020](../adr/0020-plugin-ui.md)'s Tier 1, where a plugin declares "these fields as a table" and Dusk's own React renders it with no JavaScript from the plugin at all. Tier 2 was built first because it is what the first plugin with a view actually needed, which inverts that ADR's stated order
 - [ ] **Actions**: invoke, dry run, classification, approval, events ([0015](../adr/0015-plugin-actions-and-events.md))
 - [x] **Host runtime**: a plugin is exec'd on a host-provided unix socket, answers `Describe`, and joins the rotation as an ordinary `ingest.Ingester`, so scheduling, backoff and the never-delete rule are not reimplemented for it
@@ -125,7 +125,7 @@ GitHub is not on this list. It is core and stays there: git is the source of tru
 
 ### Planned plugins
 
-Written down so the order is a choice rather than whatever comes to mind next. Kubernetes is first because it already works in tree, so the protocol is measured against real behaviour. AirTrail is second because it is small enough to prove a plugin written from nothing.
+Written down so the order is a choice rather than whatever comes to mind next. Kubernetes was first because it already worked in tree, so the protocol was measured against real behaviour rather than a guess. AirTrail was second because it is small enough to prove a plugin written from nothing.
 
 **Observe only**, at least to begin with:
 
@@ -140,44 +140,47 @@ Written down so the order is a choice rather than whatever comes to mind next. K
 **Observe and act.** These are what make [0015](../adr/0015-plugin-actions-and-events.md) load-bearing rather than speculative, and why every one of them will need `ACTION_CLASS_DESTRUCTIVE` to mean something:
 
 - [ ] **Spacelift**: stacks, runs and their state, and creating or managing them rather than only reporting
-- [ ] **ADRs**: decision records as first-class entities, with authoring, superseding and retiring as actions. The tooling this repository's own conventions are currently enforced by hand
+- [ ] **ADRs**: decision records as first-class entities, with authoring, superseding and retiring as actions. This repository's own ADR conventions are enforced by hand today, so it would be its own first user
 - [ ] **Claude**: sessions and their work as catalog history
 - [ ] **Home Assistant**: entities, automations and the ability to run them
 - [ ] **Cloudflare**: DNS, tunnels and workers, edited rather than only read
 - [ ] **Obsidian**: notes both ways, which is the closest thing to Dusk's own knowledge layer
 - [ ] **GitHub Projects**: boards and cards as work, alongside the repositories core already reads
 - [ ] **LubeLogger**: vehicle maintenance, where logging a service is the point
-- [~] **Music Assistant**: observing is built. Wiring `Invoke` so playback actually starts is what remains
+- [~] **Music Assistant, acting**: listed twice on purpose. Observing is built and shipped above; this row is the other half, wiring `Invoke` so playback actually starts
 - [ ] **Calendar**: what is scheduled, and booking or moving it. The one plugin whose actions are mostly about a human's time rather than a system's state, so approval means something different here
 
 ---
 
 ## Next
 
-1. The plugin host. Ingestion now works in tree ([0034](../adr/0034-ingesters-in-tree-first.md)) and its machinery is proven against a real cluster, so [ADR-0002](../adr/0002-plugin-protocol.md)'s subprocess protocol is now a second implementation of a working interface rather than an invention.
-2. The shared per-source API budget in the ingest scheduler. Each ingester is currently bounded only by its own interval, so a second GitHub ingester would assume it had the whole quota.
-3. Filtering drift, integrity and kind counts for a restricted viewer. They are the only reads a signed-in person sees unfiltered.
+1. Actions ([0015](../adr/0015-plugin-actions-and-events.md)). Every plugin shipped so far only observes, and the most recent one already wants more: Music Assistant declares its actions and implements `DryRun`, with `Invoke` deliberately absent. Until this lands, "a catalog that maintains itself" is half true, because nothing it knows can be acted on.
+2. Reaching agents through `invoke` rather than new tools ([0041](../adr/0041-plugins-reach-agents-as-actions.md)), which is what stops an installed plugin inflating the tool list every session pays for.
+3. The shared per-source API budget in the ingest scheduler. Each ingester is currently bounded only by its own interval, so two plugins hitting one API would each assume they had the whole quota.
+4. Filtering drift, integrity and kind counts for a restricted viewer. They are the only reads a signed-in person sees unfiltered.
 
 ## Known gaps
 
 - Catalog content is fed to agents with no trust boundary of its own. [ADR-0030](../adr/0030-account-allowlist.md) narrows *who* can reach that path but does nothing about a compromised repository inside an allowed account.
 - Two repositories declaring the same entity is **reported but not resolved** ([0033](../adr/0033-graph-integrity.md)). `integrity` names both declarations; `Get` still returns whichever sorts first until a human picks.
-- The MCP surface has no authentication. Anyone able to reach the private host can read the whole catalog ([0012](../adr/0012-viewing-auth.md)).
+- The MCP surface authenticates but does not authorize. A bearer token answers "may you read", not "what may you read", so any agent holding one reads the whole catalog ([0012](../adr/0012-viewing-auth.md)).
 - Nothing keeps the chart in step with the application. A release adding a required value ships an image no published chart can deploy until someone notices ([0024](../adr/0024-charts-publishes-charts.md)).
 - Access mode is fixed at registration. Changing it means editing the App's permissions on GitHub, which installations must then approve.
 - Notes are ranked by pinned-then-id. [0031](../adr/0031-notes-are-files.md) wants kind to drive ranking so a gotcha outranks a todo without being pinned by hand.
 - A note's refs and a relation's target are still unchecked at write time, deliberately, because the target may live in a repository Dusk cannot see. Both are now **reported** by `integrity` instead of failing silently ([0033](../adr/0033-graph-integrity.md)).
 - Integrity reports every unresolvable ref, and in a partially adopted catalog most of them are legitimate. Nothing distinguishes "typo" from "not adopted yet".
 - Drift matches a declaration to an observation by ref, or through an explicit `observed_as` when the two are named differently. Nothing infers the mapping, so an estate that uses its own names and has not written them shows those entities on both sides of the report.
-- Drift stays silent about any kind no ingester observes ([0038](../adr/0038-what-drift-may-say.md)). The cost is the reverse case: removing the only ingester for a kind makes the report shrink rather than raise an alarm, so ingester health has to be watched somewhere else.
-- Coverage is inferred from what an ingester returned rather than what it is responsible for, and a kind is global. An ingester covering one cluster makes `service` watched everywhere, so a service declared in an unwatched cluster is still reported missing.
-- Ingested entities are stored under a reserved `ingester:` scope that occupies the repository slot. Anything treating a repository as clonable, or as something a sweep can prune, has to check `index.IsObserved` first. The sweep got this wrong once and deleted every observation on its first pass.
+- Drift stays silent about any kind nothing observes ([0038](../adr/0038-what-drift-may-say.md)). The cost is the reverse case: uninstalling the only plugin that observes a kind makes the report shrink rather than raise an alarm, so plugin health has to be watched somewhere else.
+- Coverage is inferred from what a plugin returned rather than what it is responsible for, and a kind is global. One instance covering one cluster makes `service` watched everywhere, so a service declared in an unwatched cluster is still reported missing.
+- Observations are stored under a reserved `ingester:` scope that occupies the repository slot. Anything treating a repository as clonable, or as something a sweep can prune, has to check `index.IsObserved` first. The sweep got this wrong once and deleted every observation on its first pass.
 - A rate limit is recognised and logged but not waited out. A sweep that exhausts the budget gives up until the next one rather than resuming when the limit resets.
-- The UI's responsive behaviour is unverified. It is written mobile first against [0025](../adr/0025-responsive-ui.md)'s rules, but the viewport matrix has never actually been run against it.
+- The viewport matrix is run by hand and nothing repeats it. It has now been run against a real catalog and passes, but a regression is caught only by somebody thinking to look ([0025](../adr/0025-responsive-ui.md)).
 - A browser session is a bearer token in a cookie by another name: it grants the whole catalog and cannot be revoked short of rotating `DUSK_MCP_TOKEN`, which signs it. Signing in with GitHub narrows a view; it does not close this path ([0036](../adr/0036-deriving-what-a-viewer-sees.md)).
 - A restricted viewer's drift, integrity and kind counts are not filtered, so those blocks can count things the viewer cannot open.
 - OAuth sign-in requests `repo` scope, which is far more than listing repository names needs. GitHub offers nothing narrower that still sees private repositories. A GitHub App ignores the scope entirely and grants what its installation permits, so this only bites a deployment pointed at a real OAuth App through the environment ([0036](../adr/0036-deriving-what-a-viewer-sees.md)).
 - Identity sessions live in memory, so a restart signs everybody out. Every deploy is a restart, so this is routine rather than rare.
+- A failing plugin reports its last error and how many runs have failed in a row, which is enough to know something is wrong and roughly why. It is not the plugin's log: its stdout and stderr go to Dusk's own log, so diagnosing anything the error string does not explain still means reading the pod. An endpoint that tails a plugin's output is not built.
+- Plugin health is a UI answer only. `changes` reports what git said and nothing reports plugin health to an agent, so the surface that is supposed to be the primary one is the surface that cannot see a broken plugin.
 - **The PVC now holds something not rebuildable from git.** Installed plugin binaries live in the data directory, which is what lets a restart need no network, and weakens a guarantee that was previously absolute and simple to explain ([0042](../adr/0042-installing-plugins.md)).
 - A plugin instance observing a source Dusk cannot reach locally needs that source's credentials mounted into Dusk's pod. Observing a second Kubernetes cluster therefore means a kubeconfig secret, which is the case [0039](../adr/0039-one-plugin-transport.md) left open by rejecting network plugins. The cheaper shape is an authenticated push endpoint, and that decision has not been made.
 - Being signed in and being let in are two decisions in two places: `access.Policy` guards the surface, `access.OAuth` holds the identity, and the policy only consults the identity because it was handed one through `Recognize`. Sign-in shipped without that call and silently bounced everybody back to the login page, so a new credential has to be taught to the gate as well as minted.
