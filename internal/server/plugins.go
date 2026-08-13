@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 )
@@ -16,6 +17,34 @@ type Plugins interface {
 	Uninstall(id string) error
 	Configure(ctx context.Context, id string, config map[string]any) error
 	ConfigureInstance(ctx context.Context, id, instance string, config map[string]any) error
+
+	// Views and Asset are how a plugin renders itself: Dusk mounts the element
+	// and serves its JavaScript from its own origin (ADR-0020).
+	Views(kind string) []plugin.View
+	Asset(id, sha string) (plugin.Asset, bool)
+}
+
+// handlePluginAsset answers GET /plugin-assets/{plugin}/{name}. Content
+// addressed, so immutable is safe here in a way it is not under a fixed name:
+// a different asset has a different URL.
+func (s *Server) handlePluginAsset(w http.ResponseWriter, r *http.Request) {
+	if s.plugins == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	sha := strings.TrimSuffix(r.PathValue("name"), ".js")
+	asset, ok := s.plugins.Asset(r.PathValue("plugin"), sha)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", assetMaxAge)
+	if _, err := w.Write(asset.Body); err != nil {
+		s.log.Debug("the browser went away mid-asset", "error", err)
+	}
 }
 
 // handleAPIPlugins answers GET /api/plugins with the marketplace, annotated

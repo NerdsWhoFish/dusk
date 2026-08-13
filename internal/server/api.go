@@ -13,6 +13,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
 )
 
 // Catalog is the slice of the index the API serves. The UI is an ordinary
@@ -191,10 +192,18 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Views ride along with the entity rather than costing a second request,
+	// for the same reason `get` is fat: this is one question.
+	var views []plugin.View
+	if s.plugins != nil {
+		views = s.plugins.Views(entity.GetKind())
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entity":    asEntity(entity),
 		"relations": asRelations(relations),
 		"notes":     asNotes(notes),
+		"views":     views,
 	})
 }
 

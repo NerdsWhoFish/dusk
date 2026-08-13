@@ -7,6 +7,8 @@ package plugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -65,7 +67,12 @@ type Running struct {
 	client duskv1alpha1.PluginServiceClient
 	socket string
 	log    *slog.Logger
+	assets map[string]Asset
 }
+
+// maxAssetBytes bounds a plugin's JavaScript. A view is tens of kilobytes; a
+// plugin sending more than this is not shipping a view.
+const maxAssetBytes = 16 << 20
 
 // Start execs a plugin and returns it ready to run. It calls Describe first,
 // because a plugin that cannot describe itself cannot be scheduled, and failing
@@ -116,7 +123,101 @@ func Start(ctx context.Context, id, binary string, config *structpb.Struct, log 
 	}
 	running.Describe = described
 	running.Version = described.GetVersion()
+
+	// Fetched once at start rather than per request: the asset belongs to this
+	// build of this plugin, so it cannot change while the process lives.
+	if err := running.fetchAssets(ctx); err != nil {
+		running.stop()
+		return nil, err
+	}
 	return running, nil
+}
+
+// Asset is a plugin's JavaScript, content addressed so it can be served
+// immutable without ever pinning a browser to a stale copy.
+type Asset struct {
+	SHA  string
+	Body []byte
+}
+
+// View is one place a plugin renders itself, resolved to a URL Dusk serves.
+type View struct {
+	Plugin  string   `json:"plugin"`
+	Element string   `json:"element"`
+	Title   string   `json:"title,omitempty"`
+	Source  string   `json:"source"`
+	Kinds   []string `json:"kinds,omitempty"`
+}
+
+// Views is what this plugin contributes to the UI.
+func (r *Running) Views() []View {
+	views := make([]View, 0, len(r.Describe.GetUi()))
+	for _, ui := range r.Describe.GetUi() {
+		asset, ok := r.assets[ui.GetAsset()]
+		if !ok {
+			continue
+		}
+		views = append(views, View{
+			Plugin: r.ID, Element: ui.GetElement(), Title: ui.GetTitle(),
+			Source: "/plugin-assets/" + r.ID + "/" + asset.SHA + ".js",
+			Kinds:  ui.GetAppliesToKinds(),
+		})
+	}
+	return views
+}
+
+// Asset returns a fetched asset by its digest.
+func (r *Running) Asset(sha string) (Asset, bool) {
+	for _, asset := range r.assets {
+		if asset.SHA == sha {
+			return asset, true
+		}
+	}
+	return Asset{}, false
+}
+
+func (r *Running) fetchAssets(ctx context.Context) error {
+	r.assets = map[string]Asset{}
+
+	for _, ui := range r.Describe.GetUi() {
+		name := ui.GetAsset()
+		if name == "" {
+			continue
+		}
+
+		body, err := r.asset(ctx, name)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(body)
+		r.assets[name] = Asset{SHA: hex.EncodeToString(sum[:]), Body: body}
+	}
+	return nil
+}
+
+// asset collects the chunks GetAsset streams, bounded so a plugin cannot fill
+// memory with something the browser was never going to run.
+func (r *Running) asset(ctx context.Context, name string) ([]byte, error) {
+	stream, err := r.client.GetAsset(ctx, &duskv1alpha1.GetAssetRequest{Name: name})
+	if err != nil {
+		return nil, fmt.Errorf("plugin: %s asset %q: %w", r.ID, name, err)
+	}
+
+	var body []byte
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return body, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("plugin: %s asset %q: %w", r.ID, name, err)
+		}
+
+		body = append(body, response.GetChunk()...)
+		if len(body) > maxAssetBytes {
+			return nil, fmt.Errorf("plugin: %s asset %q is larger than %d bytes", r.ID, name, maxAssetBytes)
+		}
+	}
 }
 
 // describe retries, because the process is racing to bind its socket and a

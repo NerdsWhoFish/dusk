@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { EntityDetail } from "./api";
 import { handle } from "./App";
 import { Markdown } from "./Markdown";
+import { PluginBlock } from "./PluginView";
 import { Rows } from "./Rows";
 
 export function EntityView({
@@ -84,6 +85,12 @@ export function EntityView({
       </header>
 
       {entity.description && <Markdown>{entity.description}</Markdown>}
+
+      {/* Before the notes: a plugin's own view of a thing is usually the most
+          specific thing on the page. */}
+      {(detail.views ?? []).map((view) => (
+        <PluginBlock key={view.source} view={view} entityRef={entity.ref} />
+      ))}
 
       {notes.length > 0 && (
         <>

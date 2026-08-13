@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -227,6 +228,36 @@ func (m *Manager) Describe(id string) (*duskv1alpha1.DescribeResponse, bool) {
 		return nil, false
 	}
 	return running.Describe, true
+}
+
+// Views returns what running plugins contribute for an entity kind. An empty
+// kind list on a contribution means every kind, which is the common case.
+func (m *Manager) Views(kind string) []View {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var views []View
+	for _, running := range m.running {
+		for _, view := range running.Views() {
+			if len(view.Kinds) == 0 || slices.Contains(view.Kinds, kind) {
+				views = append(views, view)
+			}
+		}
+	}
+	return views
+}
+
+// Asset returns a plugin's JavaScript by digest, for serving from Dusk's own
+// origin so a plugin's view never reaches the network.
+func (m *Manager) Asset(plugin, sha string) (Asset, bool) {
+	m.mu.Lock()
+	running, ok := m.running[plugin]
+	m.mu.Unlock()
+
+	if !ok {
+		return Asset{}, false
+	}
+	return running.Asset(sha)
 }
 
 // Stop shuts every plugin down, for a graceful exit.

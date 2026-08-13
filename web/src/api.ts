@@ -21,10 +21,20 @@ export type SearchResult = {
   Snippet: string;
 };
 
+// PluginView is a custom element a plugin renders itself, with the URL Dusk
+// serves its JavaScript from. Never a React component: no shared runtime.
+export type PluginView = {
+  plugin: string;
+  element: string;
+  title?: string;
+  source: string;
+};
+
 export type EntityDetail = {
   entity: Entity;
   relations: Relation[];
   notes: Note[];
+  views?: PluginView[];
 };
 
 export type RepositoryStatus = {

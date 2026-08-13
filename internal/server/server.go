@@ -194,6 +194,10 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET "+icon, s.handleIcon)
 	}
 
+	// A plugin's view is served from Dusk's own origin, so the browser never
+	// fetches a plugin's code from anywhere else (ADR-0020).
+	mux.HandleFunc("GET /plugin-assets/{plugin}/{name}", s.handlePluginAsset)
+
 	// Signing in cannot sit behind the gate it opens.
 	mux.HandleFunc("GET /login", s.handleLoginPage)
 	mux.HandleFunc("POST /login", s.handleLogin)
