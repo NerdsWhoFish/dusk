@@ -380,6 +380,66 @@ input,
   font-size: 0.8125rem;
 }
 
+/* Plugins -------------------------------------------------------------- */
+
+.plugins-note {
+  margin: -0.25rem 0 1rem;
+}
+
+/* Wraps so the buttons drop under the description on a phone rather than
+   squeezing the name into one word per line. */
+.row.plugin {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+}
+
+.plugin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.plugin-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  background: var(--purple);
+  border: 1px solid var(--purple);
+  border-radius: 0.5rem;
+  color: #17161f;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn.secondary {
+  background: none;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.btn.secondary:hover:not(:disabled) {
+  border-color: var(--purple);
+  color: var(--fg);
+}
+
 /* Rows ---------------------------------------------------------------- */
 
 .rows {

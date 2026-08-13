@@ -69,6 +69,11 @@ type Config struct {
 	// natural access control, and silent over-sharing is the worse failure.
 	ShowObservedToEveryone bool
 
+	// PluginOrgs are the GitHub organisations whose `dusk-plugin-*`
+	// repositories Dusk will offer and run. Adding one is the security
+	// decision, because a plugin runs with Dusk's permissions (ADR-0042).
+	PluginOrgs []string
+
 	// Clusters are the Kubernetes clusters to observe. Empty means none, so
 	// ingestion is opt in and Dusk never reaches for credentials it was not
 	// pointed at.
@@ -125,6 +130,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		TrustedNetwork:   strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
 		ConfigRepository: strings.Trim(strings.TrimSpace(getenv("DUSK_CONFIG_REPOSITORY")), "/"),
 		Clusters:         splitClusters(getenv("DUSK_KUBERNETES")),
+		PluginOrgs:       splitAccounts(getenv("DUSK_PLUGIN_ORGS")),
 
 		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
 		ShowObservedToEveryone: strings.EqualFold(

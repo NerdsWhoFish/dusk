@@ -22,12 +22,14 @@ const BreakerThreshold = 8
 
 // Scheduler runs ingesters on their own intervals.
 type Scheduler struct {
-	store  Store
-	log    *slog.Logger
-	now    func() time.Time
-	states map[string]*state
+	store Store
+	log   *slog.Logger
+	now   func() time.Time
 
+	// mu guards states as well as results, because installing a plugin adds an
+	// ingester to a scheduler that is already running.
 	mu      sync.Mutex
+	states  map[string]*state
 	results map[string]Result
 }
 
@@ -55,7 +57,27 @@ func NewScheduler(store Store, log *slog.Logger, now func() time.Time, ingesters
 
 // Any reports whether there is anything to run, so a deployment with no
 // ingesters configured does not start a loop that never does anything.
-func (s *Scheduler) Any() bool { return len(s.states) > 0 }
+func (s *Scheduler) Any() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.states) > 0
+}
+
+// Add puts an ingester into the rotation, due immediately. Installing a plugin
+// has to start observing without a restart, or every install is a rollout.
+func (s *Scheduler) Add(ingester Ingester) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states[ingester.Name()] = &state{ingester: ingester}
+}
+
+// Remove takes an ingester out. Its observations stay in the index, so
+// uninstalling a plugin is not a way to delete catalog history.
+func (s *Scheduler) Remove(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.states, name)
+}
 
 // Status is what each ingester last did.
 func (s *Scheduler) Status() []Result {
@@ -93,12 +115,15 @@ func (s *Scheduler) Start(ctx context.Context) {
 func (s *Scheduler) RunDue(ctx context.Context) {
 	now := s.now()
 
+	s.mu.Lock()
 	var due []*state
 	for _, candidate := range s.states {
 		if !candidate.next.After(now) {
 			due = append(due, candidate)
 		}
 	}
+	s.mu.Unlock()
+
 	if len(due) == 0 {
 		return
 	}
@@ -107,13 +132,11 @@ func (s *Scheduler) RunDue(ctx context.Context) {
 	var wait sync.WaitGroup
 
 	for _, current := range due {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
+		wait.Go(func() {
 			slots <- struct{}{}
 			defer func() { <-slots }()
 			s.runOne(ctx, current)
-		}()
+		})
 	}
 	wait.Wait()
 }
@@ -124,27 +147,30 @@ func (s *Scheduler) runOne(ctx context.Context, current *state) {
 
 	s.mu.Lock()
 	s.results[name] = result
-	s.mu.Unlock()
-
 	if result.Err != nil {
 		current.failures++
 		current.next = s.now().Add(backoff(current.failures, current.ingester.Interval()))
+	} else {
+		current.failures = 0
+		current.next = s.now().Add(current.ingester.Interval())
+	}
+	failures, next := current.failures, current.next
+	s.mu.Unlock()
 
+	if result.Err != nil {
 		// Kept as a warning rather than an error: the catalog is intact and
 		// serving what it last saw, which is the designed behaviour.
 		s.log.Warn("ingester failed, keeping what it last observed",
-			"ingester", name, "consecutive_failures", current.failures,
-			"next_attempt", current.next, "error", result.Err)
+			"ingester", name, "consecutive_failures", failures,
+			"next_attempt", next, "error", result.Err)
 
-		if current.failures == BreakerThreshold {
+		if failures == BreakerThreshold {
 			s.log.Error("ingester is failing persistently and is now backed off to the maximum",
-				"ingester", name, "failures", current.failures)
+				"ingester", name, "failures", failures)
 		}
 		return
 	}
 
-	current.failures = 0
-	current.next = s.now().Add(current.ingester.Interval())
 	s.log.Info("observed",
 		"ingester", name, "entities", result.Entities, "relations", result.Relations)
 }

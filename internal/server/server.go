@@ -45,6 +45,7 @@ type Server struct {
 	github      appClient
 	controller  catalogController
 	catalog     Catalog
+	plugins     Plugins
 	syncs       Syncs
 	pages       Pages
 	access      *access.Policy
@@ -79,6 +80,11 @@ type Options struct {
 	// without it the default page is served, which is the point of having one.
 	Pages Pages
 
+	// Plugins backs the marketplace. Optional: without it the plugin pages
+	// answer empty rather than failing, so a deployment that installs nothing
+	// is not a deployment with broken routes.
+	Plugins Plugins
+
 	// MCP serves the agent-facing surface. Optional, so a deployment can run
 	// without it and so tests need not stand one up.
 	MCP    http.Handler
@@ -103,6 +109,7 @@ func New(opts Options) (*Server, error) {
 		catalog:     opts.Catalog,
 		syncs:       opts.Syncs,
 		pages:       opts.Pages,
+		plugins:     opts.Plugins,
 		mcp:         opts.MCP,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
@@ -228,6 +235,13 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /home", s.handleAPIHome)
 	api.HandleFunc("GET /viewer", s.handleAPIViewer)
 	api.HandleFunc("GET /diff", s.handleAPIDiff)
+
+	// Installing runs somebody else's binary, so these sit behind the same
+	// gate as everything else and are POST rather than GET.
+	api.HandleFunc("GET /plugins", s.handleAPIPlugins)
+	api.HandleFunc("POST /plugins/{id}/install", s.handleAPIInstall)
+	api.HandleFunc("POST /plugins/{id}/uninstall", s.handleAPIUninstall)
+	api.HandleFunc("POST /plugins/{id}/config", s.handleAPIConfigure)
 	return api
 }
 

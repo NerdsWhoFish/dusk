@@ -123,8 +123,46 @@ export type Viewer = {
   github: boolean;
 };
 
+export type PluginOffer = {
+  id: string;
+  org: string;
+  repository: string;
+  description: string;
+  url: string;
+  version?: string;
+  installed: boolean;
+  installed_version?: string;
+  update_available: boolean;
+  running: boolean;
+  problem?: string;
+};
+
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  if (response.status === 401) {
+    throw new Unauthorized("session expired");
+  }
+  if (!response.ok) {
+    const failure = await response.json().catch(() => ({}));
+    throw new Error(failure.error ?? `the catalog returned ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 export const api = {
   viewer: () => get<Viewer>("/viewer"),
+  plugins: () => get<{ plugins: PluginOffer[]; problem?: string }>("/plugins"),
+  install: (id: string) =>
+    post<{ id: string; version: string }>(
+      `/plugins/${encodeURIComponent(id)}/install`,
+    ),
+  uninstall: (id: string) =>
+    post<{ uninstalled: string }>(`/plugins/${encodeURIComponent(id)}/uninstall`),
   home: () => get<Home>("/home"),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),

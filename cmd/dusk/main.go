@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/FetchHQ/dusk/internal/controller"
 	"github.com/FetchHQ/dusk/internal/index"
 	"github.com/FetchHQ/dusk/internal/mcp"
+	"github.com/FetchHQ/dusk/internal/plugin"
 	"github.com/FetchHQ/dusk/internal/server"
 	"github.com/FetchHQ/dusk/internal/store"
 	"github.com/FetchHQ/dusk/internal/write"
@@ -150,6 +152,13 @@ func serve(parent context.Context) error {
 
 	observers := clusterObservers(cfg, idx, log)
 
+	plugins := &plugin.Manager{
+		Store:  &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins")},
+		Market: &plugin.Market{Orgs: cfg.PluginOrgs},
+		Rota:   observers,
+		Log:    log,
+	}
+
 	tokens := &proof.Store{}
 	writer := &write.Writer{
 		Catalog:          idx,
@@ -173,6 +182,7 @@ func serve(parent context.Context) error {
 		Catalog:     idx,
 		Syncs:       catalog,
 		Pages:       writer,
+		Plugins:     plugins,
 		MCP:         agentSurface,
 		Logger:      log,
 	})
@@ -192,6 +202,11 @@ func serve(parent context.Context) error {
 	// The poll floor runs whether or not webhooks are configured, and it is
 	// what keeps a lost delivery from leaving the catalog quietly stale.
 	go catalog.Run(ctx)
+
+	// Before anything reaches for GitHub, so an offline Dusk still comes up
+	// with every plugin it had (ADR-0042).
+	plugins.Restore(ctx)
+	defer plugins.Stop()
 
 	if observers.Any() {
 		go observers.Start(ctx)

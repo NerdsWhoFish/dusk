@@ -1,0 +1,224 @@
+// Package plugin runs installed plugins and puts them in reach of the catalog.
+//
+// A running plugin is an ordinary ingest.Ingester, so scheduling, backoff, the
+// never-delete rule and provenance all come from ingest rather than being
+// reimplemented for a second kind of source (ADR-0039, ADR-0040).
+package plugin
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
+	"github.com/FetchHQ/dusk/internal/ingest"
+)
+
+// SocketEnv is how a plugin is told where to serve. The plugin contract is
+// gRPC on a socket the host provides, so the host names it.
+const SocketEnv = "DUSK_PLUGIN_SOCKET"
+
+// SocketDir is short on purpose. A unix socket address is capped near 104
+// bytes, and putting sockets under the data directory would blow that on any
+// deployment whose data path is nested.
+const SocketDir = "/tmp/dusk-plugins"
+
+// maxSocketPath is the portable floor for a socket address, below the 108 that
+// Linux allows and equal to what macOS and BSD do.
+const maxSocketPath = 104
+
+// startTimeout bounds how long a plugin gets to serve its socket before the
+// host gives up. A plugin that cannot answer Describe cannot be scheduled.
+const startTimeout = 15 * time.Second
+
+// defaultInterval is used when a plugin is installed with no interval of its
+// own. Hourly matches what the in-tree Kubernetes ingester chose.
+const defaultInterval = time.Hour
+
+// Running is one plugin process and the connection to it.
+type Running struct {
+	ID       string
+	Version  string
+	Describe *duskv1alpha1.DescribeResponse
+
+	config   *structpb.Struct
+	interval time.Duration
+
+	cmd    *exec.Cmd
+	conn   *grpc.ClientConn
+	client duskv1alpha1.PluginServiceClient
+	socket string
+	log    *slog.Logger
+}
+
+// Start execs a plugin and returns it ready to run. It calls Describe first,
+// because a plugin that cannot describe itself cannot be scheduled, and failing
+// here beats failing later in a sweep nobody is watching.
+func Start(ctx context.Context, id, binary string, config *structpb.Struct, log *slog.Logger) (*Running, error) {
+	if log == nil {
+		log = slog.Default()
+	}
+
+	socket, err := socketFor(id)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command(binary)
+	cmd.Env = append(os.Environ(), SocketEnv+"="+socket)
+	cmd.Stdout = logWriter{log: log, id: id, stream: "stdout"}
+	cmd.Stderr = logWriter{log: log, id: id, stream: "stderr"}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("plugin: start %s: %w", id, err)
+	}
+
+	running := &Running{
+		ID: id, config: config, interval: defaultInterval,
+		cmd: cmd, socket: socket, log: log,
+	}
+
+	conn, err := grpc.NewClient("unix://"+socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		running.stop()
+		return nil, fmt.Errorf("plugin: connect to %s: %w", id, err)
+	}
+	running.conn = conn
+	running.client = duskv1alpha1.NewPluginServiceClient(conn)
+
+	described, err := running.describe(ctx)
+	if err != nil {
+		running.stop()
+		return nil, err
+	}
+	running.Describe = described
+	running.Version = described.GetVersion()
+	return running, nil
+}
+
+// describe retries, because the process is racing to bind its socket and a
+// connection refused during that window means "not yet" rather than "broken".
+func (r *Running) describe(ctx context.Context) (*duskv1alpha1.DescribeResponse, error) {
+	deadline, cancel := context.WithTimeout(ctx, startTimeout)
+	defer cancel()
+
+	var last error
+	for {
+		described, err := r.client.Describe(deadline, &duskv1alpha1.DescribeRequest{})
+		if err == nil {
+			return described, nil
+		}
+		last = err
+
+		select {
+		case <-deadline.Done():
+			return nil, fmt.Errorf("plugin: %s did not answer within %s: %w", r.ID, startTimeout, last)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// Name is the ingester name, and therefore the scope its observations live
+// under. Prefixed so a plugin cannot collide with an in-tree ingester.
+func (r *Running) Name() string { return "plugin:" + r.ID }
+
+// Interval is how often this plugin should be asked to observe.
+func (r *Running) Interval() time.Duration {
+	if r.interval <= 0 {
+		return defaultInterval
+	}
+	return r.interval
+}
+
+// Observe collects one Ingest stream into a complete view. A partial batch is
+// refused rather than stored, because ingest.Run treats what it is given as
+// everything the source has and would delete the rest.
+func (r *Running) Observe(ctx context.Context) (*ingest.Observation, error) {
+	stream, err := r.client.Ingest(ctx, &duskv1alpha1.IngestRequest{Config: r.config})
+	if err != nil {
+		return nil, fmt.Errorf("plugin: %s ingest: %w", r.ID, err)
+	}
+
+	observation := &ingest.Observation{}
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return observation, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("plugin: %s ingest: %w", r.ID, err)
+		}
+
+		batch := response.GetBatch()
+		if batch.GetPartial() {
+			return nil, fmt.Errorf("plugin: %s reported a partial view, which cannot be told apart from things having been deleted", r.ID)
+		}
+		observation.Entities = append(observation.Entities, batch.GetEntities()...)
+		observation.Relations = append(observation.Relations, batch.GetRelations()...)
+	}
+}
+
+// Stop shuts the plugin down, politely first.
+func (r *Running) Stop() { r.stop() }
+
+func (r *Running) stop() {
+	if r.conn != nil {
+		_ = r.conn.Close()
+	}
+	if r.cmd == nil || r.cmd.Process == nil {
+		return
+	}
+
+	_ = r.cmd.Process.Signal(os.Interrupt)
+	done := make(chan struct{})
+	go func() {
+		_ = r.cmd.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		_ = r.cmd.Process.Kill()
+		<-done
+	}
+	_ = os.Remove(r.socket)
+}
+
+// socketFor names a plugin's socket and refuses one too long to bind, which
+// fails as "invalid argument" and names neither the path nor the limit.
+func socketFor(id string) (string, error) {
+	if err := os.MkdirAll(SocketDir, 0o700); err != nil {
+		return "", fmt.Errorf("plugin: make the socket directory: %w", err)
+	}
+
+	socket := filepath.Join(SocketDir, id+".sock")
+	if len(socket) >= maxSocketPath {
+		return "", fmt.Errorf("plugin: socket path for %s is %d bytes and the limit is %d", id, len(socket), maxSocketPath)
+	}
+	_ = os.Remove(socket)
+	return socket, nil
+}
+
+// logWriter puts a plugin's output in Dusk's log, attributed. A plugin that
+// prints to stderr and is never read is a plugin nobody can debug.
+type logWriter struct {
+	log    *slog.Logger
+	id     string
+	stream string
+}
+
+func (w logWriter) Write(p []byte) (int, error) {
+	w.log.Info("plugin output", "plugin", w.id, "stream", w.stream, "message", string(p))
+	return len(p), nil
+}

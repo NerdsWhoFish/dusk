@@ -3,9 +3,10 @@ import { api, Unauthorized } from "./api";
 import type { Viewer } from "./api";
 import { EntityView } from "./EntityView";
 import { Landing } from "./Landing";
+import { Plugins } from "./Plugins";
 
 // The route is the URL, read and written directly. A router is a dependency
-// this earns once there are more than two views, and there are two.
+// this earns once there are more than three views, and there are three.
 function refFromPath(path: string): string | null {
   const ref = path.startsWith("/entity/") ? path.slice("/entity/".length) : "";
   return ref ? decodeURIComponent(ref) : null;
@@ -13,10 +14,14 @@ function refFromPath(path: string): string | null {
 
 export function App() {
   const [ref, setRef] = useState(() => refFromPath(location.pathname));
+  const [path, setPath] = useState(() => location.pathname);
   const [viewer, setViewer] = useState<Viewer | null>(null);
 
   useEffect(() => {
-    const onPop = () => setRef(refFromPath(location.pathname));
+    const onPop = () => {
+      setRef(refFromPath(location.pathname));
+      setPath(location.pathname);
+    };
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
   }, []);
@@ -26,8 +31,17 @@ export function App() {
   }, []);
 
   const open = useCallback((next: string | null) => {
-    history.pushState(null, "", next ? `/entity/${encodeURIComponent(next)}` : "/");
+    const target = next ? `/entity/${encodeURIComponent(next)}` : "/";
+    history.pushState(null, "", target);
     setRef(next);
+    setPath(target);
+    scrollTo(0, 0);
+  }, []);
+
+  const go = useCallback((target: string) => {
+    history.pushState(null, "", target);
+    setRef(null);
+    setPath(target);
     scrollTo(0, 0);
   }, []);
 
@@ -52,6 +66,16 @@ export function App() {
           </span>
         )}
         <div className="who">
+          <a
+            className="signout"
+            href="/plugins"
+            onClick={(e) => {
+              e.preventDefault();
+              go(path === "/plugins" ? "/" : "/plugins");
+            }}
+          >
+            {path === "/plugins" ? "Catalog" : "Plugins"}
+          </a>
           <form method="post" action="/logout">
             <button className="signout" type="submit">
               Sign out
@@ -60,7 +84,13 @@ export function App() {
         </div>
       </header>
 
-      {ref ? <EntityView entityRef={ref} onOpen={open} /> : <Landing onOpen={open} />}
+      {path === "/plugins" ? (
+        <Plugins />
+      ) : ref ? (
+        <EntityView entityRef={ref} onOpen={open} />
+      ) : (
+        <Landing onOpen={open} />
+      )}
     </div>
   );
 }
