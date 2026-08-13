@@ -99,6 +99,21 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Instances**: one plugin, several configurations, each with its own scope and its own place in the rotation. One Kubernetes plugin observes one cluster, so a second cluster is a second instance rather than a second install. They share a process and fail apart
 - [ ] **Plugin capability over MCP**: `invoke` and discovery folded into `get`, so installing a plugin adds no tools ([0041](../adr/0041-plugins-reach-agents-as-actions.md))
 - [ ] **Configuring a plugin over MCP**: non-sensitive fields through `declare`, since they are already frontmatter in the config repository. Sensitive fields stay UI-only ([0041](../adr/0041-plugins-reach-agents-as-actions.md), [0023](../adr/0023-plugin-configuration.md))
+
+### Plugins composing, through Dusk
+
+One plugin's work often wants another's: create a DNS record, then restart the workload that serves it. The sockets make direct calls physically possible, and every one of these items exists because they should not be made that way.
+
+A plugin calling another directly would collapse the trust boundary, since approving one plugin would silently grant it everything its neighbours can do. It would create an undeclared dependency graph with no versioning and a silent skip when the other plugin is absent, which is the failure mode [0011](../adr/0011-ingester-scheduling.md) exists to prevent. And it would be invisible to the catalog, which is self-defeating for a product whose claim is that it records what happened.
+
+Dusk is the orchestrator. An agent already composes actions this way through `invoke`, so what follows is about making it declarative, guarded and recorded rather than possible.
+
+- [x] **Plugins cannot serve each other**: Dusk mints a token per start, presents it on every call, and a plugin refuses anything without it. Not a defence against a hostile plugin, which already runs with Dusk's permissions ([0042](../adr/0042-installing-plugins.md)); it stops plugins coupling to each other by accident
+- [ ] **Declared composition**: an action may state that it wants another action run after it, named by ref rather than by reaching for a socket. Dusk resolves, approves and invokes both
+- [ ] **Approval across a chain**: a composition is only as safe as its most destructive step, so approving a chain has to mean approving each `ActionClass` in it rather than approving the first one ([0015](../adr/0015-plugin-actions-and-events.md))
+- [ ] **A missing link is loud**: composing with a plugin that is absent, stopped or unconfigured reports that it cannot run, and never silently skips the step
+- [ ] **Events span the chain**: each invocation in a composition emits its own event, tied together, so what actually ran is answerable afterwards
+- [ ] **Stronger isolation than a shared token**: sockets in one directory under one user is the weakest part of this. A socketpair passed as an inherited descriptor would remove the path entirely, at the cost of changing how a plugin is started
 - [x] **Shared plugin release workflow**: GoReleaser with conventional-commit notes, living once in `NerdsWhoFish/.github` and called by every plugin rather than copied ([0021](../adr/0021-release-tooling.md))
 
 GitHub is not on this list. It is core and stays there: git is the source of truth, so GitHub is substrate rather than a source among sources ([0040](../adr/0040-core-and-plugins.md)).

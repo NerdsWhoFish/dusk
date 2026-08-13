@@ -29,6 +29,11 @@ import (
 // gRPC on a socket the host provides, so the host names it.
 const SocketEnv = "DUSK_PLUGIN_SOCKET"
 
+// TokenEnv carries a secret minted per start. Every socket shares one directory
+// and one user, so any plugin can dial another's; this makes doing so useless
+// and keeps composition going through Dusk.
+const TokenEnv = "DUSK_PLUGIN_TOKEN"
+
 // SocketDir is short on purpose. A unix socket address is capped near 104
 // bytes, and putting sockets under the data directory would blow that on any
 // deployment whose data path is nested.
@@ -75,8 +80,13 @@ func Start(ctx context.Context, id, binary string, config *structpb.Struct, log 
 		return nil, err
 	}
 
+	token, err := mintToken()
+	if err != nil {
+		return nil, err
+	}
+
 	cmd := exec.Command(binary)
-	cmd.Env = append(os.Environ(), SocketEnv+"="+socket)
+	cmd.Env = append(os.Environ(), SocketEnv+"="+socket, TokenEnv+"="+token)
 	cmd.Stdout = logWriter{log: log, id: id, stream: "stdout"}
 	cmd.Stderr = logWriter{log: log, id: id, stream: "stderr"}
 	if err := cmd.Start(); err != nil {
@@ -88,7 +98,10 @@ func Start(ctx context.Context, id, binary string, config *structpb.Struct, log 
 		cmd: cmd, socket: socket, log: log,
 	}
 
-	conn, err := grpc.NewClient("unix://"+socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient("unix://"+socket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(presentToken(token)),
+		grpc.WithStreamInterceptor(presentTokenStream(token)))
 	if err != nil {
 		running.stop()
 		return nil, fmt.Errorf("plugin: connect to %s: %w", id, err)
