@@ -27,6 +27,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/NerdsWhoFish/dusk/internal/page"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
@@ -149,7 +150,7 @@ func (s *Server) sdkServer() *sdk.Server {
 
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "get",
-		Description: "Everything known about one entity, including its relations. Takes a ref of the form kind:namespace/name.",
+		Description: "Everything known about one entity, including its relations and what can be done to it. Takes a ref of the form kind:namespace/name, or `plugin:name` to read a plugin and see what it can be asked to do without naming an entity.",
 	}, s.get)
 
 	sdk.AddTool(server, &sdk.Tool{
@@ -280,10 +281,58 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 }
 
 type getInput struct {
-	Ref string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name"`
+	Ref string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
+}
+
+// getPlugin answers for a plugin, listing what it can be asked to do.
+func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
+	if s.opts.Plugins == nil {
+		return text("Plugins are not enabled here, so there is nothing to read."), nil, nil
+	}
+
+	var installed []string
+	for _, report := range s.opts.Plugins.Report() {
+		installed = append(installed, report.ID)
+		if report.ID != id {
+			continue
+		}
+
+		var out strings.Builder
+		fmt.Fprintf(&out, "# %s\n\nPlugin, version %s, %s.\n", report.ID, report.Version, runningWord(report))
+		if actions := renderActions(s.opts.Plugins.PluginActions(id)); actions != "" {
+			fmt.Fprintf(&out, "\n%s", actions)
+			out.WriteString("\nRun one with `invoke`, naming this plugin and no ref.\n")
+		} else {
+			out.WriteString("\nIt offers nothing that can be run without an entity. Anything it does is listed on the things it observed.\n")
+		}
+		return text(out.String()), nil, nil
+	}
+
+	slices.Sort(installed)
+	return text(fmt.Sprintf("No plugin `%s` is installed. These are: %s.",
+		id, strings.Join(installed, ", "))), nil, nil
+}
+
+// runningWord says whether a plugin is up, which decides whether an action on
+// it can be run at all.
+func runningWord(report plugin.Report) string {
+	if !report.Running {
+		return "not running"
+	}
+	if report.Failing() {
+		return "running but failing"
+	}
+	return "running"
 }
 
 func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (*sdk.CallToolResult, any, error) {
+	// A bare `plugin:name` cannot collide with an entity ref, which always
+	// carries a namespace. It is the only way to find an action about the
+	// plugin rather than about one thing, since no entity lists those.
+	if id, ok := strings.CutPrefix(in.Ref, "plugin:"); ok && !strings.Contains(id, "/") {
+		return s.getPlugin(id)
+	}
+
 	entity, err := s.opts.Catalog.Get(ctx, "", in.Ref)
 	// Only absence becomes a friendly answer. A storage failure reported as
 	// "no such entity" would have the agent believe the thing does not exist.

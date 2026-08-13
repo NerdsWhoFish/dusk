@@ -125,4 +125,12 @@ It gets a named test: `TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging`.
 
 ## Amendments
 
-None yet.
+### 2026-08-13: an ask is bounded in time as well as in number
+
+The four-turn bound above counts questions and says nothing about how long one may take, which turned out to be the half that mattered.
+
+The first real use hung. A client that declares the elicitation capability and then does not answer leaves `ServerSession.Elicit` blocked for as long as the connection lives, so the invocation never returns, the caller's transport eventually drops, and the event stays `STARTED` forever. The decision above claims returning the question is what stops a plugin hanging on a surface with nobody attached; that holds for **nobody attached** and not for **attached and unresponsive**, which is a different failure this ADR did not separate.
+
+One question now waits at most two minutes, after which the plugin is told `unsupported`, because a client that will not answer is indistinguishable from one that cannot. Named test: `TestAnUnansweredQuestionEndsRatherThanHanging`.
+
+The browser was never affected. It sets `CanResume` and is handed the question rather than waiting on it, which is the same property this ADR chose for plugins, one level up.

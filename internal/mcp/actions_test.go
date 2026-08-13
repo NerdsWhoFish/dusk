@@ -325,3 +325,70 @@ func TestAnUnansweredQuestionEndsRatherThanHanging(t *testing.T) {
 			silent.heard.Outcome, plugin.Unanswerable)
 	}
 }
+
+// An action about the plugin rather than about one thing is listed on no
+// entity, so without reading the plugin itself nothing on the agent surface
+// can find it. ADR-0041 promises a capability reaches an agent through the
+// tools that already exist, and this is the half that was missing.
+func TestAPluginCanBeReadToFindWhatItOffers(t *testing.T) {
+	standalone := plugin.Action{
+		Plugin: "adr", Name: "next_number", Class: "read_only",
+		Description: "The next free number.", Enabled: true,
+	}
+	acts := acting(t, &offering{
+		actions: []plugin.Action{standalone},
+		reports: []plugin.Report{{ID: "adr", Version: "0.1.0", Running: true}},
+	})
+
+	body := call(t, acts.session, "get", map[string]any{"ref": "plugin:adr"})
+	for _, want := range []string{"adr", "0.1.0", "next_number", "The next free number."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reading the plugin did not mention %q:\n%s", want, body)
+		}
+	}
+}
+
+// Naming a plugin nobody installed has to say so and say what is there, rather
+// than answering as though the question were about an entity.
+func TestReadingAnUnknownPluginNamesTheOnesThatExist(t *testing.T) {
+	acts := acting(t, &offering{
+		reports: []plugin.Report{{ID: "adr", Version: "0.1.0", Running: true}},
+	})
+
+	body := call(t, acts.session, "get", map[string]any{"ref": "plugin:nope"})
+	if !strings.Contains(body, "nope") || !strings.Contains(body, "adr") {
+		t.Errorf("want a refusal naming what is installed, got:\n%s", body)
+	}
+}
+
+// A plugin's detail is arbitrary structure. Rendered with Go's default
+// formatting it arrives as `map[k:v]`, which is neither JSON nor prose, and a
+// plugin whose whole answer is structured data becomes unreadable.
+func TestStructuredDetailIsRenderedAsJSON(t *testing.T) {
+	acts := acting(t, &offering{
+		actions: []plugin.Action{{
+			Plugin: "adr", Name: "validate", Class: "read_only",
+			Kinds: []string{"service"}, Enabled: true,
+		}},
+		outcome: &plugin.Outcome{
+			Plugin: "adr", Action: "validate", Done: true, OK: true, Message: "checked",
+			Detail: map[string]any{
+				"findings": []any{map[string]any{"rule": "rejected_missing", "number": "0045"}},
+				"count":    float64(1),
+			},
+		},
+	})
+
+	body := call(t, acts.session, "invoke",
+		map[string]any{"ref": "service:home/thing", "action": "validate"})
+
+	if strings.Contains(body, "map[") {
+		t.Errorf("detail was rendered with Go formatting:\n%s", body)
+	}
+	if !strings.Contains(body, `"rule": "rejected_missing"`) {
+		t.Errorf("structured detail did not survive as JSON:\n%s", body)
+	}
+	if !strings.Contains(body, "- count: 1") {
+		t.Errorf("a scalar should stay bare rather than becoming JSON:\n%s", body)
+	}
+}

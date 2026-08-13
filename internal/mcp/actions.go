@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -124,6 +125,22 @@ func verdictOf(outcome *plugin.Outcome) string {
 	return "done"
 }
 
+// detailValue renders one detail. A plugin's detail is arbitrary structure, and
+// Go's default formatting turns it into `map[k:v]`, which is neither JSON nor
+// prose and cannot be parsed by whoever reads it.
+func detailValue(value any) string {
+	switch value.(type) {
+	case nil, bool, string, float64, int, int64:
+		return fmt.Sprintf("%v", value)
+	}
+
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	return string(encoded)
+}
+
 func renderOutcome(outcome *plugin.Outcome) string {
 	var out strings.Builder
 
@@ -142,7 +159,12 @@ func renderOutcome(outcome *plugin.Outcome) string {
 	if len(outcome.Detail) > 0 {
 		out.WriteString("\n")
 		for _, key := range sortedKeys(outcome.Detail) {
-			fmt.Fprintf(&out, "- %s: %v\n", key, outcome.Detail[key])
+			rendered := detailValue(outcome.Detail[key])
+			if strings.Contains(rendered, "\n") {
+				fmt.Fprintf(&out, "- %s:\n\n```json\n%s\n```\n\n", key, rendered)
+				continue
+			}
+			fmt.Fprintf(&out, "- %s: %s\n", key, rendered)
 		}
 	}
 	if len(outcome.Changed) > 0 {
