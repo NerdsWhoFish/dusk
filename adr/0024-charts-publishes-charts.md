@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted. Supersedes the release-coordination half of [ADR-0019](0019-chart-repo.md).
+Accepted. Supersedes the release-coordination half of [ADR-0019](0019-chart-repo.md) and the chart-publishing portions of [ADR-0021](0021-release-tooling.md).
 
 ## Context and Problem Statement
 

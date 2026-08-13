@@ -364,6 +364,21 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 	return outcome, nil
 }
 
+// aboutOf decides what a chained step is about. An action applying to no kind
+// has no entity to inherit, so it belongs to the plugin that declared it
+// rather than to the parent's ref.
+func (m *Manager) aboutOf(from chosen, step *duskv1alpha1.Next, request Request) (ref, owner string) {
+	if named := step.GetRef(); named != "" {
+		return named, ""
+	}
+	for _, action := range m.actionsFor(from.running) {
+		if action.Name == step.GetAction() && len(action.Kinds) == 0 {
+			return "", from.running.ID
+		}
+	}
+	return request.Ref, ""
+}
+
 // converse invokes an action and answers whatever it asks for, until it stops
 // asking or runs out of turns. An elicitation ends a turn: nothing else in that
 // response is acted on, because the action has not finished (ADR-0046).
@@ -468,8 +483,10 @@ func (m *Manager) step(ctx context.Context, from chosen, request Request, step *
 			from.action.Name, step.GetAction()))
 	}
 
+	ref, owner := m.aboutOf(from, step, request)
 	next := Request{
-		Ref:     orDefault(step.GetRef(), request.Ref),
+		Ref:     ref,
+		Plugin:  owner,
 		Action:  step.GetAction(),
 		Params:  step.GetParams().AsMap(),
 		Proof:   request.Proof,

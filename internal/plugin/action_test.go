@@ -582,3 +582,38 @@ func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
 		t.Errorf("message = %q, want the answer to have reached the plugin", resumed.Message)
 	}
 }
+
+// A step about no entity has nothing to route by, so it belongs to the plugin
+// that declared it. Without that, composing onto a plugin-scoped action failed
+// with "names no entity", and no chain could ever end in one.
+func TestAChainCanStepOntoAPluginScopedAction(t *testing.T) {
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:chainer:"}}
+	manager, _, _, _ := acting(t, standIn{
+		ID:    "chainer",
+		Kinds: []string{"widget"},
+		Actions: []standInAction{
+			{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Then: []string{"tidy"}, Produces: []string{"tidy"}},
+			{Name: "tidy", Class: readOnly},
+		},
+	}, observed)
+
+	if err := manager.Enable("chainer", "tidy", true); err != nil {
+		t.Fatalf("enable the plugin-scoped action: %v", err)
+	}
+
+	outcome, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:chainer/one", Action: "poke"})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if len(outcome.Steps) != 1 {
+		t.Fatalf("the chain ran %d steps, want 1: %+v", len(outcome.Steps), outcome.Steps)
+	}
+
+	step := outcome.Steps[0]
+	if !step.OK {
+		t.Fatalf("the plugin-scoped step was refused: %q", step.Message)
+	}
+	if step.Plugin != "chainer" {
+		t.Errorf("step plugin = %q, want the plugin that declared it", step.Plugin)
+	}
+}
