@@ -151,7 +151,7 @@ func serve(parent context.Context) error {
 	observers := ingest.NewScheduler(idx, log, time.Now)
 
 	plugins := &plugin.Manager{
-		Store:  &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins")},
+		Store:  &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins"), Master: master},
 		Market: &plugin.Market{Orgs: cfg.PluginOrgs, Token: appToken(credentials, &githubapp.Client{})},
 		Rota:   observers,
 		Log:    log,

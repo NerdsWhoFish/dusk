@@ -45,6 +45,11 @@ type Installed struct {
 // is the PVC, so a rollout does not re-download anything.
 type Store struct {
 	Dir string
+
+	// Master seals the sensitive half of a plugin's configuration. Without it
+	// a plugin declaring a credential field cannot be configured at all, which
+	// is the correct refusal: the alternative is writing it in the clear.
+	Master []byte
 }
 
 func (s *Store) dir(id string) string    { return filepath.Join(s.Dir, id) }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/ingest"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 // Rotation is the slice of the ingest scheduler a plugin needs, so installing
@@ -78,6 +80,11 @@ type Offer struct {
 
 	Config    map[string]any            `json:"config,omitempty"`
 	Instances map[string]map[string]any `json:"instances,omitempty"`
+
+	// Set names which sensitive fields hold a value, by instance, with the
+	// empty key being the plugin's own configuration. The names, never the
+	// values: a write-only field still has to be able to say it is filled in.
+	Set map[string][]string `json:"set,omitempty"`
 }
 
 // Field is one setting on a plugin's configuration form.
@@ -196,6 +203,33 @@ func (m *Manager) describeInstalled(offer *Offer, record Installed, latest strin
 	offer.UpdateAvailable = latest != "" && latest != record.Version
 	offer.Config = record.Config
 	offer.Instances = record.Instances
+	offer.Set = m.setSecrets(record)
+}
+
+// setSecrets names which sensitive fields hold a value. Without it a write-only
+// field is indistinguishable from an empty one, and the only way to find out is
+// to overwrite it.
+func (m *Manager) setSecrets(record Installed) map[string][]string {
+	secrets, err := m.Store.ReadSecrets(record.ID)
+	if err != nil {
+		m.log().Error("could not read a plugin's sealed configuration",
+			"plugin", record.ID, "error", err)
+		return nil
+	}
+
+	set := map[string][]string{}
+	if names := secrets.Names(""); len(names) > 0 {
+		set[""] = names
+	}
+	for instance := range record.Instances {
+		if names := secrets.Names(instance); len(names) > 0 {
+			set[instance] = names
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
 }
 
 // describeRunning fills in what only a live plugin can say. The configuration
@@ -292,19 +326,42 @@ func (m *Manager) configure(ctx context.Context, id, instance string, config map
 		return fmt.Errorf("plugin: %q is not installed", id)
 	}
 
+	// Only the plugin knows which of its fields are secret, and it says so in
+	// Describe. Guessing would either write a credential into the record or
+	// seal something that was never sensitive.
+	described, running := m.Describe(id)
+	if !running {
+		return fmt.Errorf("plugin: %s is not running, and only a running plugin can say which of its fields are secret", id)
+	}
+
+	secrets, err := m.Store.ReadSecrets(id)
+	if err != nil {
+		return err
+	}
+
+	plain, sealed := split(config, sensitiveOf(described), secrets.For(instance))
+
 	// Stopped before the record changes, so the instances being removed from
 	// the rotation are the ones that were added to it.
 	m.stop(id)
 
 	if instance == "" {
-		record.Config = config
+		record.Config = plain
+		secrets.Config = sealed
 	} else {
 		if record.Instances == nil {
 			record.Instances = map[string]map[string]any{}
 		}
-		record.Instances[instance] = config
+		if secrets.Instances == nil {
+			secrets.Instances = map[string]map[string]secret.String{}
+		}
+		record.Instances[instance] = plain
+		secrets.Instances[instance] = sealed
 	}
 
+	if err := m.Store.WriteSecrets(id, secrets); err != nil {
+		return err
+	}
 	if err := m.Store.Write(*record); err != nil {
 		return err
 	}
@@ -371,7 +428,12 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) start(ctx context.Context, record Installed) error {
-	config, err := structpb.NewStruct(record.Config)
+	secrets, err := m.Store.ReadSecrets(record.ID)
+	if err != nil {
+		return err
+	}
+
+	config, err := configured(record.Config, secrets.For(""))
 	if err != nil {
 		return fmt.Errorf("plugin: %s has unusable configuration: %w", record.ID, err)
 	}
@@ -388,7 +450,12 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 	m.running[record.ID] = running
 	m.mu.Unlock()
 
-	for _, instance := range instancesOf(running, record) {
+	if err := m.rehome(record, running.Describe); err != nil {
+		m.log().Error("could not seal a credential found in the plain record",
+			"plugin", record.ID, "error", err)
+	}
+
+	for _, instance := range instancesOf(running, record, secrets) {
 		m.Rota.Add(instance)
 		m.log().Info("plugin started",
 			"plugin", record.ID, "version", running.Version, "scope", instance.Name())
@@ -396,14 +463,68 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 	return nil
 }
 
+// configured merges the sealed half back in. A plugin receives its credential
+// here and only here, over its own socket, which is the one path ADR-0023
+// allows a secret to take.
+func configured(plain map[string]any, secrets map[string]secret.String) (*structpb.Struct, error) {
+	merged := make(map[string]any, len(plain)+len(secrets))
+	maps.Copy(merged, plain)
+	for name, value := range secrets {
+		merged[name] = value.Reveal()
+	}
+	return structpb.NewStruct(merged)
+}
+
+// rehome moves a credential written into the plain record by an older Dusk
+// into the sealed store. Nothing split configuration by sensitivity before, so
+// every existing install has its API key sitting in readable JSON.
+func (m *Manager) rehome(record Installed, described *duskv1alpha1.DescribeResponse) error {
+	sensitive := sensitiveOf(described)
+	if len(sensitive) == 0 {
+		return nil
+	}
+
+	secrets, err := m.Store.ReadSecrets(record.ID)
+	if err != nil {
+		return err
+	}
+
+	moved := false
+	move := func(plain map[string]any, stored map[string]secret.String) (map[string]any, map[string]secret.String) {
+		kept, sealed := split(plain, sensitive, stored)
+		if len(kept) != len(plain) {
+			moved = true
+		}
+		return kept, sealed
+	}
+
+	record.Config, secrets.Config = move(record.Config, secrets.Config)
+	for name, config := range record.Instances {
+		if secrets.Instances == nil {
+			secrets.Instances = map[string]map[string]secret.String{}
+		}
+		record.Instances[name], secrets.Instances[name] = move(config, secrets.Instances[name])
+	}
+
+	if !moved {
+		return nil
+	}
+	if err := m.Store.WriteSecrets(record.ID, secrets); err != nil {
+		return err
+	}
+	m.log().Info("moved a plugin credential out of the plain record and into the sealed store",
+		"plugin", record.ID)
+	return m.Store.Write(record)
+}
+
 // instancesOf turns a record into everything that should be in the rotation.
 // The plugin's own config is always one, so an install with no named instances
 // behaves exactly as it did before there were any.
-func instancesOf(running *Running, record Installed) []*Instance {
+func instancesOf(running *Running, record Installed, secrets *Secrets) []*Instance {
 	instances := []*Instance{{Running: running, config: running.config}}
 
 	for name, config := range record.Instances {
-		built, err := structpb.NewStruct(config)
+		built, err := configured(config, secrets.For(name))
 		if err != nil {
 			continue
 		}
@@ -428,8 +549,8 @@ func (m *Manager) stop(id string) {
 	// dead connection in the rotation, which fails forever rather than loudly.
 	record, err := m.Store.Read(id)
 	if err == nil {
-		for _, instance := range instancesOf(running, *record) {
-			m.Rota.Remove(instance.Name())
+		for name := range record.Instances {
+			m.Rota.Remove((&Instance{Running: running, instance: name}).Name())
 		}
 	}
 	m.Rota.Remove(running.Name())

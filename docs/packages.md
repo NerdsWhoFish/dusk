@@ -63,8 +63,9 @@ graph TD
 | `controller` | Keeping the catalog in step with GitHub: the sweep, the poll floor, webhook-driven reconciles, retries, and the API budget | Parsing, storing, or serving. It decides *when* to reconcile, not how |
 | `write` | Turning an agent's declaration or note into a commit, and routing it to the file that owns it | Deciding whether the agent may write. That is `proof` |
 | `mcp` | The agent surface: tools, markdown answers, and the proof token appended to every read | Any catalog logic. Every tool is a thin call into `index` or `write` |
+| `plugin` | Everything about a plugin as a running thing: the marketplace, install and update, the process and its socket, what it declares, and its configuration on disk including the sealed half | Scheduling it. A running plugin is an ordinary `ingest.Ingester` and the rotation is `ingest`'s ([ADR-0039](../adr/0039-one-plugin-transport.md), [ADR-0040](../adr/0040-core-and-plugins.md)) |
 | `server` | HTTP: onboarding, health, webhooks, and mounting the agent surface | Doing the work behind a request. A handler validates, dispatches, and answers |
-| `store` | Persisting the GitHub App credentials, encrypted | Choosing the encryption. That is `vault` |
+| `store` | Persisting the GitHub App credentials, encrypted | Choosing the encryption. That is `vault`. Nor a plugin's credentials: those live beside that plugin's record so uninstalling takes them with it, which is `plugin`'s job |
 | `nextversion` | Release tooling ([ADR-0021](../adr/0021-release-tooling.md)) | Anything the running service does |
 
 `web/` is the React UI plus the `go:embed` that carries its build into the binary.
