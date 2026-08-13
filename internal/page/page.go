@@ -52,9 +52,9 @@ type Block struct {
 	Type  Type   `yaml:"type" json:"type"`
 	Title string `yaml:"title,omitempty" json:"title,omitempty"`
 
-	// Query filters an entities block. Bare words match name and title,
-	// `kind:service` restricts by kind, and `related:airport:home/atl` keeps
-	// only entities with a relation to that ref in either direction.
+	// Query filters a block: on entities, bare words plus `kind:` and
+	// `related:`; on notes, `kind:`, `status:` and `ref:`, which is what makes
+	// "my open ideas" a block rather than a page.
 	Query string `yaml:"query,omitempty" json:"query,omitempty"`
 
 	// Sort orders an entities block: `name`, or any attribute key. A leading
@@ -126,7 +126,7 @@ type Catalog interface {
 	Search(ctx context.Context, gitRef, query string, limit int) ([]index.SearchResult, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
-	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
+	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
 	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
@@ -173,7 +173,7 @@ func resolveOne(ctx context.Context, catalog Catalog, block Block) Resolved {
 	case TypeEntities:
 		out.Entities, out.Truncated, err = entitiesFor(ctx, catalog, block)
 	case TypeNotes:
-		out.Notes, err = catalog.RecentNotes(ctx, "", limitOr(block.Limit, 6))
+		out.Notes, err = catalog.Notes(ctx, "", notesFilter(block))
 	case TypeDrift:
 		out.Drift, out.Truncated, err = driftFor(ctx, catalog, block)
 	case TypeIntegrity:
@@ -406,4 +406,28 @@ func joinTypes() string {
 		names = append(names, string(t))
 	}
 	return strings.Join(names, ", ")
+}
+
+// notesFilter reads a notes block's query. The grammar is the same shape as an
+// entities block's: `field:value` terms, so one page speaks one language.
+func notesFilter(block Block) index.NoteFilter {
+	filter := index.NoteFilter{Limit: limitOr(block.Limit, 6)}
+
+	for term := range strings.FieldsSeq(block.Query) {
+		field, value, ok := strings.Cut(term, ":")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(field) {
+		case "kind":
+			filter.Kind = value
+		case "status":
+			filter.Status = value
+		case "ref":
+			// A ref is itself `kind:namespace/name`, so the value is whatever
+			// followed the first colon rather than the next word.
+			filter.Ref = value
+		}
+	}
+	return filter
 }

@@ -28,6 +28,7 @@ type Catalog interface {
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
+	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
 	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
@@ -75,6 +76,10 @@ type noteJSON struct {
 	Kind   string `json:"kind"`
 	Body   string `json:"body"`
 	Pinned bool   `json:"pinned,omitempty"`
+
+	// Status closes a note that is work. Empty means open, which is what a note
+	// written before there was a status is.
+	Status string `json:"status,omitempty"`
 }
 
 func asEntity(e *duskv1alpha1.Entity) entityJSON {
@@ -112,7 +117,10 @@ func asRelations(relations []*duskv1alpha1.Relation) []relationJSON {
 func asNotes(notes []*duskv1alpha1.Note) []noteJSON {
 	out := make([]noteJSON, 0, len(notes))
 	for _, n := range notes {
-		out = append(out, noteJSON{ID: n.GetId(), Kind: n.GetKind(), Body: n.GetBody(), Pinned: n.GetPinned()})
+		out = append(out, noteJSON{
+			ID: n.GetId(), Kind: n.GetKind(), Body: n.GetBody(),
+			Pinned: n.GetPinned(), Status: n.GetStatus(),
+		})
 	}
 	return out
 }
@@ -143,7 +151,17 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kind := r.URL.Query().Get("kind")
+	out := narrow(results, r.URL.Query().Get("kind"), visible)
+
+	answer := map[string]any{"results": out, "query": query}
+	if token := s.searched(out); token != "" {
+		answer["proof"] = token
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
+// narrow drops what the query asked to exclude and what the viewer may not see.
+func narrow(results []index.SearchResult, kind string, visible func(string) bool) []index.SearchResult {
 	out := make([]index.SearchResult, 0, len(results))
 	for _, result := range results {
 		if kind != "" && !strings.EqualFold(result.Kind, kind) {
@@ -155,7 +173,22 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, result)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": out, "query": query})
+	return out
+}
+
+// searched mints the token a search yields. A search is the read that witnesses
+// an absence, which is what creating something needs proof of (ADR-0009), and
+// without it the browser could not record something the catalog has never seen.
+func (s *Server) searched(results []index.SearchResult) string {
+	if s.tokens == nil {
+		return ""
+	}
+
+	seen := make(map[string]string, len(results))
+	for _, result := range results {
+		seen[result.Ref] = result.Version
+	}
+	return s.tokens.Issue(proof.FromSearch, seen).ID
 }
 
 // handleAPIEntity answers GET /api/entities/{ref} with everything about one
@@ -214,7 +247,12 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 	// an entity that changed while the page was open refuses the action rather
 	// than acting on what is no longer true (ADR-0009).
 	if s.tokens != nil {
+		// The notes go in the token too, so closing one needs proof of the read
+		// that surfaced it, exactly as changing the entity does.
 		seen := map[string]string{ref: entity.GetProvenance().GetVersion()}
+		for _, note := range notes {
+			seen[note.GetId()] = note.GetContentHash()
+		}
 		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
 	}
 	writeJSON(w, http.StatusOK, answer)

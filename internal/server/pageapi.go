@@ -10,6 +10,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/page"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // Pages supplies the declared portal page, if the config repository has one.
@@ -29,7 +30,7 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 	blocks := page.Resolve(r.Context(), s.catalog, declared)
 	s.mountViews(blocks)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	answer := map[string]any{
 		"title":  declared.Title,
 		"prose":  prose,
 		"search": declared.Searchable(),
@@ -38,7 +39,20 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 		// A page that failed to parse falls back to the default and says so,
 		// rather than showing an error where the catalog should be.
 		"problem": problem,
-	})
+	}
+
+	// The notes the page showed go in a token, so closing one is proof of the
+	// read that surfaced it rather than a write from nowhere (ADR-0009).
+	if s.tokens != nil {
+		seen := map[string]string{}
+		for _, block := range blocks {
+			for _, note := range block.Notes {
+				seen[note.GetId()] = note.GetContentHash()
+			}
+		}
+		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
+	}
+	writeJSON(w, http.StatusOK, answer)
 }
 
 func (s *Server) homePage(ctx context.Context) (page.Page, string, string) {

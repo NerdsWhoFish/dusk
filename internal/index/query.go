@@ -9,6 +9,8 @@ import (
 	"gorm.io/gorm"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 )
 
 // SearchResult is one full-text hit, carrying enough to render a list without
@@ -86,19 +88,58 @@ func (db *DB) NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1
 // the portal's recent-notes block from ADR-0013: the accumulated knowledge is
 // the half of the catalog worth showing before anybody searches.
 func (db *DB) RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error) {
-	if limit <= 0 {
-		limit = 10
+	return db.Notes(ctx, gitRef, NoteFilter{Limit: limit})
+}
+
+// NoteFilter narrows what Notes answers with. An empty filter is every note,
+// newest first.
+type NoteFilter struct {
+	// Kind is a note kind such as idea or gotcha.
+	Kind string
+
+	// Status is open, done or dropped. Open also matches a note written before
+	// there was a status, because empty means open rather than unknown.
+	Status string
+
+	// Ref limits to notes attached to one entity.
+	Ref string
+
+	Limit int
+}
+
+// Notes answers what has been written down, narrowed. It is one query rather
+// than several so "my open ideas about this repository" is one question.
+func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*duskv1alpha1.Note, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = 10
 	}
-	clause, args := scopeClause("", gitRef)
+
+	clause, args := scopeClause("notes", gitRef)
+	query := db.gorm.WithContext(ctx).Model(&noteRow{}).Where(clause, args...)
+
+	if filter.Kind != "" {
+		query = query.Where("notes.kind = ?", filter.Kind)
+	}
+	switch filter.Status {
+	case "":
+	case duskmd.StatusOpen:
+		query = query.Where("notes.status = ? OR notes.status = ?", duskmd.StatusOpen, "")
+	default:
+		query = query.Where("notes.status = ?", filter.Status)
+	}
+	if filter.Ref != "" {
+		query = query.Joins("JOIN note_refs ON note_refs.repository = notes.repository"+
+			" AND note_refs.git_ref = notes.git_ref AND note_refs.note_id = notes.note_id").
+			Where("note_refs.ref = ?", filter.Ref)
+	}
 
 	var rows []noteRow
-	err := db.gorm.WithContext(ctx).Model(&noteRow{}).
-		Where(clause, args...).
-		Order("pinned DESC, observed_at DESC, note_id").
-		Limit(limit).
+	err := query.
+		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
+		Limit(filter.Limit).
 		Find(&rows).Error
 	if err != nil {
-		return nil, fmt.Errorf("index: recent notes at %q: %w", gitRef, err)
+		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
 	}
 
 	notes := make([]*duskv1alpha1.Note, 0, len(rows))

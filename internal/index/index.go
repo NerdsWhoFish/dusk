@@ -85,9 +85,14 @@ type noteRow struct {
 	Body        string
 	Pinned      bool
 	ContentHash string `gorm:"index"`
-	Source      string
-	Version     string
-	ObservedAt  time.Time
+
+	// Status closes a note that is work. Empty means open, so a note written
+	// before there was a status is not read as finished.
+	Status string `gorm:"index"`
+
+	Source     string
+	Version    string
+	ObservedAt time.Time
 }
 
 func (noteRow) TableName() string { return "notes" }
@@ -98,7 +103,7 @@ func (noteRow) TableName() string { return "notes" }
 func (r noteRow) note() *duskv1alpha1.Note {
 	return &duskv1alpha1.Note{
 		Id: r.NoteID, Kind: r.Kind, Body: r.Body, Pinned: r.Pinned,
-		ContentHash: r.ContentHash,
+		Status: r.Status, ContentHash: r.ContentHash,
 		Provenance: &duskv1alpha1.Provenance{
 			Source: r.Source, Version: r.Version,
 			ObservedAt: timestamppb.New(r.ObservedAt),
@@ -302,10 +307,10 @@ func noteRows(repository, gitRef string, notes []*duskv1alpha1.Note) ([]noteRow,
 		rows = append(rows, noteRow{
 			Repository: repository, GitRef: gitRef, NoteID: note.GetId(),
 			Kind: note.GetKind(), Body: note.GetBody(), Pinned: note.GetPinned(),
-			ContentHash: note.GetContentHash(),
-			Source:      note.GetProvenance().GetSource(),
-			Version:     note.GetProvenance().GetVersion(),
-			ObservedAt:  note.GetProvenance().GetObservedAt().AsTime(),
+			Status: note.GetStatus(), ContentHash: note.GetContentHash(),
+			Source:     note.GetProvenance().GetSource(),
+			Version:    note.GetProvenance().GetVersion(),
+			ObservedAt: note.GetProvenance().GetObservedAt().AsTime(),
 		})
 		for _, ref := range note.GetRefs() {
 			refs = append(refs, noteRefRow{

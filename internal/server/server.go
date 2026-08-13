@@ -51,6 +51,7 @@ type Server struct {
 	rotation    Rotation
 	syncs       Syncs
 	pages       Pages
+	notes       Notes
 	events      *events.Log
 	tokens      *proof.Store
 	access      *access.Policy
@@ -94,6 +95,10 @@ type Options struct {
 	// abandoned observation scope from a live one, so it reports neither.
 	Rotation Rotation
 
+	// Notes writes notes. Optional: without it a note cannot be closed from the
+	// browser, which is what a deployment with no config repository looks like.
+	Notes Notes
+
 	// Events is what has been run. Optional: without it the events route
 	// answers empty rather than failing.
 	Events *events.Log
@@ -129,6 +134,7 @@ func New(opts Options) (*Server, error) {
 		pages:       opts.Pages,
 		plugins:     opts.Plugins,
 		rotation:    opts.Rotation,
+		notes:       opts.Notes,
 		events:      opts.Events,
 		tokens:      opts.Tokens,
 		mcp:         opts.MCP,
@@ -282,6 +288,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("POST /plugins/{id}/actions/{action}/enabled", s.handleAPIEnableAction)
 	api.HandleFunc("GET /plugins/{id}/handles/{handle}", s.handleAPIActionStatus)
 	api.HandleFunc("GET /events", s.handleAPIEvents)
+	api.HandleFunc("POST /notes/status", s.handleAPINoteStatus)
 	return api
 }
 

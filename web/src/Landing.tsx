@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type { Entity, Home, KindCount, SearchResult } from "./api";
 import { handle } from "./App";
@@ -14,9 +14,15 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
   const [entities, setEntities] = useState<Entity[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reloading is what closing a note from a block needs: the page carried the
+  // proof token, and writing invalidates it along with what it described.
+  const load = useCallback(() => {
     api.home().then(setHome).catch(handle(setProblem));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   useEffect(() => {
     const term = query.trim();
@@ -112,6 +118,7 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
           entities={entities}
           onKind={setKind}
           onOpen={onOpen}
+          onChanged={load}
         />
       )}
     </>
@@ -125,6 +132,7 @@ function Portal({
   entities,
   onKind,
   onOpen,
+  onChanged,
 }: {
   home: Home | null;
   kinds: KindCount[];
@@ -132,6 +140,7 @@ function Portal({
   entities: Entity[] | null;
   onKind: (kind: string | null) => void;
   onOpen: (ref: string) => void;
+  onChanged: () => void;
 }) {
   if (!home) {
     return (
@@ -187,7 +196,7 @@ function Portal({
         <>
           {home.prose && <Markdown>{home.prose}</Markdown>}
           <div className="blocks">
-            {home.blocks.map((block) => renderBlock(block, onOpen))}
+            {home.blocks.map((block) => renderBlock(block, onOpen, home.proof, onChanged))}
           </div>
         </>
       )}

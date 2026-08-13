@@ -7,6 +7,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/NerdsWhoFish/dusk/internal/index"
+
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
@@ -16,6 +18,12 @@ import (
 const configRepo = "example/config"
 
 func notingSession(t *testing.T, destination string) (*sdk.ClientSession, *recordingWriter) {
+	session, writer, _ := noting(t, destination)
+	return session, writer
+}
+
+// noting hands back the index too, for a test that seeds notes of its own.
+func noting(t *testing.T, destination string) (*sdk.ClientSession, *recordingWriter, *index.DB) {
 	t.Helper()
 
 	idx := newIndex(t)
@@ -25,7 +33,7 @@ func notingSession(t *testing.T, destination string) (*sdk.ClientSession, *recor
 	writer := &recordingWriter{tokens: tokens, notesGo: destination}
 
 	server := mcp.New(mcp.Options{Catalog: idx, Tokens: tokens, Writer: writer, Version: "test"})
-	return serve(t, server), writer
+	return serve(t, server), writer, idx
 }
 
 // Notes are the half of the catalog an agent writes most, so the tool has to be
@@ -60,25 +68,18 @@ func TestNoteWritesWhatAnAgentLearned(t *testing.T) {
 	}
 }
 
-// A deployment with nowhere to put notes should not advertise the tool, because
-// a tool that always fails is worse than one that is absent.
-func TestNoteIsAbsentWithNoConfigRepository(t *testing.T) {
+// A deployment with nowhere to put notes still reads them: reading what has
+// been written down is a read. Writing is what says where it would have gone.
+func TestNoteReadsButCannotWriteWithNoConfigRepository(t *testing.T) {
 	session, _ := notingSession(t, "")
 
-	tools, err := session.ListTools(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	for _, tool := range tools.Tools {
-		if tool.Name == "note" {
-			t.Fatal("note is offered by a deployment with nowhere to write one")
-		}
+	if body := call(t, session, "note", map[string]any{"kind": "idea"}); !strings.Contains(body, "No notes") {
+		t.Errorf("reading should still answer:\n%s", body)
 	}
 
-	if _, err := session.CallTool(t.Context(), &sdk.CallToolParams{
-		Name: "note", Arguments: map[string]any{"kind": "gotcha", "body": "x"},
-	}); err == nil {
-		t.Error("calling note succeeded with no config repository")
+	body := call(t, session, "note", map[string]any{"kind": "gotcha", "body": "x"})
+	if !strings.Contains(body, "DUSK_CONFIG_REPOSITORY") {
+		t.Errorf("writing should say where it would have gone:\n%s", body)
 	}
 }
 

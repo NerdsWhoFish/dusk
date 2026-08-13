@@ -14,18 +14,31 @@ import (
 
 // WellKnownNoteKinds seed the vocabulary. Kind drives ranking and rendering
 // rather than only labelling, so a gotcha surfaces where a todo does not.
-var WellKnownNoteKinds = []string{"gotcha", "runbook", "howto", "decision", "incident", "todo"}
+var WellKnownNoteKinds = []string{"gotcha", "runbook", "howto", "decision", "incident", "todo", "idea"}
+
+// Statuses a note that is work can be in. Empty means open, so a note written
+// before there was a status is not silently closed.
+const (
+	StatusOpen    = "open"
+	StatusDone    = "done"
+	StatusDropped = "dropped"
+)
+
+// Working are the kinds a status means something for. A gotcha is never done;
+// an idea and a todo are the things somebody finishes or abandons.
+var Working = []string{"idea", "todo"}
 
 // noteFrontmatter is the authorable shape of a note file.
 type noteFrontmatter struct {
 	Dusk   string   `yaml:"dusk"`
 	Note   string   `yaml:"note"`
-	Refs   []string `yaml:"refs"`
+	Refs   []string `yaml:"refs,omitempty"`
 	Pinned bool     `yaml:"pinned,omitempty"`
+	Status string   `yaml:"status,omitempty"`
 }
 
 var knownNoteFields = map[string]bool{
-	"dusk": true, "note": true, "refs": true, "pinned": true,
+	"dusk": true, "note": true, "refs": true, "pinned": true, "status": true,
 }
 
 var derivedNoteFields = map[string]string{
@@ -78,6 +91,7 @@ func ParseNote(filePath string, data []byte, p Provenance) (*duskv1alpha1.Note, 
 	}
 
 	refs := c.checkNoteRefs(fm, lines)
+	status := c.checkNoteStatus(fm, lines)
 	prose := strings.TrimSpace(string(body))
 	if prose == "" {
 		c.at(0, "", "a note is its prose, and this file has none below the frontmatter")
@@ -92,9 +106,24 @@ func ParseNote(filePath string, data []byte, p Provenance) (*duskv1alpha1.Note, 
 		Refs:        refs,
 		Body:        prose,
 		Pinned:      fm.Pinned,
+		Status:      status,
 		ContentHash: ContentHash(prose),
 		Provenance:  provenance(p),
 	}, nil
+}
+
+// checkNoteStatus validates how a note that is work was closed. The vocabulary
+// is closed because it decides whether the note is still asking for something.
+func (c *collector) checkNoteStatus(fm noteFrontmatter, lines map[string]int) string {
+	status := strings.ToLower(strings.TrimSpace(fm.Status))
+	switch status {
+	case "", StatusOpen, StatusDone, StatusDropped:
+		return status
+	}
+
+	c.at(lines["status"], "status", "must be "+strings.Join(
+		[]string{StatusOpen, StatusDone, StatusDropped}, ", ")+", or left out")
+	return ""
 }
 
 // FormatNote writes a note back to the file it came from, round-tripping what
@@ -113,6 +142,7 @@ func FormatNote(note *duskv1alpha1.Note) ([]byte, error) {
 		Note:   note.GetKind(),
 		Refs:   note.GetRefs(),
 		Pinned: note.GetPinned(),
+		Status: note.GetStatus(),
 	})
 	if err != nil {
 		return nil, err
@@ -149,14 +179,10 @@ func (c *collector) checkNoteVersion(fm noteFrontmatter, lines map[string]int) {
 	}
 }
 
-// checkNoteRefs validates what the note attaches to. Nothing here checks the
-// refs resolve, because a note may legitimately be about an entity another
-// repository declares.
+// checkNoteRefs validates what a note attaches to, without checking the refs
+// resolve: one may be about an entity another repository declares. Naming
+// nothing is allowed, because an idea often is not about anything yet.
 func (c *collector) checkNoteRefs(fm noteFrontmatter, lines map[string]int) []string {
-	if len(fm.Refs) == 0 {
-		c.at(lines["refs"], "refs", "must name at least one entity, or nothing will ever surface this note")
-	}
-
 	refs := make([]string, 0, len(fm.Refs))
 	for i, ref := range fm.Refs {
 		ref = strings.TrimSpace(ref)

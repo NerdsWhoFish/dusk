@@ -11,7 +11,16 @@ export type Entity = {
 
 export type Relation = { type: string; from: string; to: string };
 
-export type Note = { id: string; kind: string; body: string; pinned?: boolean };
+export type Note = {
+  id: string;
+  kind: string;
+  body: string;
+  pinned?: boolean;
+
+  // status closes a note that is work: open, done or dropped. Absent means
+  // open, which is what a note written before there was a status is.
+  status?: "open" | "done" | "dropped";
+};
 
 export type SearchResult = {
   Type: string;
@@ -222,6 +231,10 @@ export type Home = {
   search?: boolean;
   blocks: ResolvedBlock[];
   problem?: string;
+
+  // proof is the token from this read, which is what closing a note the page
+  // showed needs (ADR-0009).
+  proof?: string;
 };
 
 export type Viewer = {
@@ -349,6 +362,8 @@ export const api = {
       `/plugins/${encodeURIComponent(id)}/handles/${encodeURIComponent(handle)}`,
     ),
   events: (limit = 50) => get<{ events: Event[] }>(`/events?limit=${limit}`),
+  closeNote: (id: string, status: "done" | "dropped", proof?: string) =>
+    post<{ note: string }>("/notes/status", { id, status, proof }),
   output: (id: string) =>
     get<{ output: OutputLine[] }>(`/plugins/${encodeURIComponent(id)}/output`),
 };

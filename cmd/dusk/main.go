@@ -187,6 +187,7 @@ func serve(parent context.Context) error {
 		Catalog:     idx,
 		Syncs:       catalog,
 		Pages:       writer,
+		Notes:       writer,
 		Plugins:     plugins,
 		Rotation:    observers,
 		Events:      ran,

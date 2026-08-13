@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, type Drift, type Problem, type ResolvedBlock } from "./api";
 import { Block } from "./Block";
-import { Markdown } from "./Markdown";
+import { Notes } from "./Notes";
 import { PluginBlock } from "./PluginView";
 import { Rows } from "./Rows";
 
@@ -11,6 +11,8 @@ import { Rows } from "./Rows";
 export function renderBlock(
   block: ResolvedBlock,
   onOpen: (ref: string) => void,
+  proof?: string,
+  onChanged?: () => void,
 ) {
   if (block.error) {
     return (
@@ -51,12 +53,7 @@ export function renderBlock(
               works something out, and they show up here.
             </p>
           ) : (
-            (block.notes ?? []).map((note) => (
-              <article className="note note-compact" key={note.id}>
-                <span className="tag note-kind">{note.kind}</span>
-                <Markdown>{opening(note.body)}</Markdown>
-              </article>
-            ))
+            <Notes notes={block.notes ?? []} proof={proof} compact onChanged={onChanged} />
           )}
         </Block>
       );
@@ -250,9 +247,3 @@ function seenBy(scope: string): string {
   return scope.replace(/^ingester:/, "");
 }
 
-// opening keeps a note preview to its first paragraph. The whole note is on
-// the entity it attaches to, and a wall of prose here buries the other blocks.
-function opening(body: string): string {
-  const first = body.trim().split("\n\n")[0] ?? "";
-  return first.length > 240 ? `${first.slice(0, 240).trimEnd()}…` : first;
-}

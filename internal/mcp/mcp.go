@@ -41,6 +41,7 @@ type Catalog interface {
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
+	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
@@ -107,6 +108,8 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
 - drift reports where the catalog and reality disagree: declared and nowhere to be found, or running and written down nowhere.
 - invoke does something to an entity. What can be done is part of what get returns, so read a thing to learn what you can do to it. Anything that changes something needs the proof token from the read it names; anything destructive needs confirm; pass preview to see what would happen first.
+
+- note reads and writes what has been written down. An **idea** is a note of kind idea: something somebody wants to keep, attached to what it is about or to nothing at all. Ask for them with note and no body, narrowed by kind, status and ref, and close one with status done or dropped.
 
 - dusk_context returns this operator's inventory, tailored to the repository you are working in.
 
@@ -190,20 +193,23 @@ func (s *Server) sdkServer() *sdk.Server {
 		}, s.configure)
 	}
 
+	// Registered whether or not anything can be written: reading what has been
+	// written down is a read, and a deployment with nowhere to put a new note
+	// can still answer "what ideas do I have".
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "note",
+		Description: "Read or record something worth keeping that is not a description of any one thing: a gotcha, a runbook, an idea, the reason something is the way it is. Pass a body to write one, attaching it to the entities it concerns, or nothing to read what is there, narrowed by kind, status and what it is about. An idea about nothing in particular needs no refs. Close one with status done or dropped.",
+	}, s.note)
+
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		sdk.AddTool(server, &sdk.Tool{
 			Name:        "declare",
 			Description: "Create or update an entity. Requires the proof token from a read, which is why every read returns one.",
 		}, s.declare)
 
-		// A deployment with nowhere to put notes does not offer the tool at
-		// all, which is a clearer answer than one that always refuses.
+		// A deployment with nowhere to put notes still reads them, but the page
+		// is both halves of one file and needs somewhere to write it.
 		if s.opts.Writer.NoteDestination() != "" {
-			sdk.AddTool(server, &sdk.Tool{
-				Name:        "note",
-				Description: "Record something worth keeping that is not a description of any one thing: a gotcha, a runbook, the reason something is the way it is. Attach it to the entities it concerns. Omit id to write a new one.",
-			}, s.note)
-
 			// One tool for both halves rather than two: reading the page is how
 			// an agent gets the proof token that lets it write one back, so
 			// splitting them would make the read look optional.
@@ -326,11 +332,16 @@ func renderNotes(notes []*duskv1alpha1.Note) string {
 	var out strings.Builder
 	out.WriteString("## Notes\n\n")
 	for _, note := range notes {
-		pin := ""
+		marks := ""
 		if note.GetPinned() {
-			pin = " · pinned"
+			marks += " · pinned"
 		}
-		fmt.Fprintf(&out, "**%s**%s · `%s`\n\n%s\n\n", note.GetKind(), pin, note.GetId(), strings.TrimSpace(note.GetBody()))
+		// A closed note is still shown, because "I already had that idea and
+		// dropped it" is the answer somebody most needs and least expects.
+		if status := note.GetStatus(); status != "" && status != duskmd.StatusOpen {
+			marks += " · " + status
+		}
+		fmt.Fprintf(&out, "**%s**%s · `%s`\n\n%s\n\n", note.GetKind(), marks, note.GetId(), strings.TrimSpace(note.GetBody()))
 	}
 	return out.String()
 }
@@ -412,21 +423,75 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 // the file says, so restating them would be a chance to get one wrong. A new
 // note needs both, enforced by the write path rather than the schema.
 type noteInput struct {
-	Kind   string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, or todo. Required for a new note"`
+	Kind   string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, todo, or idea. Required for a new note, and a filter when reading"`
 	Body   string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
-	Refs   []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name"`
+	Refs   []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name. An idea about nothing in particular needs none"`
 	Id     string   `json:"id,omitempty" jsonschema:"the path of an existing note to replace; omit to write a new one"`
 	Proof  string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
 	Pinned bool     `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to"`
+
+	Status string `json:"status,omitempty" jsonschema:"for a note that is work: open, done or dropped. A filter when reading, and what closes one when writing"`
+	Ref    string `json:"ref,omitempty" jsonschema:"when reading, limit to notes about this entity"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"when reading, how many to return"`
 }
 
+// readNotes answers what has been written down, narrowed by kind, status and
+// what it is about. The token it issues is what closing one of them needs, so
+// asking "my open ideas" and then finishing one is two calls, not four.
+func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResult, any, error) {
+	notes, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{
+		Kind: in.Kind, Status: in.Status, Ref: in.Ref, Limit: in.Limit,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	seen := make(map[string]string, len(notes))
+	for _, note := range notes {
+		seen[note.GetId()] = note.GetContentHash()
+	}
+
+	if len(notes) == 0 {
+		return text(describeNothing(in) + s.issue(proof.FromGet, seen)), nil, nil
+	}
+	return text(renderNotes(notes) + s.issue(proof.FromGet, seen)), nil, nil
+}
+
+func describeNothing(in noteInput) string {
+	said := "No notes"
+	if in.Status != "" {
+		said += " that are " + in.Status
+	}
+	if in.Kind != "" {
+		said += " of kind " + in.Kind
+	}
+	if in.Ref != "" {
+		said += " about `" + in.Ref + "`"
+	}
+	return said + ". Write one by passing a kind and a body.\n"
+}
+
+// note reads and writes, for the same reason page does: the read is what yields
+// the proof token the write needs, so a separate read tool would look optional.
+// Passing nothing to write with is how a caller asks what is there.
 func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput) (*sdk.CallToolResult, any, error) {
+	if in.Id == "" && strings.TrimSpace(in.Body) == "" {
+		return s.readNotes(ctx, in)
+	}
+
+	// Reading works with nowhere to write, so the refusal belongs here rather
+	// than in whether the tool exists at all.
+	if s.opts.Writer == nil || s.opts.Writer.NoteDestination() == "" {
+		return text(write.ErrNoConfigRepository.Error()), nil, nil
+	}
+
 	result, err := s.opts.Writer.Record(ctx, in.Proof, write.Note{
 		Id:     in.Id,
 		Kind:   in.Kind,
 		Refs:   in.Refs,
 		Body:   in.Body,
 		Pinned: in.Pinned,
+		Status: in.Status,
 	})
 	if err != nil {
 		return text(fmt.Sprintf("The note was not written.\n\n%s", err)), nil, nil

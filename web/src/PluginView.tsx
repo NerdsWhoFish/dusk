@@ -15,11 +15,13 @@ export function PluginBlock({
   view,
   entityRef,
   entities,
+  proof,
   onOpen,
 }: {
   view: View;
   entityRef?: string;
   entities?: Entity[];
+  proof?: string;
   onOpen?: (ref: string) => void;
 }) {
   return (
@@ -31,7 +33,7 @@ export function PluginBlock({
       {view.spec ? (
         <DeclaredView spec={view.spec} entities={entities ?? []} onOpen={onOpen} />
       ) : (
-        <Drawn view={view} entityRef={entityRef} entities={entities} />
+        <Drawn view={view} entityRef={entityRef} entities={entities} proof={proof} />
       )}
     </section>
   );
@@ -41,10 +43,12 @@ function Drawn({
   view,
   entityRef,
   entities,
+  proof,
 }: {
   view: View;
   entityRef?: string;
   entities?: unknown[];
+  proof?: string;
 }) {
   const source = view.source ?? "";
   const [problem, setProblem] = useState<string>();
@@ -79,5 +83,5 @@ function Drawn({
   // createElement rather than JSX: the tag is only known at runtime, and JSX
   // would treat it as a component. React 19 assigns a non-string value as a
   // property, which is how a result set reaches the element unstringified.
-  return createElement(view.element, { "entity-ref": entityRef, entities });
+  return createElement(view.element, { "entity-ref": entityRef, entities, proof });
 }

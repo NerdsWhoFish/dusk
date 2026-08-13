@@ -878,6 +878,30 @@ input,
   border-color: rgb(80 250 123 / 0.35);
 }
 
+/* Notes ---------------------------------------------------------------- */
+
+/* A closed note stays visible and reads as settled. Hiding it would lose the
+   most useful answer there is: somebody already had that idea and dropped it. */
+.note.closed {
+  opacity: 0.6;
+}
+
+.note-close {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.tag.status-done {
+  color: var(--green);
+  border-color: rgb(80 250 123 / 0.35);
+}
+
+.tag.status-dropped {
+  color: var(--muted);
+}
+
 /* Rows ---------------------------------------------------------------- */
 
 .rows {

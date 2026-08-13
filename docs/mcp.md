@@ -49,13 +49,39 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `changes()` | What Dusk last read from git, per repository |
 | `drift()` | Where the catalog and reality disagree |
 | `dusk_context(directory?)` | The operator's estate, tailored to the repository being worked in |
+| `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
+| `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
-| `note(kind, body, refs?, id?, proof?)` | Record a gotcha, a runbook, a decision, attached to the entities it concerns |
+| `note(kind?, body?, refs?, status?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
 `get` is deliberately fat.
-An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations, provenance and the notes attached to it in one call rather than five.
+An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations, provenance, the notes attached to it, **and what can be done to it**, in one call rather than five.
 Notes come back whole rather than as ids to fetch, because a gotcha an agent has to spend another call on is a gotcha it will not read.
+
+## Installing a plugin adds no tools
+
+A plugin's capabilities are [actions](../adr/0015-plugin-actions-and-events.md), not tools.
+Discovery folds into `get`, because what can be done to a thing is part of the picture of that thing, and running one is `invoke` ([ADR-0041](../adr/0041-plugins-reach-agents-as-actions.md)).
+
+The surface is therefore constant: a tenth plugin costs nothing, and an agent that has read an entity already knows what it can do to it.
+
+An action declares a class. Read-only needs nothing; mutating needs the proof token from the read it names; **destructive needs `confirm`**, and the refusal carries the preview, or says there is none. `preview` says what would happen without doing it.
+
+The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
+
+## Reading and writing notes
+
+`note` does both, for the same reason `page` does: the read is what yields the proof token the write needs, so a separate read tool would look optional.
+
+Passing no body asks what is there, narrowed by `kind`, `status` and `ref`.
+Passing a body writes one.
+
+An **idea** is a note of kind `idea`: something worth keeping that is not a description of anything.
+It may attach to nothing at all, because an idea is often not about anything in the catalog yet.
+It carries a status, and `status: done` or `status: dropped` closes it.
+
+A closed note still comes back when asked for, because "I already had that idea and dropped it" is the answer somebody most needs and least expects.
 
 ## Three rules the answers follow
 
@@ -166,5 +192,9 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 **Proposal mode.** Write mode commits directly, so the per-session branch and pull request are deferred until somebody runs in proposal mode ([ADR-0010](../adr/0010-mcp-surface.md)).
 
 **Note ranking.** Notes come back pinned first and then by id. [ADR-0031](../adr/0031-notes-are-files.md) has kind driving ranking, so a gotcha should outrank a todo without being pinned by hand, and it does not yet.
+
+**Who ran something.** An event records an actor, and over MCP that actor is always `agent`: the surface authenticates with one shared bearer token and has no per-caller identity to record. Two agents holding one token are indistinguishable in the log.
+
+**Proof for a plugin-scoped action.** An action that is not about one entity has nothing to have read, so the token proves the caller read the catalog rather than the thing. There is no thing yet: that is what the action is for.
 
 **Authorization derived from repository access.** A bearer token answers "may you read", not "what may you read": it grants the whole catalog. [ADR-0012](../adr/0012-viewing-auth.md) decides that authorization should be *derived* from what GitHub says a viewer can see, which for an agent means presenting a GitHub token and having Dusk filter to the repositories it can read. The index is already partitioned by repository, so that filter is a predicate rather than a permission model. It earns its keep when a second person exists, and not before.

@@ -80,7 +80,7 @@ func TestADR0041_APluginAddsOneToolAndNoMore(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 
-	want := "changes,configure,drift,dusk_context,get,invoke,neighbors,search"
+	want := "changes,configure,drift,dusk_context,get,invoke,neighbors,note,search"
 	if got := joinSorted(names); got != want {
 		t.Errorf("tools = %s, want %s", got, want)
 	}

@@ -1,0 +1,108 @@
+import { useState } from "react";
+
+import { api } from "./api";
+import type { Note } from "./api";
+import { Markdown } from "./Markdown";
+
+// Working are the note kinds a status means something for. A gotcha is never
+// done; an idea is the thing somebody finishes or decides against.
+const working = new Set(["idea", "todo"]);
+
+// Notes renders what has been written down. A note that is work carries what
+// closes it, so an idea can be finished where it is read rather than by
+// finding the file it lives in.
+export function Notes({
+  notes,
+  proof,
+  compact,
+  onChanged,
+}: {
+  notes: Note[];
+  proof?: string;
+  compact?: boolean;
+  onChanged?: () => void;
+}) {
+  if (notes.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      {notes.map((note) => (
+        <Written
+          key={note.id}
+          note={note}
+          proof={proof}
+          compact={compact}
+          onChanged={onChanged}
+        />
+      ))}
+    </>
+  );
+}
+
+// opening keeps a note in a panel to its first paragraph. The whole thing lives
+// on the entity it is about; here it is a pointer, not the text.
+function opening(body: string): string {
+  const first = body.trim().split(/\n\s*\n/, 1)[0] ?? "";
+  return first.length > 240 ? `${first.slice(0, 240)}...` : first;
+}
+
+function Written({
+  note,
+  proof,
+  compact,
+  onChanged,
+}: {
+  note: Note;
+  proof?: string;
+  compact?: boolean;
+  onChanged?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string>();
+
+  const closed = note.status === "done" || note.status === "dropped";
+  const closable = working.has(note.kind) && !closed && Boolean(proof) && Boolean(onChanged);
+
+  const close = async (status: "done" | "dropped") => {
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      await api.closeNote(note.id, status, proof);
+      onChanged?.();
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className={`note ${compact ? "note-compact" : ""} ${closed ? "closed" : ""}`}>
+      <span className="tag note-kind">{note.kind}</span>
+      {closed && <span className={`tag status-${note.status}`}>{note.status}</span>}
+
+      <Markdown>{compact ? opening(note.body) : note.body}</Markdown>
+
+      {problem && (
+        <p className="hint err" role="alert">
+          {problem}
+        </p>
+      )}
+
+      {!compact && <p className="ref note-id">{note.id}</p>}
+
+      {closable && (
+        <div className="note-close">
+          <button type="button" className="btn secondary" disabled={busy} onClick={() => close("done")}>
+            Done
+          </button>
+          <button type="button" className="btn secondary" disabled={busy} onClick={() => close("dropped")}>
+            Drop it
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}

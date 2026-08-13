@@ -207,8 +207,8 @@ func TestNoteFilesAreValidated(t *testing.T) {
 		file string
 		want string
 	}{
-		{"a note with no refs surfaces nowhere", strings.Replace(noteFile, "refs:\n  - host:home/nas\n  - service:home/jellyfin\n", "refs: []\n", 1), "at least one entity"},
 		{"a ref that is not a ref is rejected", strings.Replace(noteFile, "- host:home/nas", "- nas", 1), "kind:namespace/name"},
+		{"a status nobody can close is rejected", strings.Replace(noteFile, "note: gotcha", "note: idea\nstatus: maybe", 1), "must be open, done, dropped"},
 		{"a note with no prose is not a note", strings.SplitN(noteFile, "---\n\n", 2)[0] + "---\n", "has none below the frontmatter"},
 	}
 
@@ -455,4 +455,29 @@ func writeTree(t *testing.T, files map[string]string) string {
 		}
 	}
 	return dir
+}
+
+// An idea is often not about anything in the catalog yet, so refusing a note
+// that names nothing would make the ones worth capturing the ones that cannot
+// be. It is still findable: notes are read by kind and status, not only by ref.
+func TestANoteAboutNothingIsStillANote(t *testing.T) {
+	loose := strings.Replace(noteFile,
+		"refs:\n  - host:home/nas\n  - service:home/jellyfin\n", "", 1)
+	loose = strings.Replace(loose, "note: gotcha", "note: idea", 1)
+
+	idx, reconciler := setup(t, map[string]string{
+		"dusk.md": rootFile, ".dusk/paint-the-house.md": loose,
+	})
+
+	if _, err := reconciler.Reconcile(t.Context(), testRepo, mainRef, observedAt); err != nil {
+		t.Fatalf("Reconcile refused a note about nothing: %v", err)
+	}
+
+	notes, err := idx.Notes(t.Context(), mainRef, index.NoteFilter{Kind: "idea"})
+	if err != nil {
+		t.Fatalf("read the ideas back: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("found %d ideas, want the one that was written", len(notes))
+	}
 }

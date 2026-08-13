@@ -29,6 +29,10 @@ type Note struct {
 	Refs   []string
 	Body   string
 	Pinned bool
+
+	// Status closes a note that is work: open, done or dropped. Empty leaves it
+	// as it was, so changing a body does not reopen something finished.
+	Status string
 }
 
 // ErrNoConfigRepository reports that Dusk has not been told where notes live.
@@ -130,7 +134,8 @@ func (w *Writer) createNote(ctx context.Context, target Target, branch string, n
 	filePath := path.Join(NoteDir, slug(note.Kind)+"-"+duskmd.ContentHash(note.Body)[:8]+".md")
 
 	rendered, err := duskmd.FormatNote(&duskv1alpha1.Note{
-		Kind: note.Kind, Refs: note.Refs, Body: note.Body, Pinned: note.Pinned,
+		Kind: note.Kind, Refs: note.Refs, Body: note.Body,
+		Pinned: note.Pinned, Status: note.Status,
 	})
 	if err != nil {
 		return nil, err
@@ -159,6 +164,10 @@ func merge(existing *duskv1alpha1.Note, note Note) *duskv1alpha1.Note {
 		Refs:   existing.GetRefs(),
 		Body:   existing.GetBody(),
 		Pinned: note.Pinned,
+		Status: existing.GetStatus(),
+	}
+	if strings.TrimSpace(note.Status) != "" {
+		merged.Status = note.Status
 	}
 	if strings.TrimSpace(note.Kind) != "" {
 		merged.Kind = note.Kind

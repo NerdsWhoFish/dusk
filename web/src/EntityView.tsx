@@ -4,6 +4,7 @@ import { api } from "./api";
 import type { EntityDetail } from "./api";
 import { handle } from "./App";
 import { Markdown } from "./Markdown";
+import { Notes } from "./Notes";
 import { PluginBlock } from "./PluginView";
 import { Rows } from "./Rows";
 
@@ -101,6 +102,7 @@ export function EntityView({
           view={view}
           entityRef={entity.ref}
           entities={[entity]}
+          proof={detail.proof}
           onOpen={onOpen}
         />
       ))}
@@ -115,13 +117,7 @@ export function EntityView({
       {notes.length > 0 && (
         <>
           <h2>Notes</h2>
-          {notes.map((note) => (
-            <article className="note" key={note.id}>
-              <span className="tag note-kind">{note.kind}</span>
-              <Markdown>{note.body}</Markdown>
-              <p className="ref note-id">{note.id}</p>
-            </article>
-          ))}
+          <Notes notes={notes} proof={detail.proof} onChanged={load} />
         </>
       )}
 

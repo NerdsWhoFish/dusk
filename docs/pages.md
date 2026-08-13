@@ -55,8 +55,8 @@ The order is not accidental: it pairs a tall block with a short one, because two
 
 | Type | What it asks |
 | --- | --- |
-| `entities` | Entities matching a query. The only type that takes one |
-| `recent-notes` | The most recently written notes |
+| `entities` | Entities matching a query |
+| `recent-notes` | Notes, newest first, narrowed by `query` |
 | `drift` | Where the catalog and reality disagree |
 | `integrity` | What is wrong with the catalog itself |
 | `kinds` | How many entities of each kind, which is the estate's shape |
@@ -82,6 +82,25 @@ Every block takes `title` and `wide`. `wide` is a hint asking for the full width
 | bare words | Full-text over name and title |
 | `sort:` | `name`, or any attribute key. A leading `-` reverses it |
 | `limit:` | How many to keep, applied after sorting |
+
+## Querying notes
+
+```yaml
+  - type: recent-notes
+    title: Ideas
+    query: kind:idea status:open
+    limit: 8
+```
+
+| Part | Meaning |
+| --- | --- |
+| `kind:idea` | Only that kind of note |
+| `status:open` | Only what is still open. Also matches a note written before there were statuses, because empty means open |
+| `ref:service:home/jellyfin` | Only notes about that entity |
+| `limit:` | How many to keep |
+
+An **idea** is a note of kind `idea`, and an idea block is what makes it worth capturing one: somewhere to see what you thought of and have not done.
+A note that is work carries a control to mark it done or drop it, and closing one from a block is a write proved by the read that put it on the page.
 
 Direction is ignored for `related:` on purpose.
 Asking what you have flown through an airport should not mean writing one block for departures and another for arrivals.

@@ -27,7 +27,7 @@ func (failing) Get(context.Context, string, string) (*duskv1alpha1.Entity, error
 	return nil, errBroken
 }
 
-func (failing) RecentNotes(context.Context, string, int) ([]*duskv1alpha1.Note, error) {
+func (failing) Notes(context.Context, string, index.NoteFilter) ([]*duskv1alpha1.Note, error) {
 	return nil, errBroken
 }
 
@@ -66,7 +66,7 @@ func (*recording) Get(context.Context, string, string) (*duskv1alpha1.Entity, er
 	return nil, errBroken
 }
 
-func (*recording) RecentNotes(context.Context, string, int) ([]*duskv1alpha1.Note, error) {
+func (*recording) Notes(context.Context, string, index.NoteFilter) ([]*duskv1alpha1.Note, error) {
 	return nil, nil
 }
 
