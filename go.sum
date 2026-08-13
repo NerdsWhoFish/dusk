@@ -4,6 +4,8 @@ github.com/NerdsWhoFish/dusk-plugin-sdk v1.0.0 h1:xG4mLqOHd7F9HSa/nco3Kod+p8ALc1
 github.com/NerdsWhoFish/dusk-plugin-sdk v1.0.0/go.mod h1:IuG04sKUkUQ/0EZ3EbL/RJC32T0HUbIJwVQC+b7WSio=
 github.com/NerdsWhoFish/dusk-plugin-sdk v1.0.1 h1:8jEselmz1cgkxPWK0WWcNwRkSjHuYVTklyUemAZKKhQ=
 github.com/NerdsWhoFish/dusk-plugin-sdk v1.0.1/go.mod h1:IuG04sKUkUQ/0EZ3EbL/RJC32T0HUbIJwVQC+b7WSio=
+github.com/NerdsWhoFish/dusk-plugin-sdk v1.1.0 h1:Q87d3weAsdf9dKajuaWpQmyzsrQJir56q/efV/qeZac=
+github.com/NerdsWhoFish/dusk-plugin-sdk v1.1.0/go.mod h1:IuG04sKUkUQ/0EZ3EbL/RJC32T0HUbIJwVQC+b7WSio=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=

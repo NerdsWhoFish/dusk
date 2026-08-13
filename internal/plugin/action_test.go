@@ -542,7 +542,7 @@ func TestAnEndlessElicitationIsStopped(t *testing.T) {
 // result and the same action is invoked again with the answer (ADR-0046).
 func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
 	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
-	manager, _, _, _ := acting(t, standIn{
+	manager, _, log, _ := acting(t, standIn{
 		ID:      "asker",
 		Kinds:   []string{"widget"},
 		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
@@ -562,6 +562,16 @@ func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
 	}
 	if pending.Ask.Token == "" {
 		t.Error("the question carried no token, so the plugin cannot resume")
+	}
+
+	// An action waiting on somebody is not one in flight. Reported as started
+	// it reads as work happening, when nothing is and nothing may ever.
+	recent := log.Recent(0)
+	if len(recent) == 0 {
+		t.Fatal("the invocation recorded no event")
+	}
+	if got := recent[0].GetStatus(); got != duskv1alpha1.EventStatus_EVENT_STATUS_WAITING {
+		t.Errorf("event status = %s, want WAITING", got)
 	}
 
 	resumed, err := manager.Invoke(t.Context(), plugin.Request{

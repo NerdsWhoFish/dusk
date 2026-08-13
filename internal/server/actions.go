@@ -228,6 +228,8 @@ func statusOf(status duskv1alpha1.EventStatus) string {
 		return "failed"
 	case duskv1alpha1.EventStatus_EVENT_STATUS_DENIED:
 		return "denied"
+	case duskv1alpha1.EventStatus_EVENT_STATUS_WAITING:
+		return "waiting"
 	case duskv1alpha1.EventStatus_EVENT_STATUS_UNSPECIFIED:
 		return "unknown"
 	}

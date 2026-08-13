@@ -3,7 +3,7 @@ module github.com/NerdsWhoFish/dusk
 go 1.26.5
 
 require (
-	github.com/NerdsWhoFish/dusk-plugin-sdk v1.0.1
+	github.com/NerdsWhoFish/dusk-plugin-sdk v1.1.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/urfave/cli/v3 v3.10.1

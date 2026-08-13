@@ -311,7 +311,7 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 	// A question means the action has not run. It is not a failure and it is
 	// not a result, so it is settled as its own thing and nothing composes.
 	if ask := answer.GetElicit(); ask != nil {
-		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_STARTED,
+		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_WAITING,
 			"waiting on "+ask.GetPrompt(), nil, m.now()))
 		return &Outcome{
 			Event: event.GetId(), Chain: chain, Plugin: target.running.ID,
