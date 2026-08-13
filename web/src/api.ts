@@ -187,6 +187,8 @@ export const api = {
     ),
   uninstall: (id: string) =>
     post<{ uninstalled: string }>(`/plugins/${encodeURIComponent(id)}/uninstall`),
+  forget: (scope: string) =>
+    post<{ forgot: string }>("/observations/forget", { scope }),
   configure: (id: string, config: PluginConfig, instance?: string) =>
     post<{ configured: string }>(
       instance

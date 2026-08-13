@@ -79,6 +79,19 @@ func (s *Scheduler) Remove(name string) {
 	delete(s.states, name)
 }
 
+// Names lists the ingesters in the rotation, which is what makes an
+// observation scope nobody claims identifiable as left behind.
+func (s *Scheduler) Names() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	names := make([]string, 0, len(s.states))
+	for name := range s.states {
+		names = append(names, name)
+	}
+	return names
+}
+
 // Status is what each ingester last did.
 func (s *Scheduler) Status() []Result {
 	s.mu.Lock()

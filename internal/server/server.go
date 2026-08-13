@@ -46,6 +46,7 @@ type Server struct {
 	controller  catalogController
 	catalog     Catalog
 	plugins     Plugins
+	rotation    Rotation
 	syncs       Syncs
 	pages       Pages
 	access      *access.Policy
@@ -85,6 +86,10 @@ type Options struct {
 	// is not a deployment with broken routes.
 	Plugins Plugins
 
+	// Rotation is what is currently observing. Without it Dusk cannot tell an
+	// abandoned observation scope from a live one, so it reports neither.
+	Rotation Rotation
+
 	// MCP serves the agent-facing surface. Optional, so a deployment can run
 	// without it and so tests need not stand one up.
 	MCP    http.Handler
@@ -110,6 +115,7 @@ func New(opts Options) (*Server, error) {
 		syncs:       opts.Syncs,
 		pages:       opts.Pages,
 		plugins:     opts.Plugins,
+		rotation:    opts.Rotation,
 		mcp:         opts.MCP,
 		state:       newSetupState(),
 		deliveries:  newSeenDeliveries(),
@@ -241,6 +247,7 @@ func (s *Server) apiRoutes() http.Handler {
 
 	// Installing runs somebody else's binary, so these sit behind the same
 	// gate as everything else and are POST rather than GET.
+	api.HandleFunc("POST /observations/forget", s.handleAPIForget)
 	api.HandleFunc("GET /plugins", s.handleAPIPlugins)
 	api.HandleFunc("POST /plugins/{id}/install", s.handleAPIInstall)
 	api.HandleFunc("POST /plugins/{id}/uninstall", s.handleAPIUninstall)

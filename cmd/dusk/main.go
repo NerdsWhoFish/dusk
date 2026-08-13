@@ -183,6 +183,7 @@ func serve(parent context.Context) error {
 		Syncs:       catalog,
 		Pages:       writer,
 		Plugins:     plugins,
+		Rotation:    observers,
 		MCP:         agentSurface,
 		Logger:      log,
 	})

@@ -37,6 +37,11 @@ const (
 	// ProblemDanglingNote is a note attached to an entity nobody declares,
 	// usually a typo, which silently attaches the note to nothing.
 	ProblemDanglingNote = "dangling_note_ref"
+
+	// ProblemOrphanedObservations is a scope no ingester will refresh, left by
+	// one renamed or removed. Nothing clears it, because a failed run must
+	// never look like a deletion (ADR-0011), so forgetting it is asked for.
+	ProblemOrphanedObservations = "orphaned_observations"
 )
 
 // Integrity reports everything wrong with the graph at gitRef. One call for
@@ -61,6 +66,45 @@ func (db *DB) Integrity(ctx context.Context, gitRef string) ([]Problem, error) {
 	problems = append(problems, relations...)
 	problems = append(problems, notes...)
 	return problems, nil
+}
+
+// Orphans reports observation scopes no live ingester claims. Renaming an
+// ingester renames its scope, so the old one keeps answering with entities
+// nothing updates, and every ref reads as declared twice.
+func (db *DB) Orphans(ctx context.Context, live []string) ([]Problem, error) {
+	scopes, err := db.Scopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	claimed := make(map[string]bool, len(live))
+	for _, name := range live {
+		claimed[ObservedScope(name)] = true
+	}
+
+	problems := make([]Problem, 0)
+	for _, scope := range scopes {
+		if !IsObserved(scope.Repository) || claimed[scope.Repository] {
+			continue
+		}
+		problems = append(problems, Problem{
+			Kind:   ProblemOrphanedObservations,
+			Ref:    scope.Repository,
+			Detail: "observations from an ingester that is no longer running, which nothing will refresh or remove. Forget them, or restore the ingester that made them",
+			Where:  []string{scope.Repository + " at " + scope.GitRef},
+		})
+	}
+	return problems, nil
+}
+
+// Forget removes an observation scope. Only ever on request: a temporarily
+// unconfigured ingester would otherwise lose the history it is about to
+// re-observe, which is the deletion ADR-0011 exists to prevent.
+func (db *DB) Forget(ctx context.Context, scope string) error {
+	if !IsObserved(scope) {
+		return fmt.Errorf("index: %q is a repository rather than an observation scope, and repositories are forgotten by uninstalling the App", scope)
+	}
+	return db.DropRepository(ctx, scope, "")
 }
 
 type duplicateRow struct {

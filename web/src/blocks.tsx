@@ -1,4 +1,6 @@
-import type { Drift, Problem, ResolvedBlock } from "./api";
+import { useState } from "react";
+
+import { api, type Drift, type Problem, type ResolvedBlock } from "./api";
 import { Block } from "./Block";
 import { Markdown } from "./Markdown";
 import { Rows } from "./Rows";
@@ -164,9 +166,50 @@ function ProblemList({ problems }: { problems: Problem[] }) {
           {problem.Where.length > 0 && (
             <p className="ref where">{problem.Where.join(" · ")}</p>
           )}
+          {problem.Kind === "orphaned_observations" && <Forget scope={problem.Ref} />}
         </li>
       ))}
     </ul>
+  );
+}
+
+// Forget clears observations nothing will refresh. It is the one deletion Dusk
+// offers, so it is a button somebody presses rather than something that happens
+// on its own.
+function Forget({ scope }: { scope: string }) {
+  const [state, setState] = useState<"idle" | "working" | "done">("idle");
+  const [problem, setProblem] = useState<string>();
+
+  if (state === "done") {
+    return <p className="quiet">Forgotten. It will disappear on the next read.</p>;
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn secondary"
+        disabled={state === "working"}
+        onClick={async () => {
+          setState("working");
+          setProblem(undefined);
+          try {
+            await api.forget(scope);
+            setState("done");
+          } catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+            setState("idle");
+          }
+        }}
+      >
+        {state === "working" ? "Forgetting" : "Forget these"}
+      </button>
+      {problem && (
+        <p className="hint err" role="alert">
+          {problem}
+        </p>
+      )}
+    </>
   );
 }
 

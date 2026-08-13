@@ -89,6 +89,52 @@ func TestIntegrityFindsOneRefObservedByTwoIngesters(t *testing.T) {
 	}
 }
 
+// Moving an in-tree ingester to a plugin renames its scope, and the old one
+// keeps answering with entities nothing will ever refresh. That reads as every
+// ref being declared twice, which is how this was found.
+func TestOrphansFindsAScopeNobodyClaims(t *testing.T) {
+	db := newDB(t)
+	observe(t, db, "kubernetes:mini-2", entity("host:prod/node-1", "node-1", ""))
+	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
+
+	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
+	if err != nil {
+		t.Fatalf("Orphans: %v", err)
+	}
+	if len(problems) != 1 {
+		t.Fatalf("found %d orphans, want the ingester that is gone: %+v", len(problems), problems)
+	}
+	if !strings.Contains(problems[0].Ref, "kubernetes:mini-2") {
+		t.Errorf("Ref = %q, want the scope nothing claims", problems[0].Ref)
+	}
+}
+
+// A running ingester's scope is not abandoned, however stale it looks.
+func TestOrphansLeavesLiveIngestersAlone(t *testing.T) {
+	db := newDB(t)
+	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
+
+	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
+	if err != nil {
+		t.Fatalf("Orphans: %v", err)
+	}
+	if len(problems) != 0 {
+		t.Errorf("reported a live ingester as abandoned: %+v", problems)
+	}
+}
+
+// Forgetting is the one deletion Dusk performs, so it only ever touches an
+// observation scope and never a repository somebody declared.
+func TestForgetRefusesARepository(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, testRepo, mainRef,
+		[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}, nil)
+
+	if err := db.Forget(t.Context(), testRepo); err == nil {
+		t.Error("forgot a repository, which is not an observation scope")
+	}
+}
+
 // A relation to nothing makes the graph look connected when it is not.
 func TestIntegrityFindsADanglingRelation(t *testing.T) {
 	db := newDB(t)

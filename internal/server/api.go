@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,14 @@ type Catalog interface {
 	Drift(ctx context.Context, gitRef string) ([]index.Drift, error)
 	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
 	Diff(ctx context.Context, base, head string) ([]index.Change, error)
+	Orphans(ctx context.Context, live []string) ([]index.Problem, error)
+	Forget(ctx context.Context, scope string) error
+}
+
+// Rotation is what is currently observing, which the index cannot know. Only
+// together do they distinguish a scope left behind from one still in use.
+type Rotation interface {
+	Names() []string
 }
 
 // entityJSON is the wire shape, written by hand rather than through protojson,
@@ -359,7 +368,42 @@ func (s *Server) handleAPIIntegrity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+
+	// Orphans need both halves: the index knows which scopes exist, and only
+	// the rotation knows which of them anything still refreshes.
+	if s.rotation != nil {
+		orphans, err := s.catalog.Orphans(r.Context(), s.rotation.Names())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		problems = append(problems, orphans...)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"problems": problems})
+}
+
+// handleAPIForget answers POST /api/observations/forget, which is how the
+// scope an old ingester left behind is cleared. Never automatic: a temporarily
+// unconfigured ingester would lose history it is about to re-observe.
+func (s *Server) handleAPIForget(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Scope string `json:"scope"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, `{"error":"that request could not be read"}`, http.StatusBadRequest)
+		return
+	}
+
+	if s.rotation != nil && slices.Contains(s.rotation.Names(), strings.TrimPrefix(body.Scope, "ingester:")) {
+		http.Error(w, `{"error":"that ingester is running, so forgetting it would only lose what it is about to observe again"}`, http.StatusConflict)
+		return
+	}
+
+	if err := s.catalog.Forget(r.Context(), body.Scope); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"forgot": body.Scope})
 }
 
 // handleAPIDrift answers GET /api/drift: where the catalog and reality
