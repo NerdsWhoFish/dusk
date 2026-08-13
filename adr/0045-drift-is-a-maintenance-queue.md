@@ -105,6 +105,13 @@ It gets a named test: `TestADR0045_DriftIsSilentAboutWhatIsMerelyObserved`.
 - `Drift` grows a parameter, so every caller and every test fake changed.
 - Two reports that were adjacent are now one report and one smaller report, and somebody looking for the note check in `integrity` will not find it there.
 
+### Rejected because
+
+- **Option 1** was rejected because filtering per surface puts one decision in three places, which drift apart, and it leaves every API consumer holding the original problem.
+- **Option 2** was rejected because a truncated list of things nobody will act on is still a list of things nobody will act on, and it is now also lying about its size.
+- **Option 4** was rejected on sequencing rather than merit. An ingester declaring "these kinds are reference data" is more precise than a global default and is where this likely ends up. It needs an interface that does not exist and a question most plugin authors will not think about, and the flag needs neither.
+- **Option 5** was rejected because "what is running here that I have not written down" is the right question on first contact with an estate, and it is how somebody documents one. It should be one flag away, not gone.
+
 ## Amendments
 
 None yet.

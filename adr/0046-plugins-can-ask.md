@@ -113,6 +113,12 @@ It gets a named test: `TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging`.
 
 - An action can now take several round trips through the plugin, and a plugin author has to make it resumable. The token exists to make that cheap, but "resumable" is a real constraint that unary actions did not carry.
 - A chained step cannot ask. The caller is already holding the result of the action that started the chain, so a step that asks is told `unsupported` and decides for itself. Composition and elicitation therefore do not combine, which will surprise somebody eventually.
+
+### Rejected because
+
+- **Option 1** was rejected on one point only, and it remains right for most actions. The agent gathering the input is the same agent that might invent it. For a decision record, a guarantee that the human was actually asked is the product, not a nicety.
+- **Option 2** was rejected because a blocking callback has no answer for a surface with nobody attached: it hangs or fails, and the plugin cannot tell "nobody is there" from "the human is thinking". It also needs a bidirectional stream, which would re-decide [ADR-0039](0039-one-plugin-transport.md) by the back door, since gRPC streaming is comfortable in far fewer languages than a socket is.
+- **Option 4** was rejected because an interview declared up front cannot branch. What a plugin needs to ask second usually depends on the first answer, and a fixed form either over-asks every time or cannot express the case it exists for. It also splits one action's input across two RPCs with no way to keep them consistent.
 - Four turns is arbitrary. It is generous enough for any real interview and too small for none, but it is a number in a constant rather than a reasoned limit.
 - Dusk now relays a schema it does not validate. A plugin can ask for a shape the client cannot render, and neither side finds out until a human sees a broken form.
 - The `preview` path deliberately does not elicit, so a dry run of an asking action shows what would happen without the answers. That is defensible and it is also a second behaviour to explain.
