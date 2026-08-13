@@ -34,6 +34,11 @@ type Installed struct {
 	// Config is what the plugin is configured with. Sensitive fields are not
 	// here: those live in the encrypted store (ADR-0023).
 	Config map[string]any `json:"config,omitempty"`
+
+	// Instances are additional configurations of the same plugin, each with its
+	// own scope. One Kubernetes plugin observes one cluster, so a second
+	// cluster is a second instance rather than a second install.
+	Instances map[string]map[string]any `json:"instances,omitempty"`
 }
 
 // Store is where installed plugins live between restarts. In Kubernetes this

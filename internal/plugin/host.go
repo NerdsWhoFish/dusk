@@ -132,6 +132,31 @@ func (r *Running) describe(ctx context.Context) (*duskv1alpha1.DescribeResponse,
 // under. Prefixed so a plugin cannot collide with an in-tree ingester.
 func (r *Running) Name() string { return "plugin:" + r.ID }
 
+// Instance is one configured use of a plugin, with its own scope and its own
+// place in the rotation. Instances share a process, and fail apart: an
+// unreachable cluster backs its own instance off without staling the others.
+type Instance struct {
+	*Running
+
+	// instance names this configuration. Empty is the plugin's own name, which
+	// is what a single-instance install looks like.
+	instance string
+	config   *structpb.Struct
+}
+
+// Name scopes this instance's observations.
+func (i *Instance) Name() string {
+	if i.instance == "" {
+		return i.Running.Name()
+	}
+	return i.Running.Name() + ":" + i.instance
+}
+
+// Observe uses this instance's own configuration, not the plugin's.
+func (i *Instance) Observe(ctx context.Context) (*ingest.Observation, error) {
+	return i.observe(ctx, i.config, i.Name())
+}
+
 // Interval is how often this plugin should be asked to observe.
 func (r *Running) Interval() time.Duration {
 	if r.interval <= 0 {
@@ -144,9 +169,13 @@ func (r *Running) Interval() time.Duration {
 // refused rather than stored, because ingest.Run treats what it is given as
 // everything the source has and would delete the rest.
 func (r *Running) Observe(ctx context.Context) (*ingest.Observation, error) {
-	stream, err := r.client.Ingest(ctx, &duskv1alpha1.IngestRequest{Config: r.config})
+	return r.observe(ctx, r.config, r.Name())
+}
+
+func (r *Running) observe(ctx context.Context, config *structpb.Struct, name string) (*ingest.Observation, error) {
+	stream, err := r.client.Ingest(ctx, &duskv1alpha1.IngestRequest{Config: config})
 	if err != nil {
-		return nil, fmt.Errorf("plugin: %s ingest: %w", r.ID, err)
+		return nil, fmt.Errorf("plugin: %s ingest: %w", name, err)
 	}
 
 	observation := &ingest.Observation{}

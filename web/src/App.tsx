@@ -3,6 +3,7 @@ import { api, Unauthorized } from "./api";
 import type { Viewer } from "./api";
 import { EntityView } from "./EntityView";
 import { Landing } from "./Landing";
+import { Menu } from "./Menu";
 import { Plugins } from "./Plugins";
 
 // The route is the URL, read and written directly. A router is a dependency
@@ -66,21 +67,7 @@ export function App() {
           </span>
         )}
         <div className="who">
-          <a
-            className="signout"
-            href="/plugins"
-            onClick={(e) => {
-              e.preventDefault();
-              go(path === "/plugins" ? "/" : "/plugins");
-            }}
-          >
-            {path === "/plugins" ? "Catalog" : "Plugins"}
-          </a>
-          <form method="post" action="/logout">
-            <button className="signout" type="submit">
-              Sign out
-            </button>
-          </form>
+          <Menu path={path} onGo={go} />
         </div>
       </header>
 

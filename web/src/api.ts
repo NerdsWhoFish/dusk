@@ -133,6 +133,17 @@ export type Viewer = {
   github: boolean;
 };
 
+export type PluginField = {
+  name: string;
+  label: string;
+  help?: string;
+  type: string;
+  required: boolean;
+  sensitive: boolean;
+};
+
+export type PluginConfig = Record<string, unknown>;
+
 export type PluginOffer = {
   id: string;
   org: string;
@@ -145,6 +156,9 @@ export type PluginOffer = {
   update_available: boolean;
   running: boolean;
   problem?: string;
+  fields?: PluginField[];
+  config?: PluginConfig;
+  instances?: Record<string, PluginConfig>;
 };
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -173,6 +187,13 @@ export const api = {
     ),
   uninstall: (id: string) =>
     post<{ uninstalled: string }>(`/plugins/${encodeURIComponent(id)}/uninstall`),
+  configure: (id: string, config: PluginConfig, instance?: string) =>
+    post<{ configured: string }>(
+      instance
+        ? `/plugins/${encodeURIComponent(id)}/config/${encodeURIComponent(instance)}`
+        : `/plugins/${encodeURIComponent(id)}/config`,
+      config,
+    ),
   home: () => get<Home>("/home"),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),

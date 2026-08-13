@@ -85,7 +85,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Plugins
 
-- [ ] **Host runtime**: subprocess lifecycle and a gRPC client over a unix socket. One transport, not two ([0039](../adr/0039-one-plugin-transport.md))
+- [x] **One transport**: gRPC over a host-provided unix socket, and no second way in ([0039](../adr/0039-one-plugin-transport.md))
 - [ ] **`GetAsset` RPC**: `PluginService` has no call that returns bytes, so [0020](../adr/0020-plugin-ui.md)'s Web Component delivery is unimplementable as written. v1alpha1 has to grow it before it stabilises ([0039](../adr/0039-one-plugin-transport.md)). **Stream it in chunks rather than returning one `bytes` field**: gRPC's send default is unlimited and its receive default is 4MB, so a plugin embedding a large bundle sends it happily and Dusk rejects it. Raising the receive cap means guessing a number high enough for plugins nobody has written; chunking has no number to guess
 - [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
 - [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md)). Being moved out to `NerdsWhoFish/dusk-plugin-kubernetes` as the first plugin, and removed from here only once that replaces it ([0040](../adr/0040-core-and-plugins.md))
@@ -93,12 +93,13 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
 - [ ] **Plugin UI**: declarative view spec, then Web Components ([0020](../adr/0020-plugin-ui.md))
 - [ ] **Actions**: invoke, dry run, classification, approval, events ([0015](../adr/0015-plugin-actions-and-events.md))
+- [x] **Host runtime**: a plugin is exec'd on a host-provided unix socket, answers `Describe`, and joins the rotation as an ordinary `ingest.Ingester`, so scheduling, backoff and the never-delete rule are not reimplemented for it
+- [x] **Marketplace, install and update**: `dusk-plugin-*` in allowlisted orgs, checksum verified before anything runs, cached on disk so a restart needs no network, updates applied only when a human says ([0042](../adr/0042-installing-plugins.md))
+- [x] **Configuration in the UI**: a form rendered from the plugin's declared `config_fields`, so Dusk knows nothing about any plugin ([0023](../adr/0023-plugin-configuration.md))
+- [x] **Instances**: one plugin, several configurations, each with its own scope and its own place in the rotation. One Kubernetes plugin observes one cluster, so a second cluster is a second instance rather than a second install. They share a process and fail apart
 - [ ] **Plugin capability over MCP**: `invoke` and discovery folded into `get`, so installing a plugin adds no tools ([0041](../adr/0041-plugins-reach-agents-as-actions.md))
 - [ ] **Configuring a plugin over MCP**: non-sensitive fields through `declare`, since they are already frontmatter in the config repository. Sensitive fields stay UI-only ([0041](../adr/0041-plugins-reach-agents-as-actions.md), [0023](../adr/0023-plugin-configuration.md))
-- [ ] **Marketplace**: `dusk-plugin-*` repositories in allowlisted GitHub orgs, listed in the UI ([0042](../adr/0042-installing-plugins.md))
-- [ ] **Install and update**: download a release asset, verify its checksum, record the version, and never update without a human saying so ([0042](../adr/0042-installing-plugins.md))
-- [ ] **Plugin cache on disk**: installed binaries live in the data directory, so a restart needs no network and a rollout does not race a rate limit. Makes the PVC hold something not rebuildable from git ([0042](../adr/0042-installing-plugins.md))
-- [ ] **Shared plugin release workflow**: GoReleaser with conventional-commit notes, living once in `NerdsWhoFish/.github` and called by every plugin rather than copied ([0021](../adr/0021-release-tooling.md))
+- [x] **Shared plugin release workflow**: GoReleaser with conventional-commit notes, living once in `NerdsWhoFish/.github` and called by every plugin rather than copied ([0021](../adr/0021-release-tooling.md))
 
 GitHub is not on this list. It is core and stays there: git is the source of truth, so GitHub is substrate rather than a source among sources ([0040](../adr/0040-core-and-plugins.md)).
 
@@ -156,6 +157,8 @@ Written down so the order is a choice rather than whatever comes to mind next. K
 - A restricted viewer's drift, integrity and kind counts are not filtered, so those blocks can count things the viewer cannot open.
 - OAuth sign-in requests `repo` scope, which is far more than listing repository names needs. GitHub offers nothing narrower that still sees private repositories. A GitHub App ignores the scope entirely and grants what its installation permits, so this only bites a deployment pointed at a real OAuth App through the environment ([0036](../adr/0036-deriving-what-a-viewer-sees.md)).
 - Identity sessions live in memory, so a restart signs everybody out. Every deploy is a restart, so this is routine rather than rare.
+- **The PVC now holds something not rebuildable from git.** Installed plugin binaries live in the data directory, which is what lets a restart need no network, and weakens a guarantee that was previously absolute and simple to explain ([0042](../adr/0042-installing-plugins.md)).
+- A plugin instance observing a source Dusk cannot reach locally needs that source's credentials mounted into Dusk's pod. Observing a second Kubernetes cluster therefore means a kubeconfig secret, which is the case [0039](../adr/0039-one-plugin-transport.md) left open by rejecting network plugins. The cheaper shape is an authenticated push endpoint, and that decision has not been made.
 - Being signed in and being let in are two decisions in two places: `access.Policy` guards the surface, `access.OAuth` holds the identity, and the policy only consults the identity because it was handed one through `Recognize`. Sign-in shipped without that call and silently bounced everybody back to the login page, so a new credential has to be taught to the gate as well as minted.
 - Anything a login or setup page references has to be routed outside the gate that page exists to open. The favicon was not, so it redirected to `/login` and rendered nothing. There is no rule enforcing this beyond the tests that now cover it.
 - A grid or flex item's automatic minimum is its **min-content** width, so `1fr` alone lets one long ref widen a column past the screen. Every track that holds catalog content wants `minmax(0, 1fr)`. This shipped in the single-column mobile rule while the two-column desktop rule had it right, which is why it was invisible on a laptop and broke every phone.

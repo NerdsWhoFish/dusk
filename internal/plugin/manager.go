@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -45,6 +46,42 @@ type Offer struct {
 
 	Running bool   `json:"running"`
 	Problem string `json:"problem,omitempty"`
+
+	// Fields is what the plugin says it needs configuring, so the UI renders a
+	// form from a typed description rather than knowing about any plugin.
+	Fields []Field `json:"fields,omitempty"`
+
+	Config    map[string]any            `json:"config,omitempty"`
+	Instances map[string]map[string]any `json:"instances,omitempty"`
+}
+
+// Field is one setting on a plugin's configuration form.
+type Field struct {
+	Name     string `json:"name"`
+	Label    string `json:"label"`
+	Help     string `json:"help,omitempty"`
+	Type     string `json:"type"`
+	Required bool   `json:"required"`
+
+	// Sensitive fields are entered here and nowhere else. ADR-0041 keeps them
+	// off every surface an agent can reach.
+	Sensitive bool `json:"sensitive"`
+}
+
+func fieldsOf(described *duskv1alpha1.DescribeResponse) []Field {
+	declared := described.GetConfigFields()
+	fields := make([]Field, 0, len(declared))
+	for _, field := range declared {
+		fields = append(fields, Field{
+			Name:      field.GetName(),
+			Label:     field.GetLabel(),
+			Help:      field.GetHelp(),
+			Type:      strings.ToLower(strings.TrimPrefix(field.GetType().String(), "CONFIG_FIELD_TYPE_")),
+			Required:  field.GetRequired(),
+			Sensitive: field.GetSensitive(),
+		})
+	}
+	return fields
 }
 
 func (m *Manager) log() *slog.Logger {
@@ -90,8 +127,16 @@ func (m *Manager) Available(ctx context.Context) ([]Offer, error) {
 			offer.Installed = true
 			offer.InstalledVersion = record.Version
 			offer.UpdateAvailable = listing.Version != "" && listing.Version != record.Version
+			offer.Config = record.Config
+			offer.Instances = record.Instances
 		}
-		_, offer.Running = m.running[listing.ID]
+
+		// Only a running plugin can say what it needs: the fields come from
+		// Describe, so a stopped one offers no form rather than a stale one.
+		if running, ok := m.running[listing.ID]; ok {
+			offer.Running = true
+			offer.Fields = fieldsOf(running.Describe)
+		}
 		offers = append(offers, offer)
 	}
 	return offers, nil
@@ -137,17 +182,37 @@ func (m *Manager) Uninstall(id string) error {
 
 // Configure saves a plugin's configuration and restarts it with it.
 func (m *Manager) Configure(ctx context.Context, id string, config map[string]any) error {
+	return m.configure(ctx, id, "", config)
+}
+
+// ConfigureInstance saves one named configuration of a plugin, which is how the
+// same plugin observes a second cluster without being installed twice.
+func (m *Manager) ConfigureInstance(ctx context.Context, id, instance string, config map[string]any) error {
+	return m.configure(ctx, id, instance, config)
+}
+
+func (m *Manager) configure(ctx context.Context, id, instance string, config map[string]any) error {
 	record, err := m.Store.Read(id)
 	if err != nil {
 		return fmt.Errorf("plugin: %q is not installed", id)
 	}
 
-	record.Config = config
+	// Stopped before the record changes, so the instances being removed from
+	// the rotation are the ones that were added to it.
+	m.stop(id)
+
+	if instance == "" {
+		record.Config = config
+	} else {
+		if record.Instances == nil {
+			record.Instances = map[string]map[string]any{}
+		}
+		record.Instances[instance] = config
+	}
+
 	if err := m.Store.Write(*record); err != nil {
 		return err
 	}
-
-	m.stop(id)
 	return m.start(ctx, *record)
 }
 
@@ -198,10 +263,28 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 	m.running[record.ID] = running
 	m.mu.Unlock()
 
-	m.Rota.Add(running)
-	m.log().Info("plugin started",
-		"plugin", record.ID, "version", running.Version, "scope", running.Name())
+	for _, instance := range instancesOf(running, record) {
+		m.Rota.Add(instance)
+		m.log().Info("plugin started",
+			"plugin", record.ID, "version", running.Version, "scope", instance.Name())
+	}
 	return nil
+}
+
+// instancesOf turns a record into everything that should be in the rotation.
+// The plugin's own config is always one, so an install with no named instances
+// behaves exactly as it did before there were any.
+func instancesOf(running *Running, record Installed) []*Instance {
+	instances := []*Instance{{Running: running, config: running.config}}
+
+	for name, config := range record.Instances {
+		built, err := structpb.NewStruct(config)
+		if err != nil {
+			continue
+		}
+		instances = append(instances, &Instance{Running: running, instance: name, config: built})
+	}
+	return instances
 }
 
 func (m *Manager) stop(id string) {
@@ -214,6 +297,15 @@ func (m *Manager) stop(id string) {
 
 	if !ok {
 		return
+	}
+
+	// Every instance, not just the plugin's own: leaving one behind puts a
+	// dead connection in the rotation, which fails forever rather than loudly.
+	record, err := m.Store.Read(id)
+	if err == nil {
+		for _, instance := range instancesOf(running, *record) {
+			m.Rota.Remove(instance.Name())
+		}
 	}
 	m.Rota.Remove(running.Name())
 	running.Stop()

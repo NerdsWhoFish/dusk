@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type PluginOffer } from "./api";
+import { ConfigForm } from "./PluginConfig";
 
 // Plugins is the marketplace: what the trusted orgs publish, what is installed
 // here, and what has an update waiting. Installing runs somebody else's binary
@@ -81,6 +82,7 @@ export function Plugins() {
             offer={offer}
             busy={busy[offer.id]}
             onAct={act}
+            onSaved={load}
           />
         ))}
       </div>
@@ -92,11 +94,17 @@ function Offer({
   offer,
   busy,
   onAct,
+  onSaved,
 }: {
   offer: PluginOffer;
   busy?: string;
   onAct: (id: string, what: "install" | "uninstall") => void;
+  onSaved: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState("");
+  const instances = Object.keys(offer.instances ?? {});
+
   return (
     <div className="row plugin">
       <div className="row-main">
@@ -122,6 +130,15 @@ function Offer({
       </div>
 
       <div className="plugin-actions">
+        {offer.installed && offer.running && (
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open ? "Close" : "Configure"}
+          </button>
+        )}
         {offer.installed && offer.update_available && (
           <button
             type="button"
@@ -152,6 +169,43 @@ function Offer({
           </button>
         )}
       </div>
+
+      {open && (
+        <div className="plugin-panel">
+          <ConfigForm offer={offer} onSaved={onSaved} />
+
+          {instances.map((name) => (
+            <div key={name} className="plugin-instance">
+              <h3>{name}</h3>
+              <ConfigForm offer={offer} instance={name} onSaved={onSaved} />
+            </div>
+          ))}
+
+          {/* A second source is a second instance of the same plugin, not a
+              second install: one Kubernetes plugin observes one cluster. */}
+          <div className="plugin-instance">
+            <label className="plugin-field" htmlFor="new-instance">
+              <span className="plugin-field-label">Add another source</span>
+              <input
+                id="new-instance"
+                value={adding}
+                placeholder="a name for it, such as another cluster"
+                onChange={(e) => setAdding(e.target.value)}
+              />
+            </label>
+            {adding.trim() && (
+              <ConfigForm
+                offer={offer}
+                instance={adding.trim()}
+                onSaved={() => {
+                  setAdding("");
+                  onSaved();
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

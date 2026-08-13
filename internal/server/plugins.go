@@ -15,6 +15,7 @@ type Plugins interface {
 	Install(ctx context.Context, id string) (*plugin.Installed, error)
 	Uninstall(id string) error
 	Configure(ctx context.Context, id string, config map[string]any) error
+	ConfigureInstance(ctx context.Context, id, instance string, config map[string]any) error
 }
 
 // handleAPIPlugins answers GET /api/plugins with the marketplace, annotated
@@ -89,4 +90,26 @@ func (s *Server) handleAPIConfigure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"configured": r.PathValue("id")})
+}
+
+// handleAPIConfigureInstance answers POST /api/plugins/{id}/config/{instance},
+// which is how one plugin observes a second source without a second install.
+func (s *Server) handleAPIConfigureInstance(w http.ResponseWriter, r *http.Request) {
+	if s.plugins == nil {
+		http.Error(w, `{"error":"plugins are not enabled"}`, http.StatusNotImplemented)
+		return
+	}
+
+	var config map[string]any
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&config); err != nil {
+		http.Error(w, `{"error":"that configuration could not be read"}`, http.StatusBadRequest)
+		return
+	}
+
+	id, instance := r.PathValue("id"), r.PathValue("instance")
+	if err := s.plugins.ConfigureInstance(r.Context(), id, instance, config); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"configured": id, "instance": instance})
 }
