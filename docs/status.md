@@ -86,12 +86,13 @@ This tracks the product. It deliberately says nothing about any particular deplo
 ## Plugins
 
 - [x] **One transport**: gRPC over a host-provided unix socket, and no second way in ([0039](../adr/0039-one-plugin-transport.md))
-- [ ] **`GetAsset` RPC**: `PluginService` has no call that returns bytes, so [0020](../adr/0020-plugin-ui.md)'s Web Component delivery is unimplementable as written. v1alpha1 has to grow it before it stabilises ([0039](../adr/0039-one-plugin-transport.md)). **Stream it in chunks rather than returning one `bytes` field**: gRPC's send default is unlimited and its receive default is 4MB, so a plugin embedding a large bundle sends it happily and Dusk rejects it. Raising the receive cap means guessing a number high enough for plugins nobody has written; chunking has no number to guess
+- [x] **`GetAsset` RPC**: streams a plugin's JavaScript in chunks, which Dusk hashes and serves content addressed at `/plugin-assets/{plugin}/{sha}.js` from its own origin. Immutable caching is safe there because a different asset has a different URL. Proven by `dusk-plugin-airtrail`
+- [x] **Plugin UI**: a plugin ships a custom element, not a React component, so it shares no runtime with Dusk and brings its own rendering. Styling crosses the shadow boundary through CSS custom properties, which inherit where classes do not. The declarative view spec of [0020](../adr/0020-plugin-ui.md) is not built: Tier 2 arrived first because it is what AirTrail needed
 - [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
 - [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md)). Being moved out to `NerdsWhoFish/dusk-plugin-kubernetes` as the first plugin, and removed from here only once that replaces it ([0040](../adr/0040-core-and-plugins.md))
 - [~] **Kubernetes plugin**: serves `PluginService` over a host-provided unix socket, observes a real cluster, and ports the namespace and plumbing filters intact. Nothing runs it until the host lands
 - [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
-- [ ] **Plugin UI**: declarative view spec, then Web Components ([0020](../adr/0020-plugin-ui.md))
+- [ ] **Declarative view spec**: [0020](../adr/0020-plugin-ui.md)'s Tier 1, where a plugin declares "these fields as a table" and Dusk's own React renders it with no JavaScript from the plugin at all. Tier 2 was built first because it is what the first plugin with a view actually needed, which inverts that ADR's stated order
 - [ ] **Actions**: invoke, dry run, classification, approval, events ([0015](../adr/0015-plugin-actions-and-events.md))
 - [x] **Host runtime**: a plugin is exec'd on a host-provided unix socket, answers `Describe`, and joins the rotation as an ordinary `ingest.Ingester`, so scheduling, backoff and the never-delete rule are not reimplemented for it
 - [x] **Marketplace, install and update**: `dusk-plugin-*` in allowlisted orgs, checksum verified before anything runs, cached on disk so a restart needs no network, updates applied only when a human says ([0042](../adr/0042-installing-plugins.md))
@@ -125,7 +126,8 @@ Written down so the order is a choice rather than whatever comes to mind next. K
 
 **Observe only**, at least to begin with:
 
-- [ ] **AirTrail**: flights as entities. The second plugin
+- [x] **AirTrail**: flights and the airports they connect, in `dusk-plugin-airtrail`. The first plugin to ship a **UI contribution**, so it is what proves [0020](../adr/0020-plugin-ui.md) end to end: `GetAsset` streams the element's JavaScript, Dusk serves it content addressed from its own origin, and the entity page mounts the tag
+- [x] **Music Assistant**: players and their groups, in `dusk-plugin-music-assistant`. WebSocket rather than REST, because it has no REST, and authentication is the first message rather than a header. Its actions are declared and `DryRun` works; `Invoke` deliberately does not, because a plugin that can make noise in somebody's house should not be able to on its first version
 - [ ] **Flux**: what GitOps believes is deployed, against what Kubernetes reports running. The pair is drift with a cause attached
 - [ ] **OCI registries**: Harbor, GHCR and friends: images, tags and what is actually pulled
 - [ ] **Firewalla**: the network layer under everything else: devices, rules, what is reachable
@@ -142,7 +144,7 @@ Written down so the order is a choice rather than whatever comes to mind next. K
 - [ ] **Obsidian**: notes both ways, which is the closest thing to Dusk's own knowledge layer
 - [ ] **GitHub Projects**: boards and cards as work, alongside the repositories core already reads
 - [ ] **LubeLogger**: vehicle maintenance, where logging a service is the point
-- [ ] **Music Assistant**: players and playback
+- [~] **Music Assistant**: observing is built. Wiring `Invoke` so playback actually starts is what remains
 - [ ] **Calendar**: what is scheduled, and booking or moving it. The one plugin whose actions are mostly about a human's time rather than a system's state, so approval means something different here
 
 ---
