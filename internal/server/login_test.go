@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/store"
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 const signInButton = `href="/auth/github"`

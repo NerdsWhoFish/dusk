@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/FetchHQ/dusk/web"
+	"github.com/NerdsWhoFish/dusk/web"
 )
 
 // assetMaxAge is long because the binary is the versioned artifact: a given

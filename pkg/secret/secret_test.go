@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 const sensitive = "sk-live-do-not-leak-me"

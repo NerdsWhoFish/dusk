@@ -12,9 +12,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // ObservedRef is the git ref every observation is stored under. Observations

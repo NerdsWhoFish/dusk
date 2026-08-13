@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // writeServer records what a write actually sent, which is the only way to

@@ -19,27 +19,27 @@ The chart and the application version together, a single pull request changes bo
 
 It has costs that arrive later.
 A chart repository is a discovery surface: people look for `<org>/charts` and expect to find every chart there, not scattered across product repositories.
-A second FetchHQ project shipping a chart would either duplicate the pattern or force a migration.
+A second NerdsWhoFish project shipping a chart would either duplicate the pattern or force a migration.
 And chart consumers watching for chart changes end up watching a repository whose traffic is almost entirely application commits.
 
 ## Considered Options
 
 1. **Colocated**, at `charts/dusk` inside the Dusk repository.
-2. **Its own repository**, `FetchHQ/charts`, holding every FetchHQ chart with Dusk's at `dusk/`.
+2. **Its own repository**, `NerdsWhoFish/charts`, holding every NerdsWhoFish chart with Dusk's at `dusk/`.
 
 ## Decision Outcome
 
 Chosen: **option 2**.
 
-`FetchHQ/charts` holds all charts, with Dusk's at `dusk/`.
-Charts are published as OCI artifacts to `ghcr.io/fetchhq/charts/<name>`, so there is no repository index to host or keep current.
+`NerdsWhoFish/charts` holds all charts, with Dusk's at `dusk/`.
+Charts are published as OCI artifacts to `ghcr.io/nerdswhofish/charts/<name>`, so there is no repository index to host or keep current.
 
 ### The release still drives from the Dusk repo
 
 **Chart versions track the application version.** Releasing Dusk `v1.2.3` publishes chart `1.2.3` with `appVersion: 1.2.3` pointing at image `v1.2.3`.
 
 Splitting the repositories does not split the release.
-The Dusk release workflow, after tagging and pushing the image, writes the chart version into `FetchHQ/charts` and publishes it.
+The Dusk release workflow, after tagging and pushing the image, writes the chart version into `NerdsWhoFish/charts` and publishes it.
 
 That cross-repo write uses a **GitHub App token scoped to the charts repository**, minted per run via `actions/create-github-app-token`, rather than a personal access token.
 It reaches exactly one repository and expires within the hour, where a PAT would sit in settings until somebody remembered to rotate it.
@@ -55,7 +55,7 @@ A chart `1.2.4` with no matching application release is unresolvable six months 
 
 ### Good
 
-- `FetchHQ/charts` is where people will look, and it scales to a second and third chart with no migration.
+- `NerdsWhoFish/charts` is where people will look, and it scales to a second and third chart with no migration.
 - Chart consumers can watch a repository whose changes are actually about charts.
 - OCI publishing means no chart index to host, no `gh-pages` branch, and no stale index file.
 - A scoped, expiring App token is a materially better credential than a PAT for a cross-repo write, and the pattern is already proven in another repository.

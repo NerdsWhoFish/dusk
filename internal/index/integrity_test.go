@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // A sound catalog reports nothing, or the signal is worthless.

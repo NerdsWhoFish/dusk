@@ -7,8 +7,8 @@ import (
 	"io/fs"
 	"sync"
 
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // Downloader fetches a whole tree at a commit.

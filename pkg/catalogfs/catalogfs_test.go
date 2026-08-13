@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 )
 
 const commit = "a866a20af5b14f34b7fe993e1b1fa0b6df0a46b7"

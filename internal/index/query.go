@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 )
 
 // SearchResult is one full-text hit, carrying enough to render a list without

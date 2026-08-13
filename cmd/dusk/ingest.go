@@ -8,9 +8,9 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/FetchHQ/dusk/internal/config"
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/internal/config"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/reconcile"
 )
 
 // ingestCommand loads a local checkout into the index without GitHub, so Dusk

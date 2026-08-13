@@ -14,9 +14,9 @@ import (
 // org is a plugin, which is why there is no list to submit to (ADR-0042).
 const Prefix = "dusk-plugin-"
 
-// DefaultOrgs is where Dusk looks when nothing says otherwise. FetchHQ is
+// DefaultOrgs is where Dusk looks when nothing says otherwise. NerdsWhoFish is
 // first rather than special: an operator can remove it.
-var DefaultOrgs = []string{"FetchHQ"}
+var DefaultOrgs = []string{"NerdsWhoFish"}
 
 // Listing is one plugin the marketplace offers.
 type Listing struct {

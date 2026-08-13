@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FetchHQ/dusk/internal/access"
-	"github.com/FetchHQ/dusk/internal/config"
-	"github.com/FetchHQ/dusk/internal/controller"
-	"github.com/FetchHQ/dusk/internal/store"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/internal/access"
+	"github.com/NerdsWhoFish/dusk/internal/config"
+	"github.com/NerdsWhoFish/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // credentialStore is the slice of store.Store the server needs, declared here

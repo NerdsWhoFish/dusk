@@ -57,7 +57,7 @@ ARG COMMIT
 
 LABEL org.opencontainers.image.title=dusk \
       org.opencontainers.image.description="A service catalog that maintains itself" \
-      org.opencontainers.image.source=https://github.com/FetchHQ/dusk \
+      org.opencontainers.image.source=https://github.com/NerdsWhoFish/dusk \
       org.opencontainers.image.licenses=Apache-2.0 \
       org.opencontainers.image.version=${VERSION} \
       org.opencontainers.image.revision=${COMMIT}

@@ -20,11 +20,11 @@ import (
 	"slices"
 	"time"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
-	"github.com/FetchHQ/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 )
 
 // RootFile is the file whose presence opts a repository into the catalog.

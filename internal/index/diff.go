@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 )
 
 // Change is one difference between the catalog at two refs, semantic rather

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // A pull request that changes files but not the catalog has to say so.

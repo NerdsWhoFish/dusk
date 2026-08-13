@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/internal/reconcile"
-	"github.com/FetchHQ/dusk/internal/store"
-	"github.com/FetchHQ/dusk/internal/write"
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
-	"github.com/FetchHQ/dusk/pkg/duskmd"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // DefaultInterval is the poll floor, deliberately slow. Webhooks carry the

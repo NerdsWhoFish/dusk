@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 // SessionCookie is the browser's credential.

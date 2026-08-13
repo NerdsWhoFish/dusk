@@ -8,9 +8,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/ingest"
+	"github.com/NerdsWhoFish/dusk/internal/ingest"
 )
 
 // Rotation is the slice of the ingest scheduler a plugin needs, so installing

@@ -9,10 +9,10 @@ import (
 	"regexp"
 	"strings"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/pkg/duskmd"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // NoteDir is where a written note lands. ADR-0031 makes it always in scope, so

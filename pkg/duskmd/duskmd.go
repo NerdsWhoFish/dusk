@@ -22,8 +22,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/FetchHQ/dusk-plugin-sdk/conformance"
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	"github.com/NerdsWhoFish/dusk-plugin-sdk/conformance"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 	"go.yaml.in/yaml/v3"
 )
 

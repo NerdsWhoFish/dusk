@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // commentLimit caps how many changes are listed. A review comment longer than

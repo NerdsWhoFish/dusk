@@ -13,12 +13,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/config"
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/internal/server"
-	"github.com/FetchHQ/dusk/internal/store"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
-	"github.com/FetchHQ/dusk/pkg/vault"
+	"github.com/NerdsWhoFish/dusk/internal/config"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/server"
+	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
 const externalURL = "https://dusk.example.com"
@@ -274,7 +274,7 @@ func TestSetupPagePostsToGitHub(t *testing.T) {
 		wantAction string
 	}{
 		{name: "personal accounts post to the user settings endpoint", target: "/setup", wantAction: githubapp.CreateURL},
-		{name: "an org posts to the org settings endpoint", target: "/setup?org=fetchhq", wantAction: githubapp.OrgCreateURL("fetchhq")},
+		{name: "an org posts to the org settings endpoint", target: "/setup?org=nerdswhofish", wantAction: githubapp.OrgCreateURL("nerdswhofish")},
 	}
 
 	for _, tt := range tests {

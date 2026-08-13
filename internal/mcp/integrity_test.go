@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/internal/mcp"
 )
 
 // An agent that has to know to ask whether an answer is trustworthy will not

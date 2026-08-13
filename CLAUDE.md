@@ -63,6 +63,6 @@ A plugin lives in its own repository named `dusk-plugin-<name>`, because that pr
 Two things differ, both because a plugin ships a binary and Dusk ships a service:
 
 - **Every plugin releases with GoReleaser**, with release notes generated from conventional commits, and the same dispatch-with-scope-and-bump flow this repository uses ([ADR-0021](adr/0021-release-tooling.md)). Dusk itself deliberately does not use GoReleaser: it publishes a container image, so GoReleaser would only wrap `docker buildx` and has nothing else to do. That reasoning does not transfer to a plugin, which publishes per-platform binaries that Dusk downloads from a GitHub release. Do not "fix" either repository to match the other.
-- **The release workflow is called, not copied.** It lives once in `FetchHQ/.github` and every plugin references it with `uses:`. Copied CI drifts silently, and a marketplace whose plugins each package themselves slightly differently is one where installing is different every time.
+- **The release workflow is called, not copied.** It lives once in `NerdsWhoFish/.github` and every plugin references it with `uses:`. Copied CI drifts silently, and a marketplace whose plugins each package themselves slightly differently is one where installing is different every time.
 
 Because a release artifact is what Dusk downloads and executes, the checksums GoReleaser produces are not decoration. [ADR-0042](adr/0042-installing-plugins.md) verifies them on install.

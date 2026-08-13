@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/internal/reconcile"
 )
 
 // Dir backs `dusk validate` and Tarball backs the server. They now share one

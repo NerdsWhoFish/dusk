@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/FetchHQ/dusk/internal/page"
+	"github.com/NerdsWhoFish/dusk/internal/page"
 )
 
 // Pages supplies the declared portal page, if the config repository has one.

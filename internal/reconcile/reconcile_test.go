@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/reconcile"
 )
 
 // Both sources satisfy the boundary, which is what ADR-0005 requires: the

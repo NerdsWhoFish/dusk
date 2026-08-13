@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 const testCommit = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"

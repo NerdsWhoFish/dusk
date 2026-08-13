@@ -10,7 +10,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // ContextBudget caps the rendered context in bytes, standing in for ADR-0014's

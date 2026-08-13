@@ -1,7 +1,7 @@
 name: release
 
 # Dusk publishes a container image, not archives, so this drives `docker
-# buildx` directly. The Helm chart is released by FetchHQ/charts on its own
+# buildx` directly. The Helm chart is released by NerdsWhoFish/charts on its own
 # schedule. GoReleaser would only wrap buildx,
 # and a service with no binaries or tap leaves it nothing else to do.
 
@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/fetchhq/dusk
+  IMAGE: ghcr.io/nerdswhofish/dusk
   PLATFORMS: linux/amd64,linux/arm64
 
 jobs:

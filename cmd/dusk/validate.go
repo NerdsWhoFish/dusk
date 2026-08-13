@@ -7,7 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/FetchHQ/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/internal/reconcile"
 )
 
 // validateCommand checks a checkout with no server, index, or network. It reads

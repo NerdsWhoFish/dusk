@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 // IdentityCookie holds a signed GitHub identity. It is separate from the

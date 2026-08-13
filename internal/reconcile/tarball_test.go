@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/reconcile"
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 const commit = "a866a20af5b14f34b7fe993e1b1fa0b6df0a46b7"

@@ -16,12 +16,12 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/pkg/duskmd"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
-	"github.com/FetchHQ/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // RootFile is the file a repository opts in with, and the only one guaranteed

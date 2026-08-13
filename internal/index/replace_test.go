@@ -3,7 +3,7 @@ package index_test
 import (
 	"testing"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 )
 
 // A reconcile replaces everything a repository contributes. Anything left

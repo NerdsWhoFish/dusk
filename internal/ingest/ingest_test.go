@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/internal/ingest"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/ingest"
 )
 
 var observedAt = time.Date(2026, 8, 12, 4, 0, 0, 0, time.UTC)

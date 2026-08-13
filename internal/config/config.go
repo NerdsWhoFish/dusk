@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
-	"github.com/FetchHQ/dusk/pkg/vault"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
 // Defaults applied when the corresponding variable is unset.

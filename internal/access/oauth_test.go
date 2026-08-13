@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/access"
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/internal/access"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 type fakeGitHub struct {

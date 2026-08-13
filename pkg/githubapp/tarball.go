@@ -11,7 +11,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 )
 
 // Limits bound what an extraction accepts. A tarball is attacker-influenced

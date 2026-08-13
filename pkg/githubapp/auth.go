@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 // APIVersion pins the REST API so a GitHub change cannot silently alter

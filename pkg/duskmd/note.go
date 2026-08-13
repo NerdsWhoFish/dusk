@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FetchHQ/dusk-plugin-sdk/conformance"
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	"github.com/NerdsWhoFish/dusk-plugin-sdk/conformance"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 )
 
 // WellKnownNoteKinds seed the vocabulary. Kind drives ranking and rendering

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FetchHQ/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/controller"
 )
 
 // maxWebhookBody caps what is read before signature checking, so an unverified

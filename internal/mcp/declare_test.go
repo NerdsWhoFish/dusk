@@ -8,9 +8,9 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/FetchHQ/dusk/internal/mcp"
-	"github.com/FetchHQ/dusk/internal/write"
-	"github.com/FetchHQ/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // recordingWriter accepts anything, so these tests are about the surface rather

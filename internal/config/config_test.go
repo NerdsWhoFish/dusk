@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/config"
-	"github.com/FetchHQ/dusk/pkg/secret"
-	"github.com/FetchHQ/dusk/pkg/vault"
+	"github.com/NerdsWhoFish/dusk/internal/config"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
 func env(kv map[string]string) func(string) string {

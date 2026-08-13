@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 // signInCredentials resolves who Dusk signs people in as. The registered App is

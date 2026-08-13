@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FetchHQ/dusk-plugin-sdk/conformance"
+	"github.com/NerdsWhoFish/dusk-plugin-sdk/conformance"
 
-	"github.com/FetchHQ/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 )
 
 var testProvenance = duskmd.Provenance{

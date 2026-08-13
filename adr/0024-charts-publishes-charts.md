@@ -8,7 +8,7 @@ Accepted. Supersedes the release-coordination half of [ADR-0019](0019-chart-repo
 
 ## Context and Problem Statement
 
-[ADR-0019](0019-chart-repo.md) moved the Helm chart into `FetchHQ/charts` but kept the release driven from the Dusk repository, on the reasoning that **chart versions must track the application version** so that a chart version always corresponds to a real image.
+[ADR-0019](0019-chart-repo.md) moved the Helm chart into `NerdsWhoFish/charts` but kept the release driven from the Dusk repository, on the reasoning that **chart versions must track the application version** so that a chart version always corresponds to a real image.
 
 That requirement was invented rather than discovered, and it is not the Helm convention.
 
@@ -32,8 +32,8 @@ Insisting the two move in lockstep bought nothing and cost a great deal:
 
 Chosen: **option 2**.
 
-- `FetchHQ/dusk` publishes the container image and nothing else.
-- `FetchHQ/charts` publishes charts on its own schedule, with its own release workflow.
+- `NerdsWhoFish/dusk` publishes the container image and nothing else.
+- `NerdsWhoFish/charts` publishes charts on its own schedule, with its own release workflow.
 - **Chart version and `appVersion` are independent.** `appVersion` is set at chart release time to whichever Dusk version that chart targets.
 
 No GitHub App, no `CHARTS_APP_*` secrets, no cross-repo write anywhere in either pipeline.

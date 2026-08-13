@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io/fs"
 
-	"github.com/FetchHQ/dusk/internal/page"
+	"github.com/NerdsWhoFish/dusk/internal/page"
 )
 
 // Home returns the portal page the config repository declares, or

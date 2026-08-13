@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/pkg/vault"
+	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
 func newKey(t *testing.T) []byte {

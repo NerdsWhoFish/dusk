@@ -3,8 +3,8 @@ package server
 import (
 	"net/http"
 
-	"github.com/FetchHQ/dusk/internal/access"
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/access"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // handleSignIn sends the browser to GitHub.

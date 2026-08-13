@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/FetchHQ/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 )
 
 // Dir is a Source backed by a directory on disk. A directory has no refs, so it

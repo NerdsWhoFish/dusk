@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // Exhaustion and "your App cannot see this" are both 403. Telling them apart is

@@ -1,5 +1,5 @@
-github.com/FetchHQ/dusk-plugin-sdk v0.0.0-20260811210610-5599a3cafbae h1:RMRIU1YV4+duY//c2f4riuykmizv40H4sNbggsdPvEo=
-github.com/FetchHQ/dusk-plugin-sdk v0.0.0-20260811210610-5599a3cafbae/go.mod h1:4EKEsoaNp+k+eOy0Kvus1EWQQYQ6TJU4ax6q72aOlbE=
+github.com/NerdsWhoFish/dusk-plugin-sdk v0.0.0-20260813040520-8148394a6c5d h1:irJKcrSlWnbEVQXsFJ+iWmO+5a2r2VeCGT2fU5ob/bs=
+github.com/NerdsWhoFish/dusk-plugin-sdk v0.0.0-20260813040520-8148394a6c5d/go.mod h1:IuG04sKUkUQ/0EZ3EbL/RJC32T0HUbIJwVQC+b7WSio=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=

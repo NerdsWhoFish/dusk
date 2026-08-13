@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/githubapp"
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 var testKey = sync.OnceValue(func() *rsa.PrivateKey {

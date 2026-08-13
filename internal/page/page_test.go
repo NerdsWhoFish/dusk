@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/page"
+	"github.com/NerdsWhoFish/dusk/internal/page"
 )
 
 func TestParseADeclaredPage(t *testing.T) {

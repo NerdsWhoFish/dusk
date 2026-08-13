@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted. The chart-publishing portions are **superseded by [ADR-0024](0024-charts-publishes-charts.md)**: Dusk publishes only the image, and `FetchHQ/charts` publishes charts itself.
+Accepted. The chart-publishing portions are **superseded by [ADR-0024](0024-charts-publishes-charts.md)**: Dusk publishes only the image, and `NerdsWhoFish/charts` publishes charts itself.
 
 ## Context and Problem Statement
 

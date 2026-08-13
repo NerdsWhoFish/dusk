@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	duskv1alpha1 "github.com/FetchHQ/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
-	"github.com/FetchHQ/dusk/internal/controller"
-	"github.com/FetchHQ/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // Catalog is the slice of the index the API serves. The UI is an ordinary

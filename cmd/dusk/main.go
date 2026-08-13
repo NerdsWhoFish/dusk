@@ -15,19 +15,19 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/FetchHQ/dusk/internal/ingest"
+	"github.com/NerdsWhoFish/dusk/internal/ingest"
 
-	"github.com/FetchHQ/dusk/internal/config"
-	"github.com/FetchHQ/dusk/internal/controller"
-	"github.com/FetchHQ/dusk/internal/index"
-	"github.com/FetchHQ/dusk/internal/mcp"
-	"github.com/FetchHQ/dusk/internal/plugin"
-	"github.com/FetchHQ/dusk/internal/server"
-	"github.com/FetchHQ/dusk/internal/store"
-	"github.com/FetchHQ/dusk/internal/write"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
-	"github.com/FetchHQ/dusk/pkg/proof"
-	"github.com/FetchHQ/dusk/pkg/vault"
+	"github.com/NerdsWhoFish/dusk/internal/config"
+	"github.com/NerdsWhoFish/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/internal/server"
+	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
 // version is set at build time with -ldflags.

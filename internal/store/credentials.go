@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/FetchHQ/dusk/pkg/githubapp"
-	"github.com/FetchHQ/dusk/pkg/secret"
-	"github.com/FetchHQ/dusk/pkg/vault"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
 // CredentialsFile is the name under the data directory.

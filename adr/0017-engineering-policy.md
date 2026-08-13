@@ -1,4 +1,4 @@
-# 17. Engineering policy for FetchHQ repositories
+# 17. Engineering policy for NerdsWhoFish repositories
 
 Date: 2026-08-11
 
@@ -60,7 +60,7 @@ Requiring an ADR makes it a decision rather than an accident.
 Default to a real package with a real name.
 Write it so another caller could use it, and export what that caller would reasonably want, even when no such caller exists yet.
 
-- **`pkg/`** holds anything that could plausibly be used outside the repository. This is a FetchHQ convention rather than a Go standard, adopted because paired against `internal/` it states intent unambiguously: `pkg/` is a promise, `internal/` is a fence.
+- **`pkg/`** holds anything that could plausibly be used outside the repository. This is a NerdsWhoFish convention rather than a Go standard, adopted because paired against `internal/` it states intent unambiguously: `pkg/` is a promise, `internal/` is a fence.
 - **`internal/`** is for code that genuinely should not be imported elsewhere, and choosing it is a decision. "I have not thought about reuse yet" is not a reason to put something there, because the compiler will not let you change your mind cheaply once other things depend on the shape.
 - **`cmd/`** holds binaries and stays thin. A command parses flags, wires dependencies, and calls into a package. Logic in `cmd/` is logic nothing else can reach and nothing can test through its real interface.
 

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/write"
-	"github.com/FetchHQ/dusk/pkg/duskmd"
-	"github.com/FetchHQ/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 const noteFile = `---

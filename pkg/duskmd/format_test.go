@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 )
 
 // A write path that rewrote somebody's prose would be worse than no write path,

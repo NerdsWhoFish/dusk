@@ -36,7 +36,7 @@ There is also a trust problem that this ADR creates and must therefore answer.
 
 Chosen: **option 4**.
 
-A **marketplace is a list of GitHub orgs.** `FetchHQ` is the default and is not special beyond being first in the list. Within an org, any repository named `dusk-plugin-<name>` is a plugin. Dusk lists them in its UI, installs from the GitHub release, keeps the binary on disk, and offers updates the operator approves.
+A **marketplace is a list of GitHub orgs.** `NerdsWhoFish` is the default and is not special beyond being first in the list. Within an org, any repository named `dusk-plugin-<name>` is a plugin. Dusk lists them in its UI, installs from the GitHub release, keeps the binary on disk, and offers updates the operator approves.
 
 ### The naming convention is the registry
 

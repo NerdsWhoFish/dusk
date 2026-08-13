@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/FetchHQ/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
 )
 
 // Plugins is the slice of the plugin manager the HTTP surface needs, declared

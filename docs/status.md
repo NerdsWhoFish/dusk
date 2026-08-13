@@ -20,7 +20,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **`v1alpha1` plugin contract**: `dusk-plugin-sdk`, entity/relation/note/observation, plugin service, actions, config fields ([0002](../adr/0002-plugin-protocol.md), [0007](../adr/0007-entity-schema.md), [0015](../adr/0015-plugin-actions-and-events.md), [0023](../adr/0023-plugin-configuration.md))
 - [x] **Conformance package**: batch validation, ref canonicalisation, config field validation ([0016](../adr/0016-plugin-sdk-repo.md))
 - [x] **Release pipeline**: multi-arch image to GHCR, dispatch with scope and bump, dry run before tagging, untag on failure ([0021](../adr/0021-release-tooling.md))
-- [x] **Helm chart**: `FetchHQ/charts`, publishes itself ([0019](../adr/0019-chart-repo.md), [0024](../adr/0024-charts-publishes-charts.md))
+- [x] **Helm chart**: `NerdsWhoFish/charts`, publishes itself ([0019](../adr/0019-chart-repo.md), [0024](../adr/0024-charts-publishes-charts.md))
 - [x] **CI**: lint, vet, no-cgo build, race tests on every PR and push ([0017](../adr/0017-engineering-policy.md))
 
 ## Onboarding
@@ -88,7 +88,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [ ] **Host runtime**: subprocess lifecycle and a gRPC client over a unix socket. One transport, not two ([0039](../adr/0039-one-plugin-transport.md))
 - [ ] **`GetAsset` RPC**: `PluginService` has no call that returns bytes, so [0020](../adr/0020-plugin-ui.md)'s Web Component delivery is unimplementable as written. v1alpha1 has to grow it before it stabilises ([0039](../adr/0039-one-plugin-transport.md)). **Stream it in chunks rather than returning one `bytes` field**: gRPC's send default is unlimited and its receive default is 4MB, so a plugin embedding a large bundle sends it happily and Dusk rejects it. Raising the receive cap means guessing a number high enough for plugins nobody has written; chunking has no number to guess
 - [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
-- [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md)). Being moved out to `FetchHQ/dusk-plugin-kubernetes` as the first plugin, and removed from here only once that replaces it ([0040](../adr/0040-core-and-plugins.md))
+- [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md)). Being moved out to `NerdsWhoFish/dusk-plugin-kubernetes` as the first plugin, and removed from here only once that replaces it ([0040](../adr/0040-core-and-plugins.md))
 - [~] **Kubernetes plugin**: serves `PluginService` over a host-provided unix socket, observes a real cluster, and ports the namespace and plumbing filters intact. Nothing runs it until the host lands
 - [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))
 - [ ] **Plugin UI**: declarative view spec, then Web Components ([0020](../adr/0020-plugin-ui.md))
@@ -98,7 +98,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [ ] **Marketplace**: `dusk-plugin-*` repositories in allowlisted GitHub orgs, listed in the UI ([0042](../adr/0042-installing-plugins.md))
 - [ ] **Install and update**: download a release asset, verify its checksum, record the version, and never update without a human saying so ([0042](../adr/0042-installing-plugins.md))
 - [ ] **Plugin cache on disk**: installed binaries live in the data directory, so a restart needs no network and a rollout does not race a rate limit. Makes the PVC hold something not rebuildable from git ([0042](../adr/0042-installing-plugins.md))
-- [ ] **Shared plugin release workflow**: GoReleaser with conventional-commit notes, living once in `FetchHQ/.github` and called by every plugin rather than copied ([0021](../adr/0021-release-tooling.md))
+- [ ] **Shared plugin release workflow**: GoReleaser with conventional-commit notes, living once in `NerdsWhoFish/.github` and called by every plugin rather than copied ([0021](../adr/0021-release-tooling.md))
 
 GitHub is not on this list. It is core and stays there: git is the source of truth, so GitHub is substrate rather than a source among sources ([0040](../adr/0040-core-and-plugins.md)).
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/web"
+	"github.com/NerdsWhoFish/dusk/web"
 )
 
 // hashedAsset returns a real file from the built bundle. Inventing a name would

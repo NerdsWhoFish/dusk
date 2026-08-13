@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FetchHQ/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 const jellyfin = "service:home/jellyfin"

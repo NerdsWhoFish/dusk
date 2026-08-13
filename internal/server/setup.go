@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FetchHQ/dusk/internal/store"
-	"github.com/FetchHQ/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
 // stateTTL bounds how long a started setup may sit before its callback is

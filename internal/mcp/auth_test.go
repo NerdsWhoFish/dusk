@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FetchHQ/dusk/internal/mcp"
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 func reached() (http.Handler, *bool) {

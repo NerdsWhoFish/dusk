@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/FetchHQ/dusk/pkg/secret"
+	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
 // RequireBearer refuses any request not presenting token. This surface returns
