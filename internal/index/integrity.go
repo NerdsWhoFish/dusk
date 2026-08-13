@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // Problem is something wrong with the graph that nothing else would report.
@@ -104,7 +106,13 @@ func (db *DB) Forget(ctx context.Context, scope string) error {
 	if !IsObserved(scope) {
 		return fmt.Errorf("index: %q is a repository rather than an observation scope, and repositories are forgotten by uninstalling the App", scope)
 	}
-	return db.DropRepository(ctx, scope, "")
+
+	// Every ref, not one: an ingester's observations are stored under a ref
+	// this package does not name, and matching the wrong one deletes nothing
+	// while reporting success.
+	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return deleteWhere(tx, "repository = ?", scope)
+	})
 }
 
 type duplicateRow struct {

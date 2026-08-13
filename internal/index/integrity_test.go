@@ -123,6 +123,31 @@ func TestOrphansLeavesLiveIngestersAlone(t *testing.T) {
 	}
 }
 
+// Forget has to actually delete. It reported success while matching no rows,
+// because an observation's ref is not the one the delete was written against.
+func TestForgetRemovesTheObservations(t *testing.T) {
+	db := newDB(t)
+	observe(t, db, "kubernetes:mini-2", entity("host:prod/node-1", "node-1", ""))
+	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
+
+	if err := db.Forget(t.Context(), index.ObservedScope("kubernetes:mini-2")); err != nil {
+		t.Fatalf("Forget: %v", err)
+	}
+
+	problems := integrityOf(t, db, index.ProblemDuplicate)
+	if len(problems) != 0 {
+		t.Errorf("forgetting left the duplicate behind: %+v", problems)
+	}
+
+	orphans, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
+	if err != nil {
+		t.Fatalf("Orphans: %v", err)
+	}
+	if len(orphans) != 0 {
+		t.Errorf("the forgotten scope is still reported: %+v", orphans)
+	}
+}
+
 // Forgetting is the one deletion Dusk performs, so it only ever touches an
 // observation scope and never a repository somebody declared.
 func TestForgetRefusesARepository(t *testing.T) {
