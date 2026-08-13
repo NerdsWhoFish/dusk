@@ -346,6 +346,12 @@ func TestAPluginCanBeReadToFindWhatItOffers(t *testing.T) {
 			t.Errorf("reading the plugin did not mention %q:\n%s", want, body)
 		}
 	}
+
+	// The generic renderer already says to use invoke; only this one knows the
+	// action takes no ref. Saying both leaves the reader told twice.
+	if n := strings.Count(body, "Run one with `invoke`"); n != 1 {
+		t.Errorf("the invoke hint appears %d times, want once:\n%s", n, body)
+	}
 }
 
 // Naming a plugin nobody installed has to say so and say what is there, rather

@@ -300,8 +300,10 @@ func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
 		var out strings.Builder
 		fmt.Fprintf(&out, "# %s\n\nPlugin, version %s, %s.\n", report.ID, report.Version, runningWord(report))
 		if actions := renderActions(s.opts.Plugins.PluginActions(id)); actions != "" {
-			fmt.Fprintf(&out, "\n%s", actions)
-			out.WriteString("\nRun one with `invoke`, naming this plugin and no ref.\n")
+			// renderActions already says to use invoke. What it cannot say is
+			// that these take no ref, since it does not know it is a plugin.
+			fmt.Fprintf(&out, "\n%s", strings.TrimSuffix(actions, "Run one with `invoke`.\n"))
+			out.WriteString("Run one with `invoke`, naming this plugin and no ref.\n")
 		} else {
 			out.WriteString("\nIt offers nothing that can be run without an entity. Anything it does is listed on the things it observed.\n")
 		}
