@@ -60,6 +60,8 @@ make test    # go test -race ./...
 
 A plugin lives in its own repository named `dusk-plugin-<name>`, because that prefix is how the marketplace finds it ([ADR-0042](adr/0042-installing-plugins.md)). It follows this repository's conventions: ADRs in `adr/`, one sentence per line, tests on observable results, `make check` as what CI runs.
 
+**A plugin does not write its own process lifecycle.** `plugin.Run` in the SDK binds the socket, requires the host's token, and shuts down politely. That code was copied byte-for-byte into three repositories before it lived in one, and a convention duplicated per plugin is one that drifts per plugin. The same goes for checking what a plugin declares: `conformance.ValidateDescribe` is a test every plugin should have, so a wrong description fails in the plugin rather than later in Dusk.
+
 Two things differ, both because a plugin ships a binary and Dusk ships a service:
 
 - **Every plugin releases with GoReleaser**, with release notes generated from conventional commits, and the same dispatch-with-scope-and-bump flow this repository uses ([ADR-0021](adr/0021-release-tooling.md)). Dusk itself deliberately does not use GoReleaser: it publishes a container image, so GoReleaser would only wrap `docker buildx` and has nothing else to do. That reasoning does not transfer to a plugin, which publishes per-platform binaries that Dusk downloads from a GitHub release. Do not "fix" either repository to match the other.

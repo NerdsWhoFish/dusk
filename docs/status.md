@@ -133,10 +133,11 @@ GitHub is not on this list. It is core and stays there: git is the source of tru
 
 Written down so the order is a choice rather than whatever comes to mind next. Kubernetes was first because it already worked in tree, so the protocol was measured against real behaviour rather than a guess. AirTrail was second because it is small enough to prove a plugin written from nothing.
 
-**Observe only**, at least to begin with:
+The three that shipped all act as well as observe, which is what "observe only, at least to begin with" turned out to mean:
 
-- [x] **AirTrail**: flights and the airports they connect, in `dusk-plugin-airtrail`. The first plugin to ship a **UI contribution**, so it is what proves [0020](../adr/0020-plugin-ui.md) end to end: `GetAsset` streams the element's JavaScript, Dusk serves it content addressed from its own origin, and the entity page mounts the tag
-- [x] **Music Assistant**: players and their groups, in `dusk-plugin-music-assistant`. WebSocket rather than REST, because it has no REST, and authentication is the first message rather than a header. Its actions are declared and `DryRun` works; `Invoke` deliberately does not, because a plugin that can make noise in somebody's house should not be able to on its first version
+- [x] **AirTrail**: flights and the airports they connect, in `dusk-plugin-airtrail`. It exercises the whole contribution surface: an element Dusk serves content addressed from its own origin, a **declared** view Dusk renders itself, a view on the plugin's own page, and actions that record, change and remove a flight. Changing one reads it first, because AirTrail replaces a flight wholesale on save
+- [x] **Music Assistant**: players and their groups, in `dusk-plugin-music-assistant`. WebSocket rather than REST, because it has no REST, and authentication is the first message rather than a header. It plays, pauses, stops, powers and sets volume
+- [x] **Kubernetes**: restarts and scales the workload behind a service, which is [0015](../adr/0015-plugin-actions-and-events.md)'s own example of why actions exist. Nothing in the API links a Service to what serves it, so the workload is found by matching selectors, and two matches is refused rather than guessed
 - [ ] **Flux**: what GitOps believes is deployed, against what Kubernetes reports running. The pair is drift with a cause attached
 - [ ] **OCI registries**: Harbor, GHCR and friends: images, tags and what is actually pulled
 - [ ] **Firewalla**: the network layer under everything else: devices, rules, what is reachable
@@ -153,17 +154,17 @@ Written down so the order is a choice rather than whatever comes to mind next. K
 - [ ] **Obsidian**: notes both ways, which is the closest thing to Dusk's own knowledge layer
 - [ ] **GitHub Projects**: boards and cards as work, alongside the repositories core already reads
 - [ ] **LubeLogger**: vehicle maintenance, where logging a service is the point
-- [~] **Music Assistant, acting**: listed twice on purpose. Observing is built and shipped above; this row is the other half, wiring `Invoke` so playback actually starts
+- [x] **Music Assistant, acting**: listed twice on purpose. `Invoke` is wired, so a player can be told to play, pause, stop, power on or off, and set its volume. A ref resolves against the server rather than being parsed, because a player id that was not already slug safe cannot be recovered from a ref
 - [ ] **Calendar**: what is scheduled, and booking or moving it. The one plugin whose actions are mostly about a human's time rather than a system's state, so approval means something different here
 
 ---
 
 ## Next
 
-1. Actions ([0015](../adr/0015-plugin-actions-and-events.md)). Every plugin shipped so far only observes, and the most recent one already wants more: Music Assistant declares its actions and implements `DryRun`, with `Invoke` deliberately absent. Until this lands, "a catalog that maintains itself" is half true, because nothing it knows can be acted on.
-2. Reaching agents through `invoke` rather than new tools ([0041](../adr/0041-plugins-reach-agents-as-actions.md)), which is what stops an installed plugin inflating the tool list every session pays for.
-3. The shared per-source API budget in the ingest scheduler. Each ingester is currently bounded only by its own interval, so two plugins hitting one API would each assume they had the whole quota.
-4. Filtering drift, integrity and kind counts for a restricted viewer. They are the only reads a signed-in person sees unfiltered.
+1. Filtering drift, integrity and kind counts for a restricted viewer. They are the only reads a signed-in person sees unfiltered.
+2. Durable events. The buffer answers "what just happened" and dies with the process, so there is no audit trail from Dusk itself. [0015](../adr/0015-plugin-actions-and-events.md) makes that an optional time-series exporter, and nothing exports yet.
+3. Note ranking by kind ([0031](../adr/0031-notes-are-files.md)), so a gotcha outranks a todo without being pinned by hand. It matters more now that ideas accumulate.
+4. A plugin that dies stays dead. Nothing restarts one, so a crash is an outage until somebody notices, and it is now an outage of something that could be acting rather than only observing.
 
 ## Known gaps
 
