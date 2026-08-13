@@ -14,7 +14,9 @@ import (
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
+	"github.com/NerdsWhoFish/dusk/internal/events"
 	"github.com/NerdsWhoFish/dusk/internal/ingest"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
@@ -44,6 +46,14 @@ type Health struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// Catalog is the slice of the index an action needs: what the entity is, and
+// which plugin observed it. Declared here so invocation does not depend on how
+// the graph is stored.
+type Catalog interface {
+	Get(ctx context.Context, gitRef, ref string) (*duskv1alpha1.Entity, error)
+	ObservedBy(ctx context.Context, gitRef, ref string) ([]string, error)
+}
+
 // Manager owns what is installed and what is running.
 type Manager struct {
 	Store  *Store
@@ -51,8 +61,25 @@ type Manager struct {
 	Rota   Rotation
 	Log    *slog.Logger
 
+	// Catalog, Proof and Events are what actions need and observation does not,
+	// so a deployment with no actions can leave them nil.
+	Catalog Catalog
+	Proof   *proof.Store
+	Events  *events.Log
+
+	// Now exists so a test can assert on an event without matching a timestamp
+	// it cannot predict.
+	Now func() time.Time
+
 	mu      sync.Mutex
 	running map[string]*Running
+}
+
+func (m *Manager) now() time.Time {
+	if m.Now != nil {
+		return m.Now()
+	}
+	return time.Now()
 }
 
 // Offer is a marketplace listing with what Dusk knows about it locally.

@@ -161,6 +161,28 @@ func (db *DB) Locate(ctx context.Context, gitRef, entityRef string) (*Location, 
 	}, nil
 }
 
+// ObservedBy names the ingester scopes that saw this entity. Get returns one
+// winning row and prefers the declared one, so it cannot answer this: an action
+// has to reach the plugin that actually knows the thing.
+func (db *DB) ObservedBy(ctx context.Context, gitRef, entityRef string) ([]string, error) {
+	var repositories []string
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Model(&entityRow{}).
+		Where("ref = ? AND observed = ?", entityRef, true).
+		Distinct().
+		Order("repository").
+		Pluck("repository", &repositories).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: observers of %q: %w", entityRef, err)
+	}
+
+	scopes := make([]string, 0, len(repositories))
+	for _, repository := range repositories {
+		scopes = append(scopes, strings.TrimPrefix(repository, observedPrefix))
+	}
+	return scopes, nil
+}
+
 // List returns every entity at gitRef, optionally narrowed to one kind.
 func (db *DB) List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error) {
 	query := scoped(db.gorm.WithContext(ctx), gitRef)

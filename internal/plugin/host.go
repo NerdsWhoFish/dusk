@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -269,6 +270,33 @@ func (i *Instance) Name() string {
 // Observe uses this instance's own configuration, not the plugin's.
 func (i *Instance) Observe(ctx context.Context) (*ingest.Observation, error) {
 	return i.observe(ctx, i.config, i.Name())
+}
+
+// Source identifies the upstream system this instance observes, so two pointed
+// at one server queue behind each other. No key fields means no sharing, so a
+// plugin that has not thought about this is not throttled by accident.
+func (i *Instance) Source() string {
+	declared := i.Describe.GetBudget().GetKeyFields()
+	if len(declared) == 0 {
+		return ""
+	}
+
+	config := i.config.AsMap()
+	parts := make([]string, 0, len(declared)+1)
+	parts = append(parts, i.Running.Name())
+	for _, field := range declared {
+		parts = append(parts, fmt.Sprint(config[field]))
+	}
+	return strings.Join(parts, "\x00")
+}
+
+// Budget is what the plugin says its source tolerates.
+func (i *Instance) Budget() ingest.Budget {
+	declared := i.Describe.GetBudget()
+	return ingest.Budget{
+		Concurrent: int(declared.GetMaxConcurrent()),
+		Spacing:    time.Duration(declared.GetMinSpacingSeconds()) * time.Second,
+	}
 }
 
 // Interval is how often this plugin should be asked to observe.

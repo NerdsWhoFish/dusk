@@ -31,12 +31,20 @@ type Scheduler struct {
 	mu      sync.Mutex
 	states  map[string]*state
 	results map[string]Result
+	sources map[string]*source
 }
 
 type state struct {
 	ingester Ingester
 	failures int
 	next     time.Time
+}
+
+// source is one upstream system's shared budget, keyed by whatever the
+// ingesters drawing on it agree to call it.
+type source struct {
+	inFlight int
+	last     time.Time
 }
 
 // NewScheduler builds a scheduler over a fixed set of ingesters.
@@ -77,6 +85,18 @@ func (s *Scheduler) Remove(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.states, name)
+}
+
+// Due brings an ingester's next run forward. An action that mutates its source
+// calls it, because the catalog would otherwise serve a view from before the
+// change until the interval came round.
+func (s *Scheduler) Due(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if state, ok := s.states[name]; ok {
+		state.next = time.Time{}
+	}
 }
 
 // Names lists the ingesters in the rotation, which is what makes an
@@ -156,6 +176,13 @@ func (s *Scheduler) RunDue(ctx context.Context) {
 
 func (s *Scheduler) runOne(ctx context.Context, current *state) {
 	name := current.ingester.Name()
+
+	release, admitted := s.admit(current)
+	if !admitted {
+		return
+	}
+	defer release()
+
 	result := Run(ctx, current.ingester, s.store, s.now)
 
 	s.mu.Lock()
@@ -186,6 +213,56 @@ func (s *Scheduler) runOne(ctx context.Context, current *state) {
 
 	s.log.Info("observed",
 		"ingester", name, "entities", result.Entities, "relations", result.Relations)
+}
+
+// admit asks the shared budget for a turn. A refusal defers the run rather than
+// failing it: a deferral counted as a failure would let a busy source trip the
+// circuit breaker that exists for a broken one.
+func (s *Scheduler) admit(current *state) (func(), bool) {
+	sourced, shares := current.ingester.(Sourced)
+	if !shares {
+		return func() {}, true
+	}
+
+	key, budget := sourced.Source(), sourced.Budget()
+	if key == "" {
+		return func() {}, true
+	}
+	if budget.Concurrent < 1 {
+		budget.Concurrent = 1
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.sources == nil {
+		s.sources = map[string]*source{}
+	}
+	shared, ok := s.sources[key]
+	if !ok {
+		shared = &source{}
+		s.sources[key] = shared
+	}
+
+	now := s.now()
+	waiting := budget.Spacing - now.Sub(shared.last)
+	switch {
+	case shared.inFlight >= budget.Concurrent:
+		current.next = now.Add(budget.Spacing)
+		return nil, false
+	case !shared.last.IsZero() && waiting > 0:
+		current.next = now.Add(waiting)
+		return nil, false
+	}
+
+	shared.inFlight++
+	shared.last = now
+
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		shared.inFlight--
+	}, true
 }
 
 // backoff grows exponentially from the ingester's own interval and stops at

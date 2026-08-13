@@ -39,6 +39,11 @@ type Installed struct {
 	// own scope. One Kubernetes plugin observes one cluster, so a second
 	// cluster is a second instance rather than a second install.
 	Instances map[string]map[string]any `json:"instances,omitempty"`
+
+	// Enabled names the actions somebody deliberately turned on. Declaring one
+	// does not grant it: installing a plugin must not hand over capability by
+	// itself (ADR-0015).
+	Enabled []string `json:"enabled,omitempty"`
 }
 
 // Store is where installed plugins live between restarts. In Kubernetes this
@@ -169,6 +174,7 @@ func (m *Market) Install(ctx context.Context, store *Store, listing Listing) (*I
 	if previous, err := store.Read(listing.ID); err == nil {
 		record.Config = previous.Config
 		record.Instances = previous.Instances
+		record.Enabled = previous.Enabled
 	}
 
 	if err := store.Write(record); err != nil {

@@ -251,6 +251,7 @@ type rota struct {
 	joined  map[string]ingest.Ingester
 	removed []string
 	results []ingest.Result
+	forward []string
 }
 
 func newRota() *rota { return &rota{joined: map[string]ingest.Ingester{}} }
@@ -272,6 +273,18 @@ func (r *rota) Status() []ingest.Result {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.results
+}
+
+func (r *rota) Due(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.forward = append(r.forward, name)
+}
+
+func (r *rota) wasDue(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Contains(r.forward, name)
 }
 
 // observed runs one joined ingester and returns what it emitted, which is how

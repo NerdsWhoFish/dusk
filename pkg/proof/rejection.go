@@ -16,6 +16,9 @@ const (
 	CodeSearchRequired = "E_PROOF_SEARCH_REQUIRED"
 	// CodeExists means the search that issued the token already found it.
 	CodeExists = "E_ALREADY_EXISTS"
+	// CodeWrongRead means the token came from a read other than the one the
+	// action declared as satisfying it.
+	CodeWrongRead = "E_PROOF_WRONG_READ"
 )
 
 // Rejection refuses a write and names the exact call that would fix it.

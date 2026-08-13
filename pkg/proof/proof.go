@@ -129,6 +129,31 @@ func (s *Store) AuthorizeUpdate(tokenID, ref, currentVersion string) error {
 	return nil
 }
 
+// AuthorizeAction accepts running an action against a ref the caller has read.
+// The action names which read satisfies it, so a token from a different one is
+// refused with that call rather than with a generic complaint (ADR-0015).
+func (s *Store) AuthorizeAction(tokenID, ref, currentVersion string, from Origin) error {
+	token := s.Lookup(tokenID)
+	if token == nil {
+		return &Rejection{
+			Code:   CodeRequired,
+			Ref:    ref,
+			Detail: "running an action requires having read what it acts on",
+			Fix:    fmt.Sprintf(`%s(%q)`, from, ref),
+		}
+	}
+
+	if from != "" && token.Origin != from {
+		return &Rejection{
+			Code:   CodeWrongRead,
+			Ref:    ref,
+			Detail: fmt.Sprintf("this action is satisfied by %s, and the token came from %s", from, token.Origin),
+			Fix:    fmt.Sprintf(`%s(%q)`, from, ref),
+		}
+	}
+	return s.AuthorizeUpdate(tokenID, ref, currentVersion)
+}
+
 // AuthorizeCreate accepts a write creating a ref that does not exist. It needs
 // a token from a search that did not return it, so an agent cannot duplicate
 // something it never looked for.

@@ -37,6 +37,27 @@ type Ingester interface {
 	Observe(ctx context.Context) (*Observation, error)
 }
 
+// Budget is how much of one upstream system a set of ingesters may take between
+// them, in runs rather than requests: what an ingester does upstream is inside
+// its own process, so a request count is not a number this can hold itself to.
+type Budget struct {
+	// Concurrent runs allowed against one source. Zero or less means one.
+	Concurrent int
+
+	// Spacing is the least time between two runs against one source.
+	Spacing time.Duration
+}
+
+// Sourced is an ingester that shares an upstream system with others. Two of
+// them returning the same Source draw on one Budget, which is what stops each
+// assuming it has the whole quota (ADR-0011).
+type Sourced interface {
+	Ingester
+
+	Source() string
+	Budget() Budget
+}
+
 // Observation is one run's complete view of its source. Complete by contract:
 // anything previously observed and absent here is treated as gone, so a
 // partial view has to be an error instead.
