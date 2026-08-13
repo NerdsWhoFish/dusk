@@ -81,7 +81,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Viewing auth**: sign in with GitHub using the App Dusk registered, visibility derived from repository access, observed entities hidden unless allowed ([0012](../adr/0012-viewing-auth.md), [0036](../adr/0036-deriving-what-a-viewer-sees.md))
 - [ ] **Admin**: plugin configuration forms, sensitive fields write-only ([0023](../adr/0023-plugin-configuration.md))
 - [~] **Responsive layouts**: mobile first, one breakpoint, wide content scrolls inside its own container. Nothing yet does the table-to-card or graph-to-list transform, because neither exists ([0025](../adr/0025-responsive-ui.md))
-- [ ] **Viewport matrix tests**: five viewports, no overflow, touch target minimums. **The matrix has never been run**: neither browser tool available could actually change the viewport, so the responsive layout is written but unverified ([0025](../adr/0025-responsive-ui.md))
+- [~] **Viewport matrix tests**: run by hand at 320, 390, 430, 768, 1024 and 1440 against a real catalog, on the landing and entity pages. No overflow and no touch target under 44px at any of them. Not automated, so nothing stops the next change regressing it ([0025](../adr/0025-responsive-ui.md))
 
 ## Plugins
 
@@ -124,5 +124,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - Identity sessions live in memory, so a restart signs everybody out. Every deploy is a restart, so this is routine rather than rare.
 - Being signed in and being let in are two decisions in two places: `access.Policy` guards the surface, `access.OAuth` holds the identity, and the policy only consults the identity because it was handed one through `Recognize`. Sign-in shipped without that call and silently bounced everybody back to the login page, so a new credential has to be taught to the gate as well as minted.
 - Anything a login or setup page references has to be routed outside the gate that page exists to open. The favicon was not, so it redirected to `/login` and rendered nothing. There is no rule enforcing this beyond the tests that now cover it.
+- A grid or flex item's automatic minimum is its **min-content** width, so `1fr` alone lets one long ref widen a column past the screen. Every track that holds catalog content wants `minmax(0, 1fr)`. This shipped in the single-column mobile rule while the two-column desktop rule had it right, which is why it was invisible on a laptop and broke every phone.
+- Verifying a layout needs a viewport that is actually applied. Chrome headless `--window-size` lays out wider than it captures, so its screenshots crop rather than reflow and read as overflow that is not there. Measure `document.body.scrollWidth` against `clientWidth` in the page, and take screenshots through a browser whose `innerWidth` you have confirmed.
 - Every open pull request holds a partition of the index, rebuilt on every push to its branch. Nothing prunes an abandoned one until it closes ([0037](../adr/0037-pull-request-previews.md)).
 - A preview's drift and integrity are unfiltered for a restricted viewer, so those counts can include entities they cannot open.

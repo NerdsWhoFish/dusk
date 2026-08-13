@@ -70,26 +70,36 @@ input,
   clip-path: inset(50%);
 }
 
+/* The bottom inset keeps the last row clear of a phone browser's toolbar,
+   which overlays the viewport rather than shortening it. */
 .shell {
   max-width: 52rem;
   margin: 0 auto;
-  padding: 1rem 1rem 4rem;
+  padding: 1rem 1rem calc(4rem + env(safe-area-inset-bottom));
 }
 
 /* Header ------------------------------------------------------------- */
 
+/* Wraps because the viewer line is a whole sentence and the phone it has to fit
+   on is 390px wide. Unwrapped, the brand and the sign-out button both break
+   mid-phrase to make room for it. */
 .top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.25rem 1rem;
   padding: 0.5rem 0 1rem;
+}
+
+.top .brand {
+  margin-right: auto;
 }
 
 .brand {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
+  min-height: 44px;
   color: var(--fg);
   font-weight: 700;
   font-size: 1.125rem;
@@ -114,7 +124,10 @@ input,
   gap: 0.5rem;
 }
 
+/* Its own line under the brand on a phone, beside it once there is room. */
 .viewer {
+  order: 3;
+  flex-basis: 100%;
   color: var(--muted);
   font-size: 0.8125rem;
 }
@@ -127,6 +140,7 @@ input,
   color: var(--muted);
   font: inherit;
   font-size: 0.875rem;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -138,10 +152,12 @@ input,
 
 /* The hero is the one place the product's name is made visible: a band of
    light along the horizon, fading up into the dark the rest of the page is. */
+/* Tight on a phone, where this padding is a screenful of nothing above the one
+   control anybody came for. The breakpoint below opens it back up. */
 .hero {
   position: relative;
-  margin: 0 0 2rem;
-  padding: 2.5rem 0 1.75rem;
+  margin: 0 0 1.25rem;
+  padding: 1.25rem 0 1rem;
 }
 
 
@@ -230,9 +246,13 @@ input,
 
 /* Blocks -------------------------------------------------------------- */
 
+/* minmax(0, …) rather than 1fr, because a grid item's automatic minimum is its
+   min-content width: a single long ref then widens the column past the screen
+   and takes the whole page with it. The two-column rule below always had this;
+   the single-column one did not, so the overflow only ever showed on a phone. */
 .blocks {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
@@ -781,7 +801,14 @@ h2::after {
   }
 
   .hero {
+    margin-bottom: 2rem;
     padding: 3.5rem 0 2.25rem;
+  }
+
+  /* Room for it beside the brand again. */
+  .viewer {
+    order: 0;
+    flex-basis: auto;
   }
 
   .hero input {

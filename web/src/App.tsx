@@ -44,14 +44,14 @@ export function App() {
         >
           Dusk
         </a>
+        {/* A filtered view that says nothing looks like an empty catalog,
+            which is how every silent permission system confuses people. */}
+        {viewer?.restricted && (
+          <span className="viewer" title={`${viewer.readable} repositories readable`}>
+            {viewer.login} · showing what you can read
+          </span>
+        )}
         <div className="who">
-          {/* A filtered view that says nothing looks like an empty catalog,
-              which is how every silent permission system confuses people. */}
-          {viewer?.restricted && (
-            <span className="viewer" title={`${viewer.readable} repositories readable`}>
-              {viewer.login} · showing what you can read
-            </span>
-          )}
           <form method="post" action="/logout">
             <button className="signout" type="submit">
               Sign out
