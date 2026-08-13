@@ -4,7 +4,10 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Accepted. The transport half is **superseded by [ADR-0039](0039-one-plugin-transport.md)**.
+
+The decision that plugins are subprocesses behind a published, language-neutral contract stands, as do the rejections of an in-process API, `hashicorp/go-plugin` and WASM.
+The decision to express that contract as two transports does not: the stdout tier cannot answer a request, so it cannot serve an asset or an action, and gRPC is now the only one.
 
 ## Context and Problem Statement
 

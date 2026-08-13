@@ -85,7 +85,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Plugins
 
-- [ ] **Host runtime**: subprocess lifecycle, Tier 1 stdout and Tier 2 gRPC ([0002](../adr/0002-plugin-protocol.md))
+- [ ] **Host runtime**: subprocess lifecycle and a gRPC client over a unix socket. One transport, not two ([0039](../adr/0039-one-plugin-transport.md))
+- [ ] **`GetAsset` RPC**: `PluginService` has no call that returns bytes, so [0020](../adr/0020-plugin-ui.md)'s Web Component delivery is unimplementable as written. v1alpha1 has to grow it before it stabilises ([0039](../adr/0039-one-plugin-transport.md))
 - [~] **Scheduler**: intervals, concurrency cap, exponential backoff and a circuit breaker, never delete on failure ([0011](../adr/0011-ingester-scheduling.md)). The shared per-source API budget is not built: each ingester is only bounded by its own interval
 - [x] **Kubernetes ingester**: nodes and services per cluster, in tree ahead of the plugin protocol ([0034](../adr/0034-ingesters-in-tree-first.md))
 - [x] **Drift**: declared against observed, matched through `observed_as` ([0013](../adr/0013-layout-and-pages.md))

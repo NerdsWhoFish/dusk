@@ -10,7 +10,7 @@ That is what stops the same argument happening again in six months.
 | # | Decision | In one line |
 | --- | --- | --- |
 | [0001](0001-git-as-source-of-truth.md) | Git is the source of truth, index keyed by ref | Entities are markdown in the repos they describe; the index is derived and rebuildable, and `reconcile(ref)` is what makes PR previews nearly free |
-| [0002](0002-plugin-protocol.md) | Plugins are subprocesses with a published contract | One proto schema, two transports: protojson on stdout for ingesters, gRPC for interactive plugins. Explicitly not `hashicorp/go-plugin` |
+| [0002](0002-plugin-protocol.md) | Plugins are subprocesses with a published contract | The subprocess boundary stands, as do the rejections of in-process, `hashicorp/go-plugin` and WASM. Transport superseded by 0039 |
 | [0003](0003-license.md) | Apache 2.0 with a DCO | Patent grant for corporate adopters; DCO rather than a CLA because relicensing optionality is the thing being given up on purpose |
 | [0004](0004-dusk-md-convention.md) | A repo opts in by containing `dusk.md` | One well-known file is the sole entry point. No repo is crawled without consent, and write routing falls out for free |
 | [0005](0005-github-app-and-access-modes.md) | GitHub App via the manifest flow, three access modes | Dusk registers its own App so there is no PAT path; read, proposal, and write are the modes |
@@ -47,6 +47,8 @@ That is what stops the same argument happening again in six months.
 | [0036](0036-deriving-what-a-viewer-sees.md) | Signing in with GitHub, and what it does not protect | Implements 0012. Visibility derives from repository access, observed entities are hidden by default, invisible answers as absent. The shared token remains a full bypass, stated plainly |
 | [0037](0037-pull-request-previews.md) | A pull request is a version of the catalog | Implements 0001's review half and finally uses 0008's ref-keyed index. Semantic diff, one comment edited in place, removals flagged, closing drops the ref |
 | [0038](0038-what-drift-may-say.md) | Drift only speaks where something is watching | Extends 0011's rule that "I could not look" is not "it is not there" to kinds nobody observes. Coverage is derived from observations, and a declaration over its own observation stops reading as a conflict |
+| [0039](0039-one-plugin-transport.md) | gRPC is the only plugin transport | Supersedes 0002's transport half. The stdout tier cannot answer a request, so it cannot serve an asset or an action. `PluginService` already exists, so this deletes a tier rather than adding one. Shell script plugins are the cost |
+| [0040](0040-core-and-plugins.md) | GitHub is core, Kubernetes is the first plugin | Core owns what Dusk cannot function without. Git is the source of truth so GitHub is substrate; Kubernetes is merely observed. The in-tree ingester goes only once the plugin replaces it |
 
 ## Writing one
 
