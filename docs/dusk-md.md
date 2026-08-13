@@ -110,7 +110,7 @@ Where both exist for the same ref, the declared one wins a read: a person wrote 
 ### Saying which observed thing is yours
 
 A human and an ingester never independently pick the same name.
-You write `service:home/jellyfin`; the Kubernetes ingester finds a Service in a namespace and calls it `service:mini-2/media-jellyfin`.
+You write `service:home/jellyfin`; a Kubernetes plugin finds a Service in a namespace and calls it `service:prod/media-jellyfin`.
 
 `observed_as` is how you say they are the same thing:
 
@@ -120,7 +120,7 @@ dusk: v1alpha1
 kind: service
 name: jellyfin
 observed_as:
-  - service:mini-2/media-jellyfin
+  - service:prod/media-jellyfin
 ---
 ```
 

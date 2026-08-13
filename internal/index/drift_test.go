@@ -128,7 +128,7 @@ func TestDriftFollowsObservedAsAliases(t *testing.T) {
 	err := db.Put(t.Context(), testRepo, mainRef, []index.Declaration{{
 		Path:       "services/jellyfin/dusk.md",
 		Entity:     declared,
-		ObservedAs: []string{"service:mini-2/media-jellyfin"},
+		ObservedAs: []string{"service:prod/media-jellyfin"},
 	}}, nil, nil)
 	if err != nil {
 		t.Fatalf("Put: %v", err)
@@ -137,7 +137,7 @@ func TestDriftFollowsObservedAsAliases(t *testing.T) {
 		t.Fatalf("SetDefaultView: %v", err)
 	}
 
-	observe(t, db, "kubernetes", entity("service:mini-2/media-jellyfin", "media-jellyfin", ""))
+	observe(t, db, "kubernetes", entity("service:prod/media-jellyfin", "media-jellyfin", ""))
 
 	drifts, err := db.Drift(t.Context(), mainRef)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestDriftStillReportsAnAliasThatMatchesNothing(t *testing.T) {
 	err := db.Put(t.Context(), testRepo, mainRef, []index.Declaration{{
 		Path:       "services/jellyfin/dusk.md",
 		Entity:     entity("service:home/jellyfin", "Jellyfin", ""),
-		ObservedAs: []string{"service:mini-2/typo"},
+		ObservedAs: []string{"service:prod/typo"},
 	}}, nil, nil)
 	if err != nil {
 		t.Fatalf("Put: %v", err)
@@ -165,7 +165,7 @@ func TestDriftStillReportsAnAliasThatMatchesNothing(t *testing.T) {
 		t.Fatalf("SetDefaultView: %v", err)
 	}
 
-	observe(t, db, "kubernetes", entity("service:mini-2/media-jellyfin", "media-jellyfin", ""))
+	observe(t, db, "kubernetes", entity("service:prod/media-jellyfin", "media-jellyfin", ""))
 
 	drifts, err := db.Drift(t.Context(), mainRef)
 	if err != nil {

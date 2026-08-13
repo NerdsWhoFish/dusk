@@ -395,7 +395,7 @@ func TestASweepDoesNotPruneObservationsOrPreviews(t *testing.T) {
 	}}}
 	c, idx := newController(t, fake, "example", controller.Options{})
 
-	observed := index.ObservedScope("kubernetes:mini-2")
+	observed := index.ObservedScope("kubernetes:prod")
 	seed := []index.Declaration{{Path: "observed", Entity: &duskv1alpha1.Entity{
 		Ref: "service:cluster/seen", Kind: "service", Namespace: "cluster", Name: "seen",
 	}}}

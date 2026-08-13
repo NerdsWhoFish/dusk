@@ -68,7 +68,7 @@ type File struct {
 	Include []string
 
 	// ObservedAs names what an ingester calls this same thing. A human writes
-	// `service:home/jellyfin` and Kubernetes calls it `service:mini-2/media-
+	// `service:home/jellyfin` and Kubernetes calls it `service:prod/media-
 	// jellyfin`; without the mapping, drift reports both as drift.
 	ObservedAs []string
 }

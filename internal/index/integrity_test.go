@@ -94,7 +94,7 @@ func TestIntegrityFindsOneRefObservedByTwoIngesters(t *testing.T) {
 // ref being declared twice, which is how this was found.
 func TestOrphansFindsAScopeNobodyClaims(t *testing.T) {
 	db := newDB(t)
-	observe(t, db, "kubernetes:mini-2", entity("host:prod/node-1", "node-1", ""))
+	observe(t, db, "kubernetes:prod", entity("host:prod/node-1", "node-1", ""))
 	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
 
 	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
@@ -104,7 +104,7 @@ func TestOrphansFindsAScopeNobodyClaims(t *testing.T) {
 	if len(problems) != 1 {
 		t.Fatalf("found %d orphans, want the ingester that is gone: %+v", len(problems), problems)
 	}
-	if !strings.Contains(problems[0].Ref, "kubernetes:mini-2") {
+	if !strings.Contains(problems[0].Ref, "kubernetes:prod") {
 		t.Errorf("Ref = %q, want the scope nothing claims", problems[0].Ref)
 	}
 }
@@ -127,10 +127,10 @@ func TestOrphansLeavesLiveIngestersAlone(t *testing.T) {
 // because an observation's ref is not the one the delete was written against.
 func TestForgetRemovesTheObservations(t *testing.T) {
 	db := newDB(t)
-	observe(t, db, "kubernetes:mini-2", entity("host:prod/node-1", "node-1", ""))
+	observe(t, db, "kubernetes:prod", entity("host:prod/node-1", "node-1", ""))
 	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
 
-	if err := db.Forget(t.Context(), index.ObservedScope("kubernetes:mini-2")); err != nil {
+	if err := db.Forget(t.Context(), index.ObservedScope("kubernetes:prod")); err != nil {
 		t.Fatalf("Forget: %v", err)
 	}
 
