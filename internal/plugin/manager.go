@@ -533,9 +533,15 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 	m.running[record.ID] = running
 	m.mu.Unlock()
 
-	if err := m.rehome(record, running.Describe); err != nil {
+	// Migration happens before anything is scheduled, and the rotation is built
+	// from what it produced: stripping a credential out of the record without
+	// picking up the sealed copy would start an instance with nothing.
+	migrated, sealed, err := m.rehome(record, running.Describe)
+	if err != nil {
 		m.log().Error("could not seal a credential found in the plain record",
 			"plugin", record.ID, "error", err)
+	} else if sealed != nil {
+		record, secrets = *migrated, sealed
 	}
 
 	for _, instance := range instancesOf(running, record, secrets) {
@@ -558,18 +564,18 @@ func configured(plain map[string]any, secrets map[string]secret.String) (*struct
 	return structpb.NewStruct(merged)
 }
 
-// rehome moves a credential written into the plain record by an older Dusk
-// into the sealed store. Nothing split configuration by sensitivity before, so
-// every existing install has its API key sitting in readable JSON.
-func (m *Manager) rehome(record Installed, described *duskv1alpha1.DescribeResponse) error {
+// rehome seals a credential an older Dusk wrote in the clear, answering with
+// what it produced. It builds fresh maps rather than editing what it was given:
+// a map is shared, and stripping one in place emptied the caller's instances.
+func (m *Manager) rehome(record Installed, described *duskv1alpha1.DescribeResponse) (*Installed, *Secrets, error) {
 	sensitive := sensitiveOf(described)
 	if len(sensitive) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 
 	secrets, err := m.Store.ReadSecrets(record.ID)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	moved := false
@@ -581,23 +587,30 @@ func (m *Manager) rehome(record Installed, described *duskv1alpha1.DescribeRespo
 		return kept, sealed
 	}
 
-	record.Config, secrets.Config = move(record.Config, secrets.Config)
-	for name, config := range record.Instances {
-		if secrets.Instances == nil {
-			secrets.Instances = map[string]map[string]secret.String{}
+	migrated := record
+	migrated.Config, secrets.Config = move(record.Config, secrets.Config)
+
+	if len(record.Instances) > 0 {
+		migrated.Instances = make(map[string]map[string]any, len(record.Instances))
+		secrets.Instances = map[string]map[string]secret.String{}
+		for name, config := range record.Instances {
+			migrated.Instances[name], secrets.Instances[name] = move(config, secrets.Instances[name])
 		}
-		record.Instances[name], secrets.Instances[name] = move(config, secrets.Instances[name])
 	}
 
 	if !moved {
-		return nil
+		return nil, nil, nil
 	}
 	if err := m.Store.WriteSecrets(record.ID, secrets); err != nil {
-		return err
+		return nil, nil, err
 	}
 	m.log().Info("moved a plugin credential out of the plain record and into the sealed store",
 		"plugin", record.ID)
-	return m.Store.Write(record)
+
+	if err := m.Store.Write(migrated); err != nil {
+		return nil, nil, err
+	}
+	return &migrated, secrets, nil
 }
 
 // instancesOf turns a record into everything that should be in the rotation.

@@ -201,3 +201,47 @@ func TestConfiguringAPluginThatIsNotRunningSaysWhy(t *testing.T) {
 		t.Fatalf("the refusal should say only the plugin knows which fields are secret, got %q", err)
 	}
 }
+
+// The same migration has to cover a named instance, and the instance is the
+// case that matters: a plugin watching a second source has its credential in
+// the instance's config, not the plugin's own.
+func TestACredentialInAnInstanceIsSealedWithoutLosingIt(t *testing.T) {
+	manager, rotation := manager(t)
+	install(t, manager.Store, standIn{
+		ID:        "twinned",
+		Kinds:     []string{"thing"},
+		Fields:    []string{"base_url", "api_key"},
+		Sensitive: []string{"api_key"},
+	})
+
+	// The shape an older Dusk left behind, for both configurations.
+	if err := manager.Store.Write(plugin.Installed{
+		ID:      "twinned",
+		Version: "v0.0.1",
+		Config:  map[string]any{"base_url": "https://one.example.com", "api_key": "first-secret"},
+		Instances: map[string]map[string]any{
+			"second": {"base_url": "https://two.example.com", "api_key": "second-secret"},
+		},
+	}); err != nil {
+		t.Fatalf("write the old record: %v", err)
+	}
+
+	manager.Restore(t.Context())
+	t.Cleanup(manager.Stop)
+
+	if record := onDisk(t, manager.Store, "twinned"); strings.Contains(record, "secret") {
+		t.Fatalf("a credential was left in the plain record:\n%s", record)
+	}
+
+	// Both configurations have to still work on the boot that migrated them,
+	// not only on the one after.
+	for scope, want := range map[string]string{
+		"plugin:twinned":        "first-secret",
+		"plugin:twinned:second": "second-secret",
+	} {
+		got := rotation.observed(t.Context(), t, scope).Entities[0].GetAttributes().AsMap()
+		if got["api_key"] != want {
+			t.Errorf("%s was handed %v, want its own credential", scope, got["api_key"])
+		}
+	}
+}
