@@ -47,8 +47,11 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `get(ref)` | Everything about one entity, including its connections |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
+| `drift()` | Where the catalog and reality disagree |
+| `dusk_context(directory?)` | The operator's estate, tailored to the repository being worked in |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
 | `note(kind, body, refs?, id?, proof?)` | Record a gotcha, a runbook, a decision, attached to the entities it concerns |
+| `page(body?, proof?)` | Read or rewrite the homepage |
 
 `get` is deliberately fat.
 An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations, provenance and the notes attached to it in one call rather than five.
@@ -139,6 +142,22 @@ An update merges over what the file already says, so changing a body leaves the 
 
 With no `DUSK_CONFIG_REPOSITORY` set, the tool is not offered at all.
 Everything else keeps working: a tool that always fails is worse than one that is absent.
+
+### Curating the homepage
+
+The homepage is a file in the config repository, so an agent curates it the same way it writes anything else.
+`page` is both halves of that: omit `body` and it returns the current page plus a proof token, pass `body` and it replaces the page.
+
+One tool rather than two, because reading is what issues the token, and a separate `readPage` would look optional.
+Reading is not optional here for a reason beyond the contract: **what you send becomes the whole page**, blocks are never merged, so replacing a layout without having seen it is how a homepage silently loses half of itself.
+
+Reading a page nobody has declared returns the default written out, rather than nothing.
+An agent asked to add a block to a default homepage should be editing that page, not inventing one.
+
+Dusk parses the page **before** committing.
+A page that would not render is refused with the reason, so a bad block is a failed call rather than a blank homepage discovered later.
+
+What the blocks mean is [docs/pages.md](pages.md); the short version is that a block is a query rather than a widget, which is what makes a layout something an agent is good at tuning ([ADR-0013](../adr/0013-layout-and-pages.md)).
 
 ## Not built yet
 

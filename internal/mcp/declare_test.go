@@ -1,7 +1,11 @@
 package mcp_test
 
 import (
+	"io/fs"
+
 	"context"
+	"github.com/NerdsWhoFish/dusk/internal/page"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"regexp"
 	"strings"
 	"testing"
@@ -19,6 +23,8 @@ type recordingWriter struct {
 	tokens *proof.Store
 	got    []write.Declaration
 	notes  []write.Note
+	home   []byte
+	wrote  []byte
 
 	// notesGo is where notes land, and empty means the tool is not offered.
 	notesGo string
@@ -196,4 +202,22 @@ func TestReadOnlyReadsIssueNoToken(t *testing.T) {
 	if strings.Contains(body, "Proof token") {
 		t.Errorf("a read-only deployment offered a write token:\n%s", body)
 	}
+}
+
+// Home and SetHome back the page tool. The page is a file like any other, so
+// the fake keeps one in memory.
+func (w *recordingWriter) Home(context.Context) ([]byte, error) {
+	if len(w.home) == 0 {
+		return nil, fs.ErrNotExist
+	}
+	return w.home, nil
+}
+
+func (w *recordingWriter) SetHome(_ context.Context, token string, body []byte) (*write.Result, error) {
+	if err := w.tokens.AuthorizeUpdate(token, page.Path, duskmd.ContentHash(string(w.home))); err != nil {
+		return nil, err
+	}
+	w.wrote = body
+	w.home = body
+	return &write.Result{Path: page.Path, Repository: "example/config", URL: "https://example.com/commit"}, nil
 }

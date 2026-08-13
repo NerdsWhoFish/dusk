@@ -22,7 +22,13 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"io/fs"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/NerdsWhoFish/dusk/internal/page"
 	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
@@ -64,6 +70,12 @@ type Declarer interface {
 	// NoteDestination is where notes go, and empty means nowhere, in which case
 	// the note tool is not offered at all.
 	NoteDestination() string
+
+	// Home reads the declared portal page, and SetHome writes it. ADR-0013
+	// made blocks queries so that curating a layout is writing queries, which
+	// is work an agent is good at.
+	Home(ctx context.Context) ([]byte, error)
+	SetHome(ctx context.Context, token string, body []byte) (*write.Result, error)
 }
 
 // Options are the server's dependencies.
@@ -171,6 +183,14 @@ func (s *Server) sdkServer() *sdk.Server {
 				Name:        "note",
 				Description: "Record something worth keeping that is not a description of any one thing: a gotcha, a runbook, the reason something is the way it is. Attach it to the entities it concerns. Omit id to write a new one.",
 			}, s.note)
+
+			// One tool for both halves rather than two: reading the page is how
+			// an agent gets the proof token that lets it write one back, so
+			// splitting them would make the read look optional.
+			sdk.AddTool(server, &sdk.Tool{
+				Name:        "page",
+				Description: "Read or rewrite the homepage. Omit body to read it, which returns the current page and the proof token needed to change it. Pass body to replace it: markdown with YAML frontmatter declaring an ordered list of blocks, each a typed query. What you send is the whole page.",
+			}, s.page)
 		}
 	}
 
@@ -590,4 +610,48 @@ func short(commit string) string {
 		return commit[:7]
 	}
 	return commit
+}
+
+// pageInput is one tool for both halves. No body reads; a body replaces.
+type pageInput struct {
+	Body  string `json:"body,omitempty" jsonschema:"the whole page as markdown with YAML frontmatter. Omit to read the current one instead of writing"`
+	Proof string `json:"proof,omitempty" jsonschema:"the proof token from reading the page, required to change it"`
+}
+
+// page reads or rewrites the homepage.
+//
+// Reading issues a proof token like any other read, because a layout is worth
+// looking at before replacing: what is sent becomes the whole page, and blocks
+// are not merged with what was there.
+func (s *Server) page(ctx context.Context, _ *sdk.CallToolRequest, in pageInput) (*sdk.CallToolResult, any, error) {
+	if in.Body == "" {
+		return s.readPage(ctx)
+	}
+
+	result, err := s.opts.Writer.SetHome(ctx, in.Proof, []byte(in.Body))
+	if err != nil {
+		return text(fmt.Sprintf("The page was not written.\n\n%s", err)), nil, nil
+	}
+	return text(fmt.Sprintf(
+		"Rewrote `%s` in %s.\n\nCommit: %s\n\nThe homepage is now exactly what you sent.",
+		result.Path, result.Repository, result.URL)), nil, nil
+}
+
+func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error) {
+	body, err := s.opts.Writer.Home(ctx)
+	if errors.Is(err, fs.ErrNotExist) {
+		declared, _ := yaml.Marshal(page.Default())
+		return text(fmt.Sprintf(
+			"No page is declared, so Dusk serves its default. Writing one replaces it entirely.\n\n"+
+				"The default, as it would be written:\n\n```yaml\n---\n%s---\n```\n\n%s",
+			declared, s.issue(proof.FromPage, map[string]string{page.Path: ""}))), nil, nil
+	}
+	if err != nil {
+		return text(fmt.Sprintf("The page could not be read.\n\n%s", err)), nil, nil
+	}
+
+	return text(fmt.Sprintf(
+		"The homepage, as declared in `%s`:\n\n```markdown\n%s\n```\n\n%s",
+		page.Path, body,
+		s.issue(proof.FromPage, map[string]string{page.Path: duskmd.ContentHash(string(body))}))), nil, nil
 }

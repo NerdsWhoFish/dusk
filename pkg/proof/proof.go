@@ -27,6 +27,10 @@ const (
 	FromGet Origin = "get"
 	// FromNeighbors resolves around one ref and cannot either.
 	FromNeighbors Origin = "neighbors"
+
+	// FromPage is reading the portal page, which is the only read that
+	// witnesses the whole of what a write would replace.
+	FromPage Origin = "page"
 )
 
 // DefaultTTL is a backstop, not the mechanism. Tokens are invalidated by the
