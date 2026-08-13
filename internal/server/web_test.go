@@ -3,6 +3,7 @@ package server_test
 import (
 	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -64,6 +65,28 @@ func TestIconsServeOutsideTheGate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The API mux was mounted as "GET /api/", so every write fell through to the
+// browser catch-all and was answered with a redirect to the login page. A
+// browser follows it, gets HTML with ok: true, and reports a JSON parse error.
+func TestAPIWritesAreNotRedirectedToLogin(t *testing.T) {
+	handler := build(t, setup{
+		store:   registered(),
+		catalog: emptyCatalog(t),
+		env:     map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/plugins/kubernetes/install", nil))
+
+	if rec.Code == http.StatusSeeOther {
+		t.Fatalf("POST to the API was redirected to %q, so it never reached a handler",
+			rec.Header().Get("Location"))
+	}
+	if body := rec.Body.String(); strings.HasPrefix(strings.TrimSpace(body), "<") {
+		t.Errorf("the API answered with markup rather than JSON: %.60s", body)
 	}
 }
 

@@ -42,6 +42,16 @@ export type RepositoryStatus = {
 // of showing them an error they cannot act on.
 export class Unauthorized extends Error {}
 
+// json refuses a response that is not JSON. A request redirected to the login
+// page arrives as HTML with ok: true, and parsing it blames a character offset
+// rather than the session that lapsed.
+async function json<T>(response: Response): Promise<T> {
+  if (response.redirected || !response.headers.get("content-type")?.includes("json")) {
+    throw new Unauthorized("session expired");
+  }
+  return response.json() as Promise<T>;
+}
+
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { Accept: "application/json" },
@@ -54,7 +64,7 @@ async function get<T>(path: string): Promise<T> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error ?? `the catalog returned ${response.status}`);
   }
-  return response.json() as Promise<T>;
+  return json<T>(response);
 }
 
 export type KindCount = { Kind: string; Count: number };
@@ -151,7 +161,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     const failure = await response.json().catch(() => ({}));
     throw new Error(failure.error ?? `the catalog returned ${response.status}`);
   }
-  return response.json() as Promise<T>;
+  return json<T>(response);
 }
 
 export const api = {

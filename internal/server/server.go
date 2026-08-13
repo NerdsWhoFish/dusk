@@ -199,7 +199,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/callback", s.handleAuthCallback)
 
 	if s.catalog != nil {
-		mux.Handle("GET /api/", s.access.API(http.StripPrefix("/api", s.apiRoutes())))
+		// No method: the API answers POST as well as GET, and "GET /api/" let
+		// every write fall through to the browser catch-all, which redirected
+		// it to the login page as though the session had lapsed.
+		mux.Handle("/api/", s.access.API(http.StripPrefix("/api", s.apiRoutes())))
 
 		// Registered without a method: "GET /" would be narrower in method and
 		// broader in path than /mcp/, which the mux rejects as ambiguous.
