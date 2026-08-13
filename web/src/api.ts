@@ -89,6 +89,21 @@ export type Outcome = {
   previewed: boolean;
   changed?: string[];
   steps?: Outcome[];
+  ask?: Ask;
+};
+
+// Ask is a question the plugin returned instead of a result. The action has not
+// run; answering it and invoking again is what continues it.
+export type Ask = {
+  prompt: string;
+  schema?: Record<string, unknown>;
+  token?: string;
+};
+
+export type Answered = {
+  outcome: "accept" | "decline" | "cancel";
+  values?: Record<string, unknown>;
+  token?: string;
 };
 
 export type EntityDetail = {
@@ -374,4 +389,5 @@ export type Invocation = {
   plugin?: string;
   confirm?: boolean;
   preview?: boolean;
+  elicited?: Answered;
 };

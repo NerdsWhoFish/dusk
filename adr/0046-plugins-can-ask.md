@@ -53,6 +53,17 @@ The same declaration therefore works from an agent, from the UI and from a sched
 
 This is [ADR-0015](0015-plugin-actions-and-events.md)'s "a missing link is loud", one level down.
 
+### The browser answers too, by the same mechanism one level up
+
+An MCP session is a live connection, so Dusk can put the question and wait inside the call.
+An HTTP request cannot: nothing can hold a browser open while somebody reads a form.
+
+Rather than build a second mechanism, the UI gets the plugin's own shape.
+A request that sets `CanResume` receives the question on the `Outcome` instead of a result, the browser renders it from the same schema it already renders action parameters from, and answering invokes the same action again with `Elicited` set.
+The plugin's token carries whatever it needs to continue, so Dusk holds nothing between the two requests and a half finished action cannot leak.
+
+The recursion is the point: the plugin returns its question to Dusk, and Dusk returns it to the browser, for the same reason in both cases.
+
 ### It keeps one transport and one RPC shape
 
 Option 2 needs a bidirectional stream. [ADR-0039](0039-one-plugin-transport.md) chose a socket precisely because every language handles it comfortably, and streaming gRPC is comfortable in far fewer.
@@ -101,7 +112,7 @@ It gets a named test: `TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging`.
 ### Bad
 
 - An action can now take several round trips through the plugin, and a plugin author has to make it resumable. The token exists to make that cheap, but "resumable" is a real constraint that unary actions did not carry.
-- The UI gains nothing yet. It has no elicitor, so a plugin that asks is answered `unsupported` there, and a plugin author who only tested over MCP will ship an action that behaves differently in the browser. A form renderer for the plugin page would close it and is not built.
+- A chained step cannot ask. The caller is already holding the result of the action that started the chain, so a step that asks is told `unsupported` and decides for itself. Composition and elicitation therefore do not combine, which will surprise somebody eventually.
 - Four turns is arbitrary. It is generous enough for any real interview and too small for none, but it is a number in a constant rather than a reasoned limit.
 - Dusk now relays a schema it does not validate. A plugin can ask for a shape the client cannot render, and neither side finds out until a human sees a broken form.
 - The `preview` path deliberately does not elicit, so a dry run of an asking action shows what would happen without the answers. That is defensible and it is also a second behaviour to explain.

@@ -674,6 +674,13 @@ input,
   border-top: 1px solid var(--line);
 }
 
+/* An action waiting on an answer has not run, so it reads as a question rather
+   than as a result somebody can skim past. */
+.action-asking {
+  border-left: 2px solid var(--accent, #bd93f9);
+  padding-left: 0.875rem;
+}
+
 .action-confirm {
   display: flex;
   flex-wrap: wrap;

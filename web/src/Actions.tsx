@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { NeedsApproval, api } from "./api";
-import type { Action, Invocation, Outcome } from "./api";
+import type { Action, Answered, Ask, Invocation, Outcome } from "./api";
 
 // Actions renders what a plugin declares as buttons. Nothing here knows about
 // any plugin: the same ActionDescriptor is a button, an invocable capability
@@ -65,12 +65,17 @@ function ActionCard({
   const [problem, setProblem] = useState<string>();
   const [busy, setBusy] = useState(false);
 
+  // What the invocation was, so answering a question resumes that action rather
+  // than starting a fresh one with different arguments.
+  const [resuming, setResuming] = useState<Invocation>();
+
   const run = async (extra: Invocation) => {
     setBusy(true);
     setProblem(undefined);
     setAsking(undefined);
     try {
       const body: Invocation = { params, proof, plugin: action.plugin, ...extra };
+      setResuming(body);
       const answer = entityRef
         ? await api.invoke(entityRef, action.name, body)
         : await api.invokePlugin(action.plugin, action.name, body);
@@ -168,7 +173,17 @@ function ActionCard({
         </p>
       )}
 
-      {outcome && <Result outcome={outcome} plugin={action.plugin} />}
+      {outcome?.ask && (
+        <Question
+          ask={outcome.ask}
+          busy={busy}
+          onAnswer={(answer) => run({ ...resuming, elicited: answer })}
+        />
+      )}
+
+      {outcome && !outcome.ask && (
+        <Result outcome={outcome} plugin={action.plugin} />
+      )}
     </section>
   );
 }
@@ -220,6 +235,58 @@ type ParamField = {
 // schemaFields reads an action's JSON Schema into a flat form. Only the shapes
 // a form can render are taken; anything nested is left to an agent, which does
 // not need a form at all.
+// Question renders what a plugin asked for mid-action. The action has not run:
+// answering resumes it, and declining tells the plugin so rather than silently
+// abandoning it, since a considered no is something it may act on (ADR-0046).
+function Question({
+  ask,
+  busy,
+  onAnswer,
+}: {
+  ask: Ask;
+  busy: boolean;
+  onAnswer: (answer: Answered) => void;
+}) {
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const fields = schemaFields(ask.schema);
+
+  return (
+    <div className="action-form action-asking">
+      <p className="hint">{ask.prompt}</p>
+
+      {fields.map((field) => (
+        <ParamInput
+          key={field.name}
+          field={field}
+          value={values[field.name]}
+          onChange={(next) =>
+            setValues((was) => ({ ...was, [field.name]: next }))
+          }
+        />
+      ))}
+
+      <div className="action-buttons">
+        <button
+          type="button"
+          className="btn"
+          disabled={busy}
+          onClick={() => onAnswer({ outcome: "accept", values, token: ask.token })}
+        >
+          Answer
+        </button>
+        <button
+          type="button"
+          className="btn secondary"
+          disabled={busy}
+          onClick={() => onAnswer({ outcome: "decline", token: ask.token })}
+        >
+          Decline
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function schemaFields(schema: Record<string, unknown> | undefined): ParamField[] {
   const properties = schema?.properties as Record<string, Record<string, unknown>>;
   if (!properties) {

@@ -49,6 +49,15 @@ type Request struct {
 	// surface with somebody attached sets it; the rest leave it nil and the
 	// plugin is told nobody can answer (ADR-0046).
 	Elicit Elicitor
+
+	// CanResume says the caller will come back with an answer rather than
+	// wanting one inline. A request cannot hold a browser open, so the question
+	// is returned on the Outcome and the same action is invoked again.
+	CanResume bool
+
+	// Elicited is the answer to a question a previous invocation returned. It
+	// is what makes a resumed action continue rather than start over.
+	Elicited *Answer
 }
 
 // Elicitor puts a plugin's question to whoever invoked the action.
@@ -56,20 +65,28 @@ type Elicitor func(ctx context.Context, ask Ask) (Answer, error)
 
 // Ask is a plugin's question, as a prompt and the shape of the reply.
 type Ask struct {
-	Prompt string
+	Prompt string `json:"prompt"`
 
 	// Schema is a JSON Schema object, flat and of primitives, which is all the
 	// MCP elicitation contract carries.
-	Schema map[string]any
+	Schema map[string]any `json:"schema,omitempty"`
+
+	// Token is the plugin's own, returned verbatim so it can resume. Opaque
+	// here and to whoever answers.
+	Token string `json:"token,omitempty"`
 }
 
 // Answer is what came back, including the two ways of saying no.
 type Answer struct {
 	// Outcome is accept, decline, cancel, or unsupported when there was nobody
 	// to ask. A plugin may treat a considered no differently from walking away.
-	Outcome string
+	Outcome string `json:"outcome"`
 
-	Values map[string]any
+	Values map[string]any `json:"values,omitempty"`
+
+	// Token is the one the question carried, and is how a plugin resumes.
+	// Unused when the answer is given inline, since the question is in hand.
+	Token string `json:"token,omitempty"`
 }
 
 // How an elicitation ended. The first three are MCP's own vocabulary; the
@@ -102,6 +119,10 @@ type Outcome struct {
 
 	Message string         `json:"message"`
 	Detail  map[string]any `json:"detail,omitempty"`
+
+	// Ask is a question the plugin returned that nobody could answer inline.
+	// The action has not run. Answer it and invoke again with Elicited set.
+	Ask *Ask `json:"ask,omitempty"`
 
 	// Preview is what a dry run said, and whether the plugin supports one at
 	// all. Surfaced at approval time, because "this cannot be previewed" is
@@ -287,6 +308,24 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 		return nil, fmt.Errorf("plugin: %s could not run %s: %w", target.running.ID, target.action.Name, err)
 	}
 
+	// A question means the action has not run. It is not a failure and it is
+	// not a result, so it is settled as its own thing and nothing composes.
+	if ask := answer.GetElicit(); ask != nil {
+		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_STARTED,
+			"waiting on "+ask.GetPrompt(), nil, m.now()))
+		return &Outcome{
+			Event: event.GetId(), Chain: chain, Plugin: target.running.ID,
+			Action: target.action.Name, Ref: request.Ref, Class: target.action.Class,
+			Done: false, OK: true,
+			Message: ask.GetPrompt(),
+			Ask: &Ask{
+				Prompt: ask.GetPrompt(),
+				Schema: ask.GetSchema().AsMap(),
+				Token:  ask.GetToken(),
+			},
+		}, nil
+	}
+
 	outcome := &Outcome{
 		Event:   event.GetId(),
 		Chain:   chain,
@@ -329,6 +368,14 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 // asking or runs out of turns. An elicitation ends a turn: nothing else in that
 // response is acted on, because the action has not finished (ADR-0046).
 func (m *Manager) converse(ctx context.Context, target chosen, request Request, call *duskv1alpha1.InvokeRequest) (*duskv1alpha1.InvokeResponse, error) {
+	if given := request.Elicited; given != nil {
+		values, err := structpb.NewStruct(given.Values)
+		if err != nil {
+			return nil, fmt.Errorf("plugin: that answer cannot be sent: %w", err)
+		}
+		call.Elicited = &duskv1alpha1.Elicited{Token: given.Token, Values: values, Outcome: given.Outcome}
+	}
+
 	for turn := 0; ; turn++ {
 		answer, err := target.running.client.Invoke(ctx, call)
 		if err != nil {
@@ -337,6 +384,12 @@ func (m *Manager) converse(ctx context.Context, target chosen, request Request, 
 
 		ask := answer.GetElicit()
 		if ask == nil {
+			return answer, nil
+		}
+
+		// A request cannot hold a browser open, so the question goes back to
+		// whoever asked and the same action is invoked again with the answer.
+		if request.Elicit == nil && request.CanResume {
 			return answer, nil
 		}
 		if turn >= maxElicit {
@@ -382,6 +435,12 @@ func (m *Manager) compose(ctx context.Context, from chosen, request Request, ste
 		return []Outcome{{Chain: chain, Done: true, OK: false,
 			Message: fmt.Sprintf("the composition is more than %d steps deep and was stopped", maxChain)}}
 	}
+
+	// A step cannot hand a question back: the caller is already holding the
+	// result of the action that started the chain. One that asks is told nobody
+	// can answer, and decides for itself (ADR-0046).
+	request.CanResume = false
+	request.Elicited = nil
 
 	var ran []Outcome
 	for _, step := range steps {

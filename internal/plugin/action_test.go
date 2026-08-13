@@ -537,3 +537,48 @@ func TestAnEndlessElicitationIsStopped(t *testing.T) {
 		t.Errorf("the human was asked %d times before it stopped", asks)
 	}
 }
+
+// A browser cannot be held open, so a plugin's question comes back as the
+// result and the same action is invoked again with the answer (ADR-0046).
+func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	manager, _, _, _ := acting(t, standIn{
+		ID:      "asker",
+		Kinds:   []string{"widget"},
+		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
+	}, observed)
+
+	pending, err := manager.Invoke(t.Context(), plugin.Request{
+		Ref: "widget:asker/one", Action: "poke", CanResume: true,
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if pending.Ask == nil {
+		t.Fatalf("no question came back: %+v", pending)
+	}
+	if pending.Done {
+		t.Error("an action waiting on an answer reported itself done")
+	}
+	if pending.Ask.Token == "" {
+		t.Error("the question carried no token, so the plugin cannot resume")
+	}
+
+	resumed, err := manager.Invoke(t.Context(), plugin.Request{
+		Ref: "widget:asker/one", Action: "poke", CanResume: true,
+		Elicited: &plugin.Answer{
+			Outcome: plugin.Accepted,
+			Token:   pending.Ask.Token,
+			Values:  map[string]any{"reason": "because"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if resumed.Ask != nil {
+		t.Fatalf("it asked again after being answered: %+v", resumed.Ask)
+	}
+	if !strings.Contains(resumed.Message, `accept: "because"`) {
+		t.Errorf("message = %q, want the answer to have reached the plugin", resumed.Message)
+	}
+}
