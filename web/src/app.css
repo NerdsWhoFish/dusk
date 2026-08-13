@@ -600,6 +600,284 @@ input,
   color: var(--fg);
 }
 
+/* Destructive is the one thing on the page that should stop somebody, so it
+   is the one button that does not look like the rest. */
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #17161f;
+}
+
+/* Actions -------------------------------------------------------------- */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.action {
+  padding: 0.875rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 0.5rem;
+}
+
+/* The left edge carries the class, so how much a button can do is legible
+   before its description is read. */
+.action-read_only {
+  border-left-color: var(--line);
+}
+
+.action-mutating {
+  border-left-color: var(--yellow);
+}
+
+.action-destructive {
+  border-left-color: var(--red);
+}
+
+.action-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.action-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.9375rem;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.action .hint {
+  margin: 0.5rem 0 0;
+}
+
+.action-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--line);
+}
+
+.action-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+  padding: 0.75rem;
+  background: rgb(255 85 85 / 0.08);
+  border: 1px solid rgb(255 85 85 / 0.35);
+  border-radius: 0.5rem;
+}
+
+.action-confirm p {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.875rem;
+}
+
+.action-result {
+  margin-top: 0.875rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.action-result p {
+  margin: 0;
+}
+
+.action-result.ok {
+  border-color: rgb(80 250 123 / 0.35);
+}
+
+.action-result.bad {
+  border-color: rgb(255 85 85 / 0.4);
+  color: var(--red);
+}
+
+.action-steps {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.8125rem;
+}
+
+.action-steps .bad {
+  color: var(--red);
+}
+
+.tag.class-mutating {
+  color: var(--yellow);
+  border-color: rgb(255 202 128 / 0.4);
+}
+
+.tag.class-destructive {
+  color: var(--red);
+  border-color: rgb(255 85 85 / 0.4);
+}
+
+.capability {
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.capability:last-child {
+  border-bottom: none;
+}
+
+.plugin-output {
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+/* Declared views ------------------------------------------------------- */
+
+/* Wide content scrolls inside its own container rather than widening the page
+   (ADR-0025). A grid item's automatic minimum is its content, so the track has
+   to be told it may be narrower than what it holds. */
+.scroller {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.declared {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.declared th {
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.declared td {
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.declared-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.declared-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.declared-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.badge-label {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Events --------------------------------------------------------------- */
+
+.events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.event {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.event-when {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.event-message {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.tag.status-failed,
+.tag.status-denied {
+  color: var(--red);
+  border-color: rgb(255 85 85 / 0.4);
+}
+
+.tag.status-succeeded {
+  color: var(--green);
+  border-color: rgb(80 250 123 / 0.35);
+}
+
 /* Rows ---------------------------------------------------------------- */
 
 .rows {

@@ -144,30 +144,96 @@ type Asset struct {
 	Body []byte
 }
 
-// View is one place a plugin renders itself, resolved to a URL Dusk serves.
+// View is one place a plugin renders itself: either declared, and drawn by
+// Dusk's own React, or an element whose JavaScript Dusk serves from its own
+// origin (ADR-0020).
 type View struct {
 	Plugin  string   `json:"plugin"`
-	Element string   `json:"element"`
+	Element string   `json:"element,omitempty"`
 	Title   string   `json:"title,omitempty"`
-	Source  string   `json:"source"`
+	Source  string   `json:"source,omitempty"`
 	Kinds   []string `json:"kinds,omitempty"`
+
+	// Slot is where it mounts: an entity page, or the plugin's own.
+	Slot string `json:"slot,omitempty"`
+
+	// Spec makes this a declared view, needing no JavaScript from the plugin
+	// and therefore no trust decision.
+	Spec *ViewSpec `json:"spec,omitempty"`
 }
+
+// ViewSpec is a declared view. The vocabulary is closed on purpose: Dusk
+// renders it, so an unknown layout has no rendering, and this is deliberately
+// not a layout language.
+type ViewSpec struct {
+	Layout string      `json:"layout"`
+	Fields []ViewField `json:"fields"`
+	Empty  string      `json:"empty,omitempty"`
+}
+
+// ViewField is one thing a declared view shows.
+type ViewField struct {
+	Source string `json:"source"`
+	Label  string `json:"label,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
+// Slot names where a contribution mounts.
+const (
+	SlotEntity = "entity"
+	SlotPlugin = "plugin"
+)
 
 // Views is what this plugin contributes to the UI.
 func (r *Running) Views() []View {
 	views := make([]View, 0, len(r.Describe.GetUi()))
 	for _, ui := range r.Describe.GetUi() {
-		asset, ok := r.assets[ui.GetAsset()]
-		if !ok {
-			continue
-		}
-		views = append(views, View{
+		view := View{
 			Plugin: r.ID, Element: ui.GetElement(), Title: ui.GetTitle(),
-			Source: "/plugin-assets/" + r.ID + "/" + asset.SHA + ".js",
-			Kinds:  ui.GetAppliesToKinds(),
-		})
+			Kinds: ui.GetAppliesToKinds(), Slot: slotOf(ui.GetSlot()),
+			Spec: specOf(ui.GetSpec()),
+		}
+
+		// A declared view has no asset to serve. An element with no asset is a
+		// plugin that named JavaScript nobody could fetch, and mounting a tag
+		// nothing defines renders an empty box with no explanation.
+		if view.Spec == nil {
+			asset, ok := r.assets[ui.GetAsset()]
+			if !ok {
+				continue
+			}
+			view.Source = "/plugin-assets/" + r.ID + "/" + asset.SHA + ".js"
+		}
+		views = append(views, view)
 	}
 	return views
+}
+
+func slotOf(slot duskv1alpha1.UISlot) string {
+	if slot == duskv1alpha1.UISlot_UI_SLOT_PLUGIN {
+		return SlotPlugin
+	}
+	return SlotEntity
+}
+
+func specOf(spec *duskv1alpha1.ViewSpec) *ViewSpec {
+	if spec == nil {
+		return nil
+	}
+
+	declared := &ViewSpec{
+		Layout: strings.ToLower(strings.TrimPrefix(spec.GetLayout().String(), "VIEW_LAYOUT_")),
+		Empty:  spec.GetEmpty(),
+		Fields: make([]ViewField, 0, len(spec.GetFields())),
+	}
+	for _, field := range spec.GetFields() {
+		declared.Fields = append(declared.Fields, ViewField{
+			Source: field.GetSource(),
+			Label:  field.GetLabel(),
+			Format: strings.ToLower(strings.TrimPrefix(field.GetFormat().String(), "VIEW_FORMAT_")),
+		})
+	}
+	return declared
 }
 
 // Asset returns a fetched asset by its digest.

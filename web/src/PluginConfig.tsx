@@ -14,6 +14,7 @@ export function ConfigForm({
   onSaved: () => void;
 }) {
   const current = instance ? (offer.instances?.[instance] ?? {}) : (offer.config ?? {});
+  const set = new Set(offer.set?.[instance ?? ""] ?? []);
   const [values, setValues] = useState<PluginConfig>(current);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -43,6 +44,7 @@ export function ConfigForm({
           key={field.name}
           field={field}
           value={values[field.name]}
+          filled={set.has(field.name)}
           onChange={(next) => setValues((was) => ({ ...was, [field.name]: next }))}
         />
       ))}
@@ -63,10 +65,12 @@ export function ConfigForm({
 function FieldInput({
   field,
   value,
+  filled,
   onChange,
 }: {
   field: PluginField;
   value: unknown;
+  filled: boolean;
   onChange: (next: unknown) => void;
 }) {
   const id = `${field.name}-field`;
@@ -98,6 +102,9 @@ function FieldInput({
         // starts empty rather than showing something that is not the secret.
         type={field.sensitive ? "password" : field.type === "int" ? "number" : "text"}
         value={field.sensitive ? undefined : String(value ?? "")}
+        // Left empty, a stored credential stays. Without saying so, editing
+        // any other field looks like it would clear this one.
+        placeholder={field.sensitive && filled ? "set, leave empty to keep it" : undefined}
         autoComplete={field.sensitive ? "new-password" : "off"}
         onChange={(e) => onChange(e.target.value)}
       />

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Actions } from "./Actions";
 import { api } from "./api";
 import type { EntityDetail } from "./api";
 import { handle } from "./App";
@@ -16,9 +17,10 @@ export function EntityView({
   const [detail, setDetail] = useState<EntityDetail | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reloading after an action is not a nicety: the answer carried the proof
+  // token, and running something invalidates it along with what it described.
+  const load = useCallback(() => {
     let live = true;
-    setDetail(null);
     setProblem(null);
 
     api
@@ -30,6 +32,11 @@ export function EntityView({
       live = false;
     };
   }, [entityRef]);
+
+  useEffect(() => {
+    setDetail(null);
+    return load();
+  }, [load]);
 
   const back = (
     <a
@@ -89,8 +96,21 @@ export function EntityView({
       {/* Before the notes: a plugin's own view of a thing is usually the most
           specific thing on the page. */}
       {(detail.views ?? []).map((view) => (
-        <PluginBlock key={view.source} view={view} entityRef={entity.ref} />
+        <PluginBlock
+          key={view.source ?? `${view.plugin}-${view.title}`}
+          view={view}
+          entityRef={entity.ref}
+          entities={[entity]}
+          onOpen={onOpen}
+        />
       ))}
+
+      <Actions
+        actions={detail.actions ?? []}
+        entityRef={entity.ref}
+        proof={detail.proof}
+        onRan={load}
+      />
 
       {notes.length > 0 && (
         <>

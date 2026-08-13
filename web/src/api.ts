@@ -21,13 +21,65 @@ export type SearchResult = {
   Snippet: string;
 };
 
-// PluginView is a custom element a plugin renders itself, with the URL Dusk
-// serves its JavaScript from. Never a React component: no shared runtime.
+// ViewField is one thing a declared view shows. Source names an entity field
+// or an attribute key; format is how it is drawn.
+export type ViewField = {
+  source: string;
+  label?: string;
+  format?: "text" | "code" | "badge" | "link" | "timestamp";
+};
+
+// ViewSpec is a view Dusk renders itself, from a description rather than from a
+// plugin's JavaScript. It is the tier of ADR-0020 that needs no trust decision.
+export type ViewSpec = {
+  layout: "table" | "list" | "badges";
+  fields: ViewField[];
+  empty?: string;
+};
+
+// PluginView is a view a plugin contributes: either declared, and rendered
+// here, or drawn by the plugin as a custom element. Never a React component
+// from a plugin: no shared runtime, so React stays upgradable.
 export type PluginView = {
   plugin: string;
-  element: string;
+  element?: string;
   title?: string;
-  source: string;
+  source?: string;
+  spec?: ViewSpec;
+};
+
+// Action is one thing that can be done to something. The same declaration is a
+// button here and an invocable capability over MCP (ADR-0041).
+export type Action = {
+  plugin: string;
+  name: string;
+  description: string;
+  class: "read_only" | "mutating" | "destructive";
+  params?: Record<string, unknown>;
+  proof_from?: string;
+  async: boolean;
+  kinds?: string[];
+  then?: string[];
+  enabled: boolean;
+  approval: "automatic" | "confirm";
+};
+
+export type Outcome = {
+  event: string;
+  chain: string;
+  plugin: string;
+  action: string;
+  ref?: string;
+  class: string;
+  done: boolean;
+  ok: boolean;
+  handle?: string;
+  message: string;
+  detail?: Record<string, unknown>;
+  preview?: string;
+  previewed: boolean;
+  changed?: string[];
+  steps?: Outcome[];
 };
 
 export type EntityDetail = {
@@ -35,7 +87,32 @@ export type EntityDetail = {
   relations: Relation[];
   notes: Note[];
   views?: PluginView[];
+  actions?: Action[];
+
+  // proof is the token an action presents, from this very read. The browser
+  // meets the same read-before-write contract an agent does (ADR-0009).
+  proof?: string;
 };
+
+export type Event = {
+  id: string;
+  chain?: string;
+  plugin?: string;
+  ref?: string;
+  action: string;
+  actor?: string;
+  status: "started" | "succeeded" | "failed" | "denied" | "unknown";
+  started_at?: string;
+  finished_at?: string;
+  message?: string;
+  detail?: Record<string, unknown>;
+};
+
+export type OutputLine = { at: string; stream: string; text: string };
+
+// NeedsApproval is a question rather than a failure: the caller is being asked
+// to agree to this particular run, and can offer that instead of an error.
+export class NeedsApproval extends Error {}
 
 export type RepositoryStatus = {
   Repository: string;
@@ -187,9 +264,15 @@ export type PluginOffer = {
   running: boolean;
   problem?: string;
   fields?: PluginField[];
+  actions?: Action[];
+  views?: PluginView[];
   config?: PluginConfig;
   instances?: Record<string, PluginConfig>;
   health?: PluginHealth[];
+
+  // set names which sensitive fields hold a value, by instance, with "" being
+  // the plugin's own. The names, never the values.
+  set?: Record<string, string[]>;
 };
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -204,7 +287,10 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   }
   if (!response.ok) {
     const failure = await response.json().catch(() => ({}));
-    throw new Error(failure.error ?? `the catalog returned ${response.status}`);
+    const message = failure.error ?? `the catalog returned ${response.status}`;
+    throw response.status === 409
+      ? new NeedsApproval(message)
+      : new Error(message);
   }
   return json<T>(response);
 }
@@ -242,4 +328,35 @@ export const api = {
   entity: (ref: string) =>
     get<EntityDetail>(`/entities/${encodeURIComponent(ref)}`),
   status: () => get<{ repositories: RepositoryStatus[] }>("/status"),
+
+  invoke: (ref: string, action: string, body: Invocation) =>
+    post<Outcome>(
+      `/entities/${encodeURIComponent(ref)}/actions/${encodeURIComponent(action)}`,
+      body,
+    ),
+  invokePlugin: (id: string, action: string, body: Invocation) =>
+    post<Outcome>(
+      `/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}`,
+      body,
+    ),
+  enableAction: (id: string, action: string, enabled: boolean) =>
+    post<{ enabled: boolean }>(
+      `/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}/enabled`,
+      { enabled },
+    ),
+  handle: (id: string, handle: string) =>
+    get<Outcome>(
+      `/plugins/${encodeURIComponent(id)}/handles/${encodeURIComponent(handle)}`,
+    ),
+  events: (limit = 50) => get<{ events: Event[] }>(`/events?limit=${limit}`),
+  output: (id: string) =>
+    get<{ output: OutputLine[] }>(`/plugins/${encodeURIComponent(id)}/output`),
+};
+
+export type Invocation = {
+  params?: Record<string, unknown>;
+  proof?: string;
+  plugin?: string;
+  confirm?: boolean;
+  preview?: boolean;
 };

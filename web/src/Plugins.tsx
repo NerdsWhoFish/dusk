@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type PluginHealth, type PluginOffer } from "./api";
+import { Capabilities, Contributions, Output } from "./Capabilities";
+import { Events } from "./Events";
 import { ConfigForm } from "./PluginConfig";
 
 // Plugins is the marketplace: what the trusted orgs publish, what is installed
@@ -106,6 +108,9 @@ export function Plugins() {
           />
         ))}
       </div>
+
+      <h2>Recently run</h2>
+      <Events />
     </section>
   );
 }
@@ -221,6 +226,8 @@ function Offer({
 
       {open && (
         <div className="plugin-panel">
+          <Contributions offer={offer} />
+          <Capabilities offer={offer} onChanged={onSaved} />
           <ConfigForm offer={offer} onSaved={onSaved} />
 
           {instances.map((name) => (
@@ -252,6 +259,11 @@ function Offer({
                 }}
               />
             )}
+          </div>
+
+          <div className="plugin-instance">
+            <h3>Output</h3>
+            <Output id={offer.id} />
           </div>
         </div>
       )}

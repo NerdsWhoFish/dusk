@@ -105,6 +105,14 @@ type Offer struct {
 	// form from a typed description rather than knowing about any plugin.
 	Fields []Field `json:"fields,omitempty"`
 
+	// Actions are what it can do, each denied until somebody turns it on. They
+	// ride along with the offer because enabling one happens on this page.
+	Actions []Action `json:"actions,omitempty"`
+
+	// Views are what it renders on its own page, for anything that is about the
+	// plugin rather than about one entity.
+	Views []View `json:"views,omitempty"`
+
 	Config    map[string]any            `json:"config,omitempty"`
 	Instances map[string]map[string]any `json:"instances,omitempty"`
 
@@ -270,6 +278,18 @@ func (m *Manager) describeRunning(offer *Offer, id string) {
 	offer.Running = true
 	offer.Fields = fieldsOf(running.Describe)
 	offer.Health = m.healthOf(id)
+
+	var enabled []string
+	if record, err := m.Store.Read(id); err == nil {
+		enabled = record.Enabled
+	}
+	offer.Actions = actionsOf(running, enabled)
+
+	for _, view := range running.Views() {
+		if view.Slot == SlotPlugin {
+			offer.Views = append(offer.Views, view)
+		}
+	}
 }
 
 // healthOf pulls this plugin's runs out of the rotation's status. Names are
@@ -430,9 +450,32 @@ func (m *Manager) Views(kind string) []View {
 	var views []View
 	for _, running := range m.running {
 		for _, view := range running.Views() {
+			if view.Slot != SlotEntity {
+				continue
+			}
 			if len(view.Kinds) == 0 || slices.Contains(view.Kinds, kind) {
 				views = append(views, view)
 			}
+		}
+	}
+	return views
+}
+
+// PluginViews are the contributions mounted on a plugin's own page, which is
+// where a view that is about the plugin rather than about one entity belongs.
+func (m *Manager) PluginViews(id string) []View {
+	m.mu.Lock()
+	running, ok := m.running[id]
+	m.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	var views []View
+	for _, view := range running.Views() {
+		if view.Slot == SlotPlugin {
+			views = append(views, view)
 		}
 	}
 	return views
