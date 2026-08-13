@@ -181,6 +181,47 @@ func TestInstallWritesTheBinaryAndItsRecord(t *testing.T) {
 	}
 }
 
+// Installing over an existing plugin is how an update is applied. Writing a
+// fresh record lost the configuration, so updating to a bug fix meant retyping
+// the credential that made the plugin work.
+func TestInstallKeepsConfigurationAcrossAnUpdate(t *testing.T) {
+	market := newRelease(t, "kubernetes", "binary").serve(t, "kubernetes")
+	store := &plugin.Store{Dir: t.TempDir()}
+
+	listings, err := market.List(t.Context())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if _, err := market.Install(t.Context(), store, listings[0]); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	configured, err := store.Read("kubernetes")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	configured.Config = map[string]any{"cluster": "mini-2"}
+	configured.Instances = map[string]map[string]any{"other": {"cluster": "mini-1"}}
+	if err := store.Write(*configured); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if _, err := market.Install(t.Context(), store, listings[0]); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	after, err := store.Read("kubernetes")
+	if err != nil {
+		t.Fatalf("Read after update: %v", err)
+	}
+	if after.Config["cluster"] != "mini-2" {
+		t.Errorf("config = %v, want the update to have kept it", after.Config)
+	}
+	if _, ok := after.Instances["other"]; !ok {
+		t.Errorf("instances = %v, want the update to have kept them", after.Instances)
+	}
+}
+
 // The checksum is the only automated check between trusting an org and running
 // a binary from the internet, so a mismatch has to stop the install dead.
 func TestInstallRefusesAChecksumMismatch(t *testing.T) {

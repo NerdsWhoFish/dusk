@@ -157,6 +157,15 @@ func (m *Market) Install(ctx context.Context, store *Store, listing Listing) (*I
 		ID: listing.ID, Repository: listing.Repository,
 		Version: release.TagName, SHA256: digest, InstalledAt: time.Now(),
 	}
+
+	// Installing over an existing plugin is how an update is applied, so its
+	// configuration has to survive. Writing a fresh record loses it, and the
+	// operator is left retyping a credential to install a bug fix.
+	if previous, err := store.Read(listing.ID); err == nil {
+		record.Config = previous.Config
+		record.Instances = previous.Instances
+	}
+
 	if err := store.Write(record); err != nil {
 		return nil, err
 	}
