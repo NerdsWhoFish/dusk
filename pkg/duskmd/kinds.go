@@ -119,13 +119,13 @@ func (c *collector) kinds(fm kindsFrontmatter, lines map[string]int) []vocab.Kin
 func (c *collector) kind(namespace vocab.Namespace, entry kindEntry, field string, line int) (vocab.Kind, bool) {
 	name, err := vocab.ValidName(entry.Name)
 	if err != nil {
-		c.at(line, field+".name", err.Error())
+		c.at(line, field+".name", vocab.NameExpectation)
 		return vocab.Kind{}, false
 	}
 
 	role, err := vocab.ValidRole(namespace, entry.Role)
 	if err != nil {
-		c.at(line, field+".role", err.Error())
+		c.at(line, field+".role", vocab.RoleExpectation(namespace))
 		return vocab.Kind{}, false
 	}
 
@@ -133,7 +133,7 @@ func (c *collector) kind(namespace vocab.Namespace, entry kindEntry, field strin
 	for i, alias := range entry.Aliases {
 		valid, err := vocab.ValidName(alias)
 		if err != nil {
-			c.at(line, field+".aliases["+strconv.Itoa(i)+"]", err.Error())
+			c.at(line, field+".aliases["+strconv.Itoa(i)+"]", vocab.NameExpectation)
 			continue
 		}
 		aliases = append(aliases, valid)

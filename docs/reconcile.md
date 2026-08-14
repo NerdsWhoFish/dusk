@@ -70,6 +70,10 @@ Only markdown is matchable.
 A tree holds nothing else, so a pattern cannot reach a repository's source or build output whatever it says.
 Git's own directory is excluded too, since a packfile can hold a name ending in `.md` and is never catalog content.
 
+`.dusk/` is read whether or not an include reaches it, and two paths inside it are skipped: `.dusk/home.md` and `.dusk/kinds.md` are Dusk's own declared configuration rather than catalog content, and are read by the code that declared them ([ADR-0048](../adr/0048-the-kind-vocabulary.md)).
+`catalogfs.IsReserved` is the one place that list lives.
+The vocabulary file is parsed here anyway, so `dusk validate` catches a bad role locally rather than on the server.
+
 ```yaml
 include:
   - services/*/dusk.md
@@ -84,11 +88,13 @@ $ dusk validate .
   services/jellyfin/dusk.md   service:home/jellyfin
   services/navidrome/dusk.md  service:home/navidrome
   .dusk/transcoding.md        note/gotcha
+  .dusk/kinds.md              mints entity/airport as reference
 
-. is valid: 3 entities, 2 relations, 1 notes, from 4 files
+. is valid: 3 entities, 2 relations, 1 notes, 1 minted kinds, from 4 files
 ```
 
 Notes are listed alongside entities, because a repository whose notes all failed to parse would otherwise report clean here and fail on the server.
+Minted kinds are listed for the same reason.
 
 A repository with problems reports all of them and exits non-zero:
 

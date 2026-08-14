@@ -53,6 +53,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
 | `note(kind?, body?, refs?, status?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
+| `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
 `get` is deliberately fat.
@@ -82,6 +83,19 @@ It may attach to nothing at all, because an idea is often not about anything in 
 It carries a status, and `status: done` or `status: dropped` closes it.
 
 A closed note still comes back when asked for, because "I already had that idea and dropped it" is the answer somebody most needs and least expects.
+
+A note's **kind is its rank**, so a gotcha comes out above a todo with nobody pinning it, and a todo never outranks anything in a search.
+That is [`docs/kinds.md`](kinds.md).
+
+## Reading and extending the vocabulary
+
+`kinds` is one tool for both halves, like `note` and `page`, and for a stronger reason.
+The proof token a mint presents is proof of having read the vocabulary being extended, so the "did you mean `service`" warning is delivered by the call that authorizes the mint.
+
+Kinds are open, so declaring one that is not listed always works and nothing refuses it.
+What minting adds is the two things counting cannot derive: a **role**, which every surface acts on, and **aliases**, which are the only way anything learns that `svc` means `service`.
+
+Full rules, roles and their consequences: [`docs/kinds.md`](kinds.md).
 
 ## Three rules the answers follow
 

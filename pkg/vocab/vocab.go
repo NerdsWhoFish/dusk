@@ -159,12 +159,30 @@ func ValidNamespace(namespace string) (Namespace, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("vocab: %q is not a namespace, expected entity or note", namespace)
+	return "", fmt.Errorf("a namespace is entity or note, and %q is neither", namespace)
 }
 
-// ValidRole parses a role for a namespace, naming the ones that namespace
-// takes. A note role on an entity kind is a mistake worth catching, because
-// nothing downstream would ever act on it.
+// RoleList names the roles a namespace takes, in rank order.
+func RoleList(namespace Namespace) string {
+	names := make([]string, 0, 3)
+	for _, candidate := range Roles(namespace) {
+		names = append(names, string(candidate))
+	}
+	return strings.Join(names, ", ")
+}
+
+// RoleExpectation is what a role field must say, phrased once so a parser's
+// field error and a standalone rejection cannot word it differently.
+func RoleExpectation(namespace Namespace) string {
+	return fmt.Sprintf("is required, and for %s kinds must be one of %s", namespace, RoleList(namespace))
+}
+
+// NameExpectation is what a kind name must be. A kind ends up inside a ref and
+// inside the index, so it is an identifier.
+const NameExpectation = "is required, and must be an identifier: letters, digits, and any of -_."
+
+// ValidRole parses a role for a namespace. A note role on an entity kind is a
+// mistake worth catching, because nothing downstream would act on it.
 func ValidRole(namespace Namespace, role string) (Role, error) {
 	wanted := strings.ToLower(strings.TrimSpace(role))
 	for _, candidate := range Roles(namespace) {
@@ -172,28 +190,21 @@ func ValidRole(namespace Namespace, role string) (Role, error) {
 			return candidate, nil
 		}
 	}
-
-	names := make([]string, 0, 3)
-	for _, candidate := range Roles(namespace) {
-		names = append(names, string(candidate))
-	}
-	return "", fmt.Errorf("vocab: %q is not a role for a %s kind, expected one of %s",
-		role, namespace, strings.Join(names, ", "))
+	return "", fmt.Errorf("%q is not a role for %s kinds, which take %s", role, namespace, RoleList(namespace))
 }
 
-// ValidName accepts a kind name. A kind ends up inside a ref and inside the
-// index, so it is an identifier: letters, digits, and the three joiners.
+// ValidName accepts a kind name, against NameExpectation.
 func ValidName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
-		return "", errors.New("vocab: a kind needs a name")
+		return "", errors.New("a kind needs a name")
 	}
 	for _, r := range trimmed {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("-_.", r) {
 			continue
 		}
-		return "", fmt.Errorf("vocab: %q must not contain %q, because a kind is an identifier: letters, digits, and any of -_%s",
-			trimmed, string(r), ".")
+		return "", fmt.Errorf("%q is not a kind name: a kind is an identifier of letters, digits and the joiners -_. , and this one contains %q",
+			trimmed, string(r))
 	}
 	return trimmed, nil
 }

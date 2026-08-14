@@ -8,6 +8,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/NerdsWhoFish/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // validateCommand checks a checkout with no server, index, or network. It reads
@@ -61,6 +62,9 @@ func validate(ctx context.Context, cmd *cli.Command) error {
 	for _, note := range graph.Notes {
 		width = max(width, len(note.GetId()))
 	}
+	if len(graph.Kinds) > 0 {
+		width = max(width, len(vocab.Path))
+	}
 
 	for i, file := range graph.Files {
 		fmt.Printf("  %-*s  %s\n", width, file, graph.Entities[i].GetRef())
@@ -70,8 +74,12 @@ func validate(ctx context.Context, cmd *cli.Command) error {
 	for _, note := range graph.Notes {
 		fmt.Printf("  %-*s  note/%s\n", width, note.GetId(), note.GetKind())
 	}
+	for _, kind := range graph.Kinds {
+		fmt.Printf("  %-*s  mints %s/%s as %s\n", width, vocab.Path, kind.Namespace, kind.Name, kind.Role)
+	}
 
-	fmt.Printf("\n%s is valid: %d entities, %d relations, %d notes, from %d files\n",
-		dir, len(graph.Entities), len(graph.Relations), len(graph.Notes), len(graph.Files)+len(graph.Notes))
+	fmt.Printf("\n%s is valid: %d entities, %d relations, %d notes, %d minted kinds, from %d files\n",
+		dir, len(graph.Entities), len(graph.Relations), len(graph.Notes), len(graph.Kinds),
+		len(graph.Files)+len(graph.Notes))
 	return nil
 }
