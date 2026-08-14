@@ -86,10 +86,10 @@ func TestABadBlockDoesNotBreakThePage(t *testing.T) {
 	}
 }
 
-// ADR-0048: a block whose answer is a count or a comparison cannot be filtered
+// ADR-0051: a block whose answer is a count or a comparison cannot be filtered
 // after the fact, so the viewer has to reach the query. One that never arrives
 // is a page block answering about the whole estate.
-func TestADR0048_EveryAggregateBlockIsResolvedForTheViewer(t *testing.T) {
+func TestADR0051_EveryAggregateBlockIsResolvedForTheViewer(t *testing.T) {
 	recorded.asked = nil
 	t.Cleanup(func() { recorded.asked = nil })
 

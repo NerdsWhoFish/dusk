@@ -92,7 +92,7 @@ These are the calls that have actually been got wrong.
 | A rule about whether a write is allowed | `proof` |
 | A new agent tool | `mcp`, as a thin call into `index` or `write` |
 | A rule about who may read | `access`. Both credentials, one policy, so a deployment cannot lock one surface and open another |
-| A rule about *what* a reader may see | `index`, as an `index.Visibility` the query takes. A list may be narrowed where it is rendered; a count or a comparison has to be filtered where it is computed ([ADR-0048](../adr/0048-a-count-is-of-what-the-viewer-can-see.md)) |
+| A rule about *what* a reader may see | `index`, as an `index.Visibility` the query takes. A list may be narrowed where it is rendered; a count or a comparison has to be filtered where it is computed ([ADR-0051](../adr/0051-a-count-is-of-what-the-viewer-can-see.md)) |
 | A new source of entities | A plugin, in its own `dusk-plugin-*` repository. Never in tree: core carries no ingester ([ADR-0040](../adr/0040-core-and-plugins.md)) |
 | A new thing a portal page can show | `page`, as a block type. A block is a query, not a widget |
 | Anything the UI renders | An API endpoint first. The UI has no privileged path to the index |

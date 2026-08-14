@@ -43,7 +43,7 @@ const (
 )
 
 // Integrity reports everything wrong with the graph at gitRef, limited to what
-// v may see (ADR-0048). One call for every class of problem, because an
+// v may see (ADR-0051). One call for every class of problem, because an
 // operator asking "is my catalog sound" wants the answer, not three questions.
 func (db *DB) Integrity(ctx context.Context, gitRef string, v Visibility) ([]Problem, error) {
 	duplicates, err := db.duplicates(ctx, gitRef, v)

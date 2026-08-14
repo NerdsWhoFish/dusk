@@ -83,7 +83,7 @@ Persisting sessions would mean storing a copy of GitHub's answer about who can r
 - Sessions in memory mean a redeploy signs everyone out, which is fine at one operator and irritating at ten.
 - `repo` scope is requested to enumerate private repositories, which is far more access than reading a list of names needs. GitHub offers nothing narrower that still sees private repositories.
 - Visibility is computed by listing every readable repository at sign-in, so somebody with a thousand repositories pays for twenty API calls and a list that goes stale until they sign in again.
-- A restricted viewer's drift and integrity blocks are not filtered, so counts there can include things the viewer cannot open. Recorded as a gap rather than fixed. **Closed by [ADR-0048](0048-a-count-is-of-what-the-viewer-can-see.md)**, see the amendment below.
+- A restricted viewer's drift and integrity blocks are not filtered, so counts there can include things the viewer cannot open. Recorded as a gap rather than fixed. **Closed by [ADR-0051](0051-a-count-is-of-what-the-viewer-can-see.md)**, see the amendment below.
 
 ### Rejected because
 
@@ -94,7 +94,7 @@ Persisting sessions would mean storing a copy of GitHub's answer about who can r
 
 ### 2026-08-13: the unfiltered reports are filtered, and "filter after the query" gets a limit
 
-The Bad consequence above is closed by [ADR-0048](0048-a-count-is-of-what-the-viewer-can-see.md), which also qualifies a claim made here.
+The Bad consequence above is closed by [ADR-0051](0051-a-count-is-of-what-the-viewer-can-see.md), which also qualifies a claim made here.
 
 "Filtering happens after the query, so an unrestricted viewer pays nothing" holds for a list and not for an aggregate.
 A count cannot be made smaller after the fact without disagreeing with the list beside it, and a duplicate declaration is a count of copies, so narrowing the answer would report a duplicate while naming the repository holding the copy that made it one.

@@ -157,7 +157,7 @@ type KindCount struct {
 
 // Kinds counts entities by kind, the cheapest useful thing to show somebody
 // who has not searched yet. It counts what v may see, never what exists,
-// because the difference between the two is the leak (ADR-0048).
+// because the difference between the two is the leak (ADR-0051).
 func (db *DB) Kinds(ctx context.Context, gitRef string, v Visibility) ([]KindCount, error) {
 	var counts []KindCount
 	err := visible(scoped(db.gorm.WithContext(ctx), gitRef), v, "").

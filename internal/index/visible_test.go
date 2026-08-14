@@ -127,9 +127,9 @@ func seedForFilteredReads(t *testing.T, db *index.DB) {
 	observe(t, db, "kubernetes", entity("service:home/open", "open", ""))
 }
 
-// ADR-0048: a count is of what the viewer can see. A tally of the whole estate
+// ADR-0051: a count is of what the viewer can see. A tally of the whole estate
 // would say how much is hidden, and per kind it would say what shape it is.
-func TestADR0048_ACountIsOfWhatTheViewerCanSee(t *testing.T) {
+func TestADR0051_ACountIsOfWhatTheViewerCanSee(t *testing.T) {
 	db := newDB(t)
 	seedForFilteredReads(t, db)
 
@@ -178,9 +178,9 @@ func TestADR0048_ACountIsOfWhatTheViewerCanSee(t *testing.T) {
 	}
 }
 
-// ADR-0048: drift names refs, so it answers about the viewer's half of the
+// ADR-0051: drift names refs, so it answers about the viewer's half of the
 // catalog. Naming one from a repository they cannot open is the leak.
-func TestADR0048_DriftNamesNoRefTheViewerCannotRead(t *testing.T) {
+func TestADR0051_DriftNamesNoRefTheViewerCannotRead(t *testing.T) {
 	db := newDB(t)
 	seedForFilteredReads(t, db)
 
@@ -233,9 +233,9 @@ func TestDriftDoesNotNameANoteInAnUnreadableRepository(t *testing.T) {
 	}
 }
 
-// ADR-0048: integrity names a ref and the files behind it, so both sides of the
+// ADR-0051: integrity names a ref and the files behind it, so both sides of the
 // answer have to be computed over what the viewer can read.
-func TestADR0048_IntegrityNamesNoFileTheViewerCannotRead(t *testing.T) {
+func TestADR0051_IntegrityNamesNoFileTheViewerCannotRead(t *testing.T) {
 	db := newDB(t)
 	shared := entity("service:home/shared", "Shared", "")
 
@@ -261,10 +261,10 @@ func TestADR0048_IntegrityNamesNoFileTheViewerCannotRead(t *testing.T) {
 	}
 }
 
-// ADR-0036 answers an invisible entity exactly as an absent one, and ADR-0048
+// ADR-0036 answers an invisible entity exactly as an absent one, and ADR-0051
 // carries that into the reports. The cost is a dangling relation that is not
 // really dangling; the alternative is an oracle for what exists elsewhere.
-func TestADR0048_AnUnreadableTargetReadsAsAbsent(t *testing.T) {
+func TestADR0051_AnUnreadableTargetReadsAsAbsent(t *testing.T) {
 	db := newDB(t)
 	mustPut(t, db, unreadable, mainRef,
 		[]*duskv1alpha1.Entity{entity("host:home/nas", "NAS", "")}, nil)

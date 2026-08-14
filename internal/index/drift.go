@@ -56,7 +56,7 @@ type driftRow struct {
 
 // Drift reports what the catalog claims and reality does not support: declared
 // and nowhere found, or a note pointing at nothing. Limited to what v may see
-// (ADR-0048); running and undeclared comes only on request (ADR-0045).
+// (ADR-0051); running and undeclared comes only on request (ADR-0045).
 func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter, v Visibility) ([]Drift, error) {
 	drifts, err := db.declaredNotObserved(ctx, gitRef, v)
 	if err != nil {

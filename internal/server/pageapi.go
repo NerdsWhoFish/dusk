@@ -34,7 +34,7 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 
 	// A block whose query counts is filtered where it is computed; one that
 	// lists is filtered here, so a hidden ref cannot arrive under a count that
-	// already excluded it (ADR-0048).
+	// already excluded it (ADR-0051).
 	if err := s.hideEntities(r, blocks); err != nil {
 		writeError(w, err)
 		return
