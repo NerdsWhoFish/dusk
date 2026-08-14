@@ -19,9 +19,11 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/store"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/pkg/textdiff"
 )
 
 // RootFile is the file a repository opts in with, and the only one guaranteed
@@ -47,12 +49,24 @@ type Catalog interface {
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 }
 
+// Access reports how much Dusk may do to the repositories it watches. It is
+// asked at write time rather than held, because onboarding is what chooses the
+// mode and may not have happened when the Writer was built.
+type Access interface {
+	Mode() (store.AccessMode, error)
+}
+
 // Writer performs declarations.
 type Writer struct {
 	Catalog      Catalog
 	Repositories Repositories
 	Proof        *proof.Store
 	Now          func() time.Time
+
+	// Access decides whether a write becomes a commit or a proposal. A nil one
+	// commits: the App's own permissions are the real gate, and not knowing the
+	// mode is no reason to refuse a write GitHub would accept.
+	Access Access
 
 	// ConfigRepository is "owner/name" of where notes are written. Empty
 	// disables note writing rather than defaulting somewhere surprising.
@@ -81,6 +95,63 @@ type Result struct {
 	Commit     string
 	URL        string
 	Created    bool
+
+	// Proposed means nothing was committed, because Dusk was not granted a
+	// write, and Diff is the change it would have made instead.
+	Proposed bool
+	Diff     string
+
+	// Mode is what Dusk was registered to do, which is why a proposal is one.
+	Mode store.AccessMode
+}
+
+// change is one file write, before Dusk decides whether it may make it.
+type change struct {
+	target     Target
+	repository string
+	ref        string
+	commit     githubapp.FileCommit
+
+	// before is the file as it stands, and nil when it does not exist yet. It
+	// is what a proposed diff is against.
+	before []byte
+
+	created bool
+}
+
+// land commits a change, or returns it as a proposal when Dusk may not write.
+// Every write goes through here, so no path can forget that a mode which cannot
+// commit still owes the caller the change it would have made (ADR-0048).
+func (w *Writer) land(ctx context.Context, c change) (*Result, error) {
+	mode, err := w.mode()
+	if err != nil {
+		return nil, err
+	}
+
+	result := &Result{
+		Ref: c.ref, Repository: c.repository, Path: c.commit.Path,
+		Created: c.created, Mode: mode,
+	}
+	if mode != store.ModeWrite {
+		result.Proposed = true
+		result.Diff = textdiff.Unified(c.commit.Path, c.before, c.commit.Content)
+		return result, nil
+	}
+
+	commit, err := c.target.CommitFile(ctx, c.commit)
+	if err != nil {
+		return nil, err
+	}
+	result.Commit, result.URL = commit.SHA, commit.URL
+	return result, nil
+}
+
+// mode reports what Dusk was granted, and write when nothing says.
+func (w *Writer) mode() (store.AccessMode, error) {
+	if w.Access == nil {
+		return store.ModeWrite, nil
+	}
+	return w.Access.Mode()
 }
 
 // Declare creates or updates an entity in the repository that owns it.
@@ -126,20 +197,19 @@ func (w *Writer) update(ctx context.Context, token, ref string, declaration Decl
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:       branch,
-		Path:         at.Path,
-		Message:      fmt.Sprintf("declare: update %s", ref),
-		Content:      rendered,
-		ReplacingSHA: contents.SHA,
+	return w.land(ctx, change{
+		target:     target,
+		repository: at.Repository,
+		ref:        ref,
+		before:     contents.Data,
+		commit: githubapp.FileCommit{
+			Branch:       branch,
+			Path:         at.Path,
+			Message:      fmt.Sprintf("declare: update %s", ref),
+			Content:      rendered,
+			ReplacingSHA: contents.SHA,
+		},
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &Result{
-		Ref: ref, Repository: at.Repository, Path: at.Path,
-		Commit: commit.SHA, URL: commit.URL,
-	}, nil
 }
 
 func (w *Writer) create(ctx context.Context, token, ref string, declaration Declaration) (*Result, error) {
@@ -194,19 +264,18 @@ func (w *Writer) create(ctx context.Context, token, ref string, declaration Decl
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:  branch,
-		Path:    filePath,
-		Message: fmt.Sprintf("declare: add %s", ref),
-		Content: rendered,
+	return w.land(ctx, change{
+		target:     target,
+		repository: declaration.Repository,
+		ref:        ref,
+		created:    true,
+		commit: githubapp.FileCommit{
+			Branch:  branch,
+			Path:    filePath,
+			Message: fmt.Sprintf("declare: add %s", ref),
+			Content: rendered,
+		},
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &Result{
-		Ref: ref, Repository: declaration.Repository, Path: filePath,
-		Commit: commit.SHA, URL: commit.URL, Created: true,
-	}, nil
 }
 
 // read fetches and parses one catalog file, resolving the root's namespace

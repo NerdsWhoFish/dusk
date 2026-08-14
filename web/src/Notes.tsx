@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { api } from "./api";
-import type { Note } from "./api";
+import type { Closed, Note } from "./api";
 import { Markdown } from "./Markdown";
 
 // Working are the note kinds a status means something for. A gotcha is never
@@ -61,6 +61,7 @@ function Written({
 }) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [proposed, setProposed] = useState<Closed>();
 
   const closed = note.status === "done" || note.status === "dropped";
   const closable = working.has(note.kind) && !closed && Boolean(proof) && Boolean(onChanged);
@@ -69,7 +70,14 @@ function Written({
     setBusy(true);
     setProblem(undefined);
     try {
-      await api.closeNote(note.id, status, proof);
+      const answer = await api.closeNote(note.id, status, proof);
+
+      // Nothing was committed, so nothing is refreshed: the note is still open
+      // and what comes back is the change somebody has to apply themselves.
+      if (answer.proposed) {
+        setProposed(answer);
+        return;
+      }
       onChanged?.();
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -89,6 +97,16 @@ function Written({
         <p className="hint err" role="alert">
           {problem}
         </p>
+      )}
+
+      {proposed && (
+        <div className="prose" role="status">
+          <p className="hint">
+            Nothing was committed: Dusk may not write to your repositories. Apply this to{" "}
+            <code>{proposed.path}</code> in {proposed.repository}.
+          </p>
+          <pre>{proposed.diff}</pre>
+        </div>
       )}
 
       {!compact && <p className="ref note-id">{note.id}</p>}

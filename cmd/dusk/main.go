@@ -167,6 +167,7 @@ func serve(parent context.Context) error {
 	writer := &write.Writer{
 		Catalog:          idx,
 		Repositories:     catalog,
+		Access:           catalog,
 		Proof:            tokens,
 		ConfigRepository: cfg.ConfigRepository,
 	}

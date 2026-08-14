@@ -106,6 +106,17 @@ func (c *Controller) Target(ctx context.Context, slug string) (write.Target, err
 	return install.Repository(owner, name), nil
 }
 
+// Mode reports what the App was registered to do. It is read from the stored
+// credentials on every call, because onboarding is what chooses it and a write
+// may be the first thing that happens after.
+func (c *Controller) Mode() (store.AccessMode, error) {
+	creds, err := c.opts.Credentials.Load()
+	if err != nil {
+		return "", err
+	}
+	return creds.Mode, nil
+}
+
 func (c *Controller) remember(slug string, installationID int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

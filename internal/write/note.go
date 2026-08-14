@@ -111,20 +111,19 @@ func (w *Writer) updateNote(ctx context.Context, token string, target Target, br
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:       branch,
-		Path:         filePath,
-		Message:      "note: update " + filePath,
-		Content:      rendered,
-		ReplacingSHA: contents.SHA,
+	return w.land(ctx, change{
+		target:     target,
+		repository: w.ConfigRepository,
+		ref:        filePath,
+		before:     contents.Data,
+		commit: githubapp.FileCommit{
+			Branch:       branch,
+			Path:         filePath,
+			Message:      "note: update " + filePath,
+			Content:      rendered,
+			ReplacingSHA: contents.SHA,
+		},
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &Result{
-		Ref: filePath, Repository: w.ConfigRepository, Path: filePath,
-		Commit: commit.SHA, URL: commit.URL,
-	}, nil
 }
 
 // createNote writes a new note. There is no proof token here: a note is new
@@ -141,19 +140,18 @@ func (w *Writer) createNote(ctx context.Context, target Target, branch string, n
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:  branch,
-		Path:    filePath,
-		Message: "note: add " + filePath,
-		Content: rendered,
+	return w.land(ctx, change{
+		target:     target,
+		repository: w.ConfigRepository,
+		ref:        filePath,
+		created:    true,
+		commit: githubapp.FileCommit{
+			Branch:  branch,
+			Path:    filePath,
+			Message: "note: add " + filePath,
+			Content: rendered,
+		},
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &Result{
-		Ref: filePath, Repository: w.ConfigRepository, Path: filePath,
-		Commit: commit.SHA, URL: commit.URL, Created: true,
-	}, nil
 }
 
 // merge applies what the agent supplied over what the file already said, so

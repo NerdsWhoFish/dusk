@@ -61,8 +61,9 @@ func (w *Writer) SetHome(ctx context.Context, token string, body []byte) (*Resul
 	// silently overwriting the other. Authorizing against it is the same
 	// read-before-write contract every other write obeys (ADR-0009).
 	var replacing string
+	var before []byte
 	if contents, err := target.ReadFileContents(ctx, branch, page.Path); err == nil {
-		replacing = contents.SHA
+		replacing, before = contents.SHA, contents.Data
 		if err := w.Proof.AuthorizeUpdate(token, page.Path, duskmd.ContentHash(string(contents.Data))); err != nil {
 			return nil, err
 		}
@@ -70,19 +71,18 @@ func (w *Writer) SetHome(ctx context.Context, token string, body []byte) (*Resul
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:       branch,
-		Path:         page.Path,
-		Message:      "page: update " + page.Path,
-		Content:      body,
-		ReplacingSHA: replacing,
+	return w.land(ctx, change{
+		target:     target,
+		repository: w.ConfigRepository,
+		ref:        page.Path,
+		before:     before,
+		created:    before == nil,
+		commit: githubapp.FileCommit{
+			Branch:       branch,
+			Path:         page.Path,
+			Message:      "page: update " + page.Path,
+			Content:      body,
+			ReplacingSHA: replacing,
+		},
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &Result{
-		Ref: page.Path, Repository: w.ConfigRepository, Path: page.Path,
-		Commit: commit.SHA, URL: commit.URL,
-	}, nil
 }

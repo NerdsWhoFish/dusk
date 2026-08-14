@@ -460,6 +460,9 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	if err != nil {
 		return text(fmt.Sprintf("The write was not made.\n\n%s", err)), nil, nil
 	}
+	if result.Proposed {
+		return text(proposal(result)), nil, nil
+	}
 
 	verb := "Updated"
 	if result.Created {
@@ -546,6 +549,9 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 	})
 	if err != nil {
 		return text(fmt.Sprintf("The note was not written.\n\n%s", err)), nil, nil
+	}
+	if result.Proposed {
+		return text(proposal(result)), nil, nil
 	}
 
 	verb := "Updated"
@@ -799,6 +805,9 @@ func (s *Server) page(ctx context.Context, _ *sdk.CallToolRequest, in pageInput)
 	result, err := s.opts.Writer.SetHome(ctx, in.Proof, []byte(in.Body))
 	if err != nil {
 		return text(fmt.Sprintf("The page was not written.\n\n%s", err)), nil, nil
+	}
+	if result.Proposed {
+		return text(proposal(result)), nil, nil
 	}
 	return text(fmt.Sprintf(
 		"Rewrote `%s` in %s.\n\nCommit: %s\n\nThe homepage is now exactly what you sent.",

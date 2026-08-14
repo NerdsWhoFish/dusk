@@ -187,9 +187,12 @@ func pair(a, b []string) []edit {
 	if len(a) == 0 || len(b) == 0 || len(a)*len(b) > maxCells {
 		return replace(a, b)
 	}
+	return walk(subsequence(a, b), a, b)
+}
 
-	// table[i][j] is the length of the longest common subsequence of a[i:] and
-	// b[j:], which lets the walk below go forwards.
+// subsequence builds the table where [i][j] is the length of the longest common
+// subsequence of a[i:] and b[j:], which is what lets walk go forwards.
+func subsequence(a, b []string) [][]int {
 	table := make([][]int, len(a)+1)
 	for i := range table {
 		table[i] = make([]int, len(b)+1)
@@ -203,7 +206,11 @@ func pair(a, b []string) []edit {
 			table[i][j] = max(table[i+1][j], table[i][j+1])
 		}
 	}
+	return table
+}
 
+// walk turns the pairing into the edit script that reads it out in order.
+func walk(table [][]int, a, b []string) []edit {
 	edits := make([]edit, 0, len(a)+len(b))
 	i, j := 0, 0
 	for i < len(a) && j < len(b) {
