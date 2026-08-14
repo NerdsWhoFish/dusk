@@ -154,7 +154,7 @@ Only the frontmatter is rewritten. The prose is left byte-identical, so a write 
 
 **Dusk commits in write mode and nowhere else**, because that is the only mode whose App was granted `contents: write`.
 
-In read or proposal mode a write is not refused: it comes back as the change it would have made, naming the repository, the path, and the diff ([ADR-0048](../adr/0048-a-write-that-cannot-land.md)).
+In read or proposal mode a write is not refused: it comes back as the change it would have made, naming the repository, the path, and the diff ([ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
 
 ````text
 Nothing was committed. Dusk is in read mode, where it never writes to your repositories.
@@ -193,7 +193,7 @@ An update merges over what the file already says, so changing a body leaves the 
 
 ### Writing the same note twice
 
-An agent with no memory of a previous session cannot know an id, so two more things stop a duplicate ([ADR-0049](../adr/0049-note-dedup.md)).
+An agent with no memory of a previous session cannot know an id, so two more things stop a duplicate ([ADR-0053](../adr/0053-note-dedup.md)).
 
 **The same words are the same note.** The path is the body's hash, so writing it again commits nothing and answers with the id of the note that already says it:
 
@@ -241,7 +241,7 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 
 **The other write tools.** `relate`, `mintKind` and `push` are not built. `push` is meaningful only in proposal mode.
 
-**Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0048](../adr/0048-a-write-that-cannot-land.md)).
+**Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
 
 **Note ranking.** Notes come back pinned first and then by id. [ADR-0031](../adr/0031-notes-are-files.md) has kind driving ranking, so a gotcha should outrank a todo without being pinned by hand, and it does not yet.
 

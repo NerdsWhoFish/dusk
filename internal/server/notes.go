@@ -46,7 +46,7 @@ func (s *Server) handleAPINoteStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// A mode that may not commit answers with the change it would have made,
-	// rather than a success the note did not have (ADR-0048). The browser shows
+	// rather than a success the note did not have (ADR-0052). The browser shows
 	// the diff; nothing here pretends the note was closed.
 	if result.Proposed {
 		writeJSON(w, http.StatusOK, map[string]any{

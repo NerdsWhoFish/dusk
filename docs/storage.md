@@ -68,7 +68,7 @@ Searches are scoped to a git ref and span every repository contributing to it, w
 
 ## Notes that nearly say the same thing
 
-`SimilarNotes` is what stops the catalog accumulating the same knowledge twice ([ADR-0049](../adr/0049-note-dedup.md)).
+`SimilarNotes` is what stops the catalog accumulating the same knowledge twice ([ADR-0053](../adr/0053-note-dedup.md)).
 
 It is two mechanisms because one will not do.
 FTS5 matches **any** of the body's words rather than all of them, which is what keeps a reworded note a candidate, and ranks them, so the catalog is narrowed to fifty rows for the cost of one query.

@@ -23,7 +23,7 @@ export type Note = {
 };
 
 // Closed is the answer to closing a note. A Dusk that may not write answers
-// with the change it would have made instead of a commit (ADR-0048).
+// with the change it would have made instead of a commit (ADR-0052).
 export type Closed = {
   note: string;
   status: string;

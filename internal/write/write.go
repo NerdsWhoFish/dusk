@@ -133,7 +133,7 @@ type change struct {
 
 // land commits a change, or returns it as a proposal when Dusk may not write.
 // Every write goes through here, so no path can forget that a mode which cannot
-// commit still owes the caller the change it would have made (ADR-0048).
+// commit still owes the caller the change it would have made (ADR-0052).
 func (w *Writer) land(ctx context.Context, c change) (*Result, error) {
 	mode, err := w.mode()
 	if err != nil {

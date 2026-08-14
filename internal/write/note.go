@@ -135,7 +135,7 @@ func (w *Writer) createNote(ctx context.Context, target Target, branch string, n
 
 	// The path is the body's hash, so an identical note is already at the path
 	// this one would take. Reading it is what turns a second copy into the id
-	// of the first (ADR-0049).
+	// of the first (ADR-0053).
 	contents, err := target.ReadFileContents(ctx, branch, filePath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err

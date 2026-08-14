@@ -108,10 +108,10 @@ func writeCalls() []writeCall {
 	}
 }
 
-// ADR-0048: a mode Dusk was not granted a commit in answers with the change it
+// ADR-0052: a mode Dusk was not granted a commit in answers with the change it
 // would have made, which is what makes read-only first class rather than an
 // error an agent can do nothing with.
-func TestADR0048_AModeThatCannotCommitProposes(t *testing.T) {
+func TestADR0052_AModeThatCannotCommitProposes(t *testing.T) {
 	for _, mode := range []store.AccessMode{store.ModeRead, store.ModeProposal} {
 		for _, tt := range writeCalls() {
 			t.Run(string(mode)+" "+tt.name, func(t *testing.T) {

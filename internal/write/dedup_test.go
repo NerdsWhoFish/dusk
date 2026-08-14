@@ -12,15 +12,15 @@ import (
 
 const gotcha = "Transcoding is off on purpose. Anything that will not direct play is a client problem."
 
-// noteAt is where a note lands, which ADR-0031 makes the id and ADR-0049 makes
+// noteAt is where a note lands, which ADR-0031 makes the id and ADR-0053 makes
 // the duplicate check: the same body under the same kind is the same file.
 func noteAt(kind, body string) string {
 	return path.Join(write.NoteDir, kind+"-"+duskmd.ContentHash(body)[:8]+".md")
 }
 
-// ADR-0049: writing the same note twice answers with the one that exists, so an
+// ADR-0053: writing the same note twice answers with the one that exists, so an
 // agent with no memory of the last session gets an id rather than a duplicate.
-func TestADR0049_AnIdenticalNoteIsTheNoteThatExists(t *testing.T) {
+func TestADR0053_AnIdenticalNoteIsTheNoteThatExists(t *testing.T) {
 	writer, target, _ := newNoteWriter(t, map[string]string{RootPath: rootFile})
 
 	first, err := writer.Record(t.Context(), "", write.Note{Kind: "gotcha", Body: gotcha})

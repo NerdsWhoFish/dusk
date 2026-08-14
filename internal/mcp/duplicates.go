@@ -25,7 +25,7 @@ func renderExisting(result *write.Result) string {
 
 // renderSimilar warns that something nearly says this already. It is a warning
 // and not a refusal, because two notes that overlap are often both worth
-// keeping and only a person can tell (ADR-0049).
+// keeping and only a person can tell (ADR-0053).
 func renderSimilar(alike []index.Similarity) string {
 	if len(alike) == 0 {
 		return ""
