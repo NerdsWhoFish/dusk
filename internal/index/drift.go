@@ -3,7 +3,10 @@ package index
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // Drift is a disagreement between what somebody wrote down and what an
@@ -50,6 +53,7 @@ type DriftFilter struct {
 
 type driftRow struct {
 	Ref        string
+	Kind       string
 	Title      string
 	Repository string
 }
@@ -126,14 +130,26 @@ func (db *DB) declaredNotObserved(ctx context.Context, gitRef string) ([]Drift, 
 	return drifts, nil
 }
 
+// observedNotDeclared lists what is running and written down nowhere, minus
+// the kinds minted as reference. ADR-0045 wanted exactly this and was blocked
+// on an interface; a mint is the operator saying it instead (ADR-0048).
 func (db *DB) observedNotDeclared(ctx context.Context, gitRef string) ([]Drift, error) {
 	rows, err := db.compare(ctx, gitRef, true)
 	if err != nil {
 		return nil, err
 	}
 
+	minted, err := db.Minted(ctx, gitRef)
+	if err != nil {
+		return nil, err
+	}
+	reference := namesWithRole(minted, vocab.Entity, vocab.Reference)
+
 	drifts := make([]Drift, 0, len(rows))
 	for _, row := range rows {
+		if slices.Contains(reference, row.Kind) {
+			continue
+		}
 		drifts = append(drifts, Drift{
 			Kind: DriftUndeclared, Ref: row.Ref, Title: row.Title,
 			Observed: row.Repository,
@@ -166,7 +182,7 @@ func (db *DB) compare(ctx context.Context, gitRef string, observed bool) ([]drif
 	}
 
 	query := db.gorm.WithContext(ctx).Model(&entityRow{}).
-		Select("ref, title, repository").
+		Select("ref, kind, title, repository").
 		Where(clause, args...).
 		Where("observed = ?", observed).
 		Where(matched, append(append([]any{!observed}, otherArgs...), aliasArgs...)...)

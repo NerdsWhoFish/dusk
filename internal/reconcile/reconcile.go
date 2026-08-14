@@ -25,6 +25,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // RootFile is the file whose presence opts a repository into the catalog.
@@ -77,6 +78,10 @@ type Graph struct {
 	// Notes are the curated knowledge attached to entities, which may live in
 	// this repository while the entities they describe live elsewhere.
 	Notes []*duskv1alpha1.Note
+
+	// Kinds are what this repository mints, from the reserved vocabulary file.
+	// They are read here so `dusk validate` catches a bad one locally.
+	Kinds []vocab.Kind
 }
 
 // declarations pairs each entity with the file that declared it. Files and
@@ -132,10 +137,16 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 		return nil, err
 	}
 
+	kinds, err := readKinds(tree)
+	if err != nil {
+		return nil, err
+	}
+
 	graph := &Graph{
 		GitRef: gitRef, Commit: commit, Participating: true,
 		Files: make([]string, 0, len(files)),
 		Notes: notes,
+		Kinds: kinds,
 	}
 	if err := graph.merge(files); err != nil {
 		return nil, err
@@ -158,6 +169,25 @@ func readRoot(tree *catalogfs.Tree, commit string, provenance duskmd.Provenance)
 		return nil, fmt.Errorf("reconcile: %q: %w", commit, err)
 	}
 	return root, nil
+}
+
+// readKinds reads the vocabulary a repository mints, which is absent from most
+// of them. A malformed one fails the reconcile rather than minting silently
+// nothing, because the whole point of a role is that something acts on it.
+func readKinds(tree *catalogfs.Tree) ([]vocab.Kind, error) {
+	data, err := tree.Read(vocab.Path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: read %s: %w", vocab.Path, err)
+	}
+
+	kinds, err := duskmd.ParseKinds(vocab.Path, data)
+	if err != nil {
+		return nil, err
+	}
+	return kinds.Kinds, nil
 }
 
 // collect returns the root file followed by everything its includes reach,
@@ -295,6 +325,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, o
 		return graph, nil
 	}
 	if err := r.index.Put(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes); err != nil {
+		return nil, err
+	}
+	if err := r.index.PutVocabulary(ctx, repository, gitRef, graph.Kinds); err != nil {
 		return nil, err
 	}
 	return graph, nil

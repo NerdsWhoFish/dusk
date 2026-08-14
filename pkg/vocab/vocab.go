@@ -17,6 +17,7 @@
 package vocab
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -180,18 +181,19 @@ func ValidRole(namespace Namespace, role string) (Role, error) {
 		role, namespace, strings.Join(names, ", "))
 }
 
-// ValidName checks a kind name against the separators a ref splits on, because
-// a kind carrying one of them produces a ref that cannot be parsed back.
+// ValidName accepts a kind name. A kind ends up inside a ref and inside the
+// index, so it is an identifier: letters, digits, and the three joiners.
 func ValidName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
-		return "", fmt.Errorf("vocab: a kind needs a name")
+		return "", errors.New("vocab: a kind needs a name")
 	}
-	for _, forbidden := range []string{":", "/", " "} {
-		if strings.Contains(trimmed, forbidden) {
-			return "", fmt.Errorf("vocab: %q must not contain %q, because it separates the parts of a ref",
-				trimmed, forbidden)
+	for _, r := range trimmed {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("-_.", r) {
+			continue
 		}
+		return "", fmt.Errorf("vocab: %q must not contain %q, because a kind is an identifier: letters, digits, and any of -_%s",
+			trimmed, string(r), ".")
 	}
 	return trimmed, nil
 }
