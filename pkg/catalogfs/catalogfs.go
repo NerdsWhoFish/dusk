@@ -33,6 +33,32 @@ const gitDir = ".git"
 // rather than testing every path inside it.
 func IsGitDir(name string) bool { return name == gitDir }
 
+// DuskDir is read whenever it exists, with no include needed (ADR-0031).
+const DuskDir = ".dusk"
+
+// The paths inside DuskDir that are Dusk's own declared configuration rather
+// than catalog content. They are markdown in the directory a reconcile always
+// reads, so without this they parse as an entity and fail (ADR-0048).
+const (
+	// HomePath is the portal page (ADR-0013).
+	HomePath = DuskDir + "/home.md"
+
+	// KindsPath is the minted kind vocabulary (ADR-0048).
+	KindsPath = DuskDir + "/kinds.md"
+)
+
+// reserved is the whole list, kept here rather than assembled from the packages
+// that own each file, because two owners of one rule is how they drift apart.
+var reserved = map[string]bool{HomePath: true, KindsPath: true}
+
+// IsReserved reports whether a path is Dusk's own configuration. A reconcile
+// skips these: they are read by whatever declared them, not as catalog content.
+func IsReserved(name string) bool { return reserved[path.Clean(name)] }
+
+// Reserved lists the configuration paths, in lexical order, so an error can say
+// which names are taken rather than only that this one is.
+func Reserved() []string { return slices.Sorted(maps.Keys(reserved)) }
+
 // Tree is a repository's catalog files at one commit, held in memory.
 type Tree struct {
 	commit string

@@ -174,6 +174,13 @@ func collect(tree *catalogfs.Tree, commit string, root *duskmd.File, provenance 
 	var notes []*duskv1alpha1.Note
 	var problems []error
 	for _, filePath := range paths {
+		// Dusk's own declared configuration lives in the directory that is
+		// always in scope, and is read by what declared it. Parsing it as
+		// catalog content fails the whole repository's reconcile (ADR-0048).
+		if catalogfs.IsReserved(filePath) {
+			continue
+		}
+
 		data, err := tree.Read(filePath)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("reconcile: read %q at %q: %w", filePath, commit, err))
@@ -208,7 +215,7 @@ func collect(tree *catalogfs.Tree, commit string, root *duskmd.File, provenance 
 // DuskDir is read whenever it exists, with no include needed. A directory whose
 // whole purpose is catalog content is consent by construction, and it gives a
 // write somewhere to land in a repository that declares no include.
-const DuskDir = ".dusk"
+const DuskDir = catalogfs.DuskDir
 
 // expand resolves include patterns to a sorted, deduplicated path list. The
 // root file is excluded so that a pattern matching it cannot declare its entity
