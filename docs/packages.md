@@ -48,6 +48,7 @@ graph TD
 | `githubapp` | Everything that talks to GitHub: the App manifest flow, installation tokens, tarball downloads, commits, and the API rate-limit budget | Interpreting what it fetched. It returns a `catalogfs.Tree`, never a parsed entity |
 | `proof` | The read-before-write gate: issuing tokens for what a read returned, and refusing a write whose token is missing, stale, or never saw the thing | Performing the write, or knowing what an entity is |
 | `secret` | A string type that refuses to render itself in logs, errors, or `%v` | Encrypting anything |
+| `textdiff` | The unified diff between two versions of one file, so a change Dusk may not commit comes back as something `git apply` takes ([ADR-0052](../adr/0052-a-write-that-cannot-land.md)) | Comparing catalogs. The difference between two versions of the *graph* is semantic and belongs to `index` |
 | `vault` | Envelope encryption for credentials at rest | Deciding what is worth encrypting, or where it is stored |
 
 ## `internal/`: this deployment's logic
@@ -57,12 +58,12 @@ graph TD
 | `access` | Who may read the catalog, in both credentials: a bearer token for agents and a session cookie for browsers | Deciding *what* a reader may see. It answers yes or no for the whole catalog ([ADR-0012](../adr/0012-viewing-auth.md)) |
 | `config` | Reading and validating boot configuration, reporting every problem at once | Reaching the network to check whether a configured thing exists. Shape only; existence is checked at use |
 | `events` | The record of what an action invocation did, kept in a bounded buffer and logged | Persisting it. Events are never written to the index, which is disposable by contract and cannot rebuild them ([ADR-0015](../adr/0015-plugin-actions-and-events.md)) |
-| `index` | The materialized graph in SQLite, partitioned by `(repository, git ref)`, and every query over it: search, drift, integrity, visibility, and the semantic diff between two refs | Deciding what to store. It is disposable by contract and rebuilt from git |
+| `index` | The materialized graph in SQLite, partitioned by `(repository, git ref)`, and every query over it: search, drift, integrity, visibility, which notes nearly say the same thing, and the semantic diff between two refs | Deciding what to store. It is disposable by contract and rebuilt from git |
 | `ingest` | Observing infrastructure and storing what it found: the `Ingester` interface, the completeness contract, the scheduler and the never-delete rule. It contains no ingester, because every source is a plugin ([ADR-0040](../adr/0040-core-and-plugins.md)) | Deciding what an observation means. Plugins normalize at the edge and this stores; comparing it to what was declared is the index's job |
 | `page` | Turning a portal page's declared blocks into resolved queries ([ADR-0035](../adr/0035-blocks-resolve-server-side.md)) | Rendering. A block carries its result; how that looks is the browser's decision |
 | `reconcile` | Turning a repository at a ref into a graph: resolving a commit, expanding includes, parsing what they reach | Talking to GitHub, and matching paths. A `Source` produces a tree; `catalogfs` matches over it |
 | `controller` | Keeping the catalog in step with GitHub: the sweep, the poll floor, webhook-driven reconciles, retries, and the API budget | Parsing, storing, or serving. It decides *when* to reconcile, not how |
-| `write` | Turning an agent's declaration or note into a commit, and routing it to the file that owns it | Deciding whether the agent may write. That is `proof` |
+| `write` | Turning an agent's declaration or note into a commit, routing it to the file that owns it, and returning the diff instead where Dusk was granted no commit ([ADR-0052](../adr/0052-a-write-that-cannot-land.md)) | Deciding whether the agent may write. That is `proof` |
 | `mcp` | The agent surface: tools, markdown answers, and the proof token appended to every read | Any catalog logic. Every tool is a thin call into `index` or `write` |
 | `plugin` | Everything about a plugin as a running thing: the marketplace, install and update, the process and its socket, what it declares, and its configuration on disk including the sealed half | Scheduling it. A running plugin is an ordinary `ingest.Ingester` and the rotation is `ingest`'s ([ADR-0039](../adr/0039-one-plugin-transport.md), [ADR-0040](../adr/0040-core-and-plugins.md)) |
 | `server` | HTTP: onboarding, health, webhooks, and mounting the agent surface | Doing the work behind a request. A handler validates, dispatches, and answers |

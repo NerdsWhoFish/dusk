@@ -22,6 +22,19 @@ export type Note = {
   status?: "open" | "done" | "dropped";
 };
 
+// Closed is the answer to closing a note. A Dusk that may not write answers
+// with the change it would have made instead of a commit (ADR-0052).
+export type Closed = {
+  note: string;
+  status: string;
+  commit?: string;
+  url?: string;
+  proposed?: boolean;
+  repository?: string;
+  path?: string;
+  diff?: string;
+};
+
 export type SearchResult = {
   Type: string;
   Ref: string;
@@ -378,7 +391,7 @@ export const api = {
     ),
   events: (limit = 50) => get<{ events: Event[] }>(`/events?limit=${limit}`),
   closeNote: (id: string, status: "done" | "dropped", proof?: string) =>
-    post<{ note: string }>("/notes/status", { id, status, proof }),
+    post<Closed>("/notes/status", { id, status, proof }),
   output: (id: string) =>
     get<{ output: OutputLine[] }>(`/plugins/${encodeURIComponent(id)}/output`),
 };

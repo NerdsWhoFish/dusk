@@ -173,6 +173,31 @@ Write mode commits straight to the default branch, one commit per call, and the 
 
 Only the frontmatter is rewritten. The prose is left byte-identical, so a write can never disturb what somebody wrote.
 
+### What comes back when nothing lands
+
+**Dusk commits in write mode and nowhere else**, because that is the only mode whose App was granted `contents: write`.
+
+In read or proposal mode a write is not refused: it comes back as the change it would have made, naming the repository, the path, and the diff ([ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
+
+````text
+Nothing was committed. Dusk is in read mode, where it never writes to your repositories.
+
+This is what it would have changed, at `services/jellyfin/dusk.md` in example/homelab:
+
+```diff
+--- a/services/jellyfin/dusk.md
++++ b/services/jellyfin/dusk.md
+@@ -1,5 +1,5 @@
+-title: Jellyfin
++title: Jellyfin Media Server
+```
+````
+
+The diff is unified and prefixed `a/` and `b/`, so `git apply` takes it as it stands from the root of that repository.
+An agent that cannot write can still hand a person the change, which is the same courtesy as handing them a link.
+
+A proposal still needs its proof token. The diff is computed against the file as it stands, so a token from a stale read would produce one that no longer applies.
+
 ### Notes go somewhere else
 
 A note is knowledge with no natural home, so it does not go where an entity would.
@@ -188,6 +213,33 @@ The answer hands it back, and passing it as `id` replaces that note rather than 
 Replacing needs a proof token, exactly as an entity update does; writing a new note does not, because a create cannot overwrite anything.
 
 An update merges over what the file already says, so changing a body leaves the refs and kind alone.
+
+### Writing the same note twice
+
+An agent with no memory of a previous session cannot know an id, so two more things stop a duplicate ([ADR-0053](../adr/0053-note-dedup.md)).
+
+**The same words are the same note.** The path is the body's hash, so writing it again commits nothing and answers with the id of the note that already says it:
+
+```text
+That note is already there, word for word, so nothing was written.
+
+It is at `.dusk/gotcha-1a2b3c4d.md` in example/config.
+```
+
+Nothing is merged into that note. Attaching it to something else is a `note` call with its `id` and a proof token, because a create is exempt from the gate only on the grounds that it cannot overwrite anything.
+
+**Nearly the same words are written, and named.** A note that overlaps an existing one is committed, and the answer says what it nearly repeats:
+
+```text
+Wrote the note at `.dusk/gotcha-5e6f7a8b.md` in example/config.
+...
+
+**One note already says something close to this:**
+
+- `.dusk/gotcha-1a2b3c4d.md` (gotcha) Transcoding is off on purpose...
+```
+
+It is a warning rather than a refusal, for the reason [ADR-0033](../adr/0033-graph-integrity.md) gives about a ref that resolves to nothing: two notes that overlap are often both worth keeping, and only a person can tell.
 
 With no `DUSK_CONFIG_REPOSITORY` set, the tool is not offered at all.
 Everything else keeps working: a tool that always fails is worse than one that is absent.
@@ -212,7 +264,7 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 
 **The other write tools.** `relate`, `mintKind` and `push` are not built. `push` is meaningful only in proposal mode.
 
-**Proposal mode.** Write mode commits directly, so the per-session branch and pull request are deferred until somebody runs in proposal mode ([ADR-0010](../adr/0010-mcp-surface.md)).
+**Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
 
 **Note ranking.** Notes come back pinned first and then by id. [ADR-0031](../adr/0031-notes-are-files.md) has kind driving ranking, so a gotcha should outrank a todo without being pinned by hand, and it does not yet.
 

@@ -79,7 +79,10 @@ func (f fakeRepositories) Target(_ context.Context, slug string) (write.Target, 
 	return f.target, nil
 }
 
-type fakeCatalog struct{ at *index.Location }
+type fakeCatalog struct {
+	at    *index.Location
+	alike []index.Similarity
+}
 
 func (f fakeCatalog) Locate(_ context.Context, _, entityRef string) (*index.Location, error) {
 	if f.at == nil {
@@ -90,6 +93,10 @@ func (f fakeCatalog) Locate(_ context.Context, _, entityRef string) (*index.Loca
 
 func (f fakeCatalog) Get(context.Context, string, string) (*duskv1alpha1.Entity, error) {
 	return nil, index.ErrNotFound
+}
+
+func (f fakeCatalog) SimilarNotes(context.Context, string, string, int) ([]index.Similarity, error) {
+	return f.alike, nil
 }
 
 func newWriter(t *testing.T, at *index.Location, files map[string]string) (*write.Writer, *fakeTarget, *proof.Store) {

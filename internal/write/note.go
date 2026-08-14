@@ -11,6 +11,7 @@ import (
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
+	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
@@ -111,20 +112,19 @@ func (w *Writer) updateNote(ctx context.Context, token string, target Target, br
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:       branch,
-		Path:         filePath,
-		Message:      "note: update " + filePath,
-		Content:      rendered,
-		ReplacingSHA: contents.SHA,
+	return w.land(ctx, change{
+		target:     target,
+		repository: w.ConfigRepository,
+		ref:        filePath,
+		before:     contents.Data,
+		commit: githubapp.FileCommit{
+			Branch:       branch,
+			Path:         filePath,
+			Message:      "note: update " + filePath,
+			Content:      rendered,
+			ReplacingSHA: contents.SHA,
+		},
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &Result{
-		Ref: filePath, Repository: w.ConfigRepository, Path: filePath,
-		Commit: commit.SHA, URL: commit.URL,
-	}, nil
 }
 
 // createNote writes a new note. There is no proof token here: a note is new
@@ -132,6 +132,17 @@ func (w *Writer) updateNote(ctx context.Context, token string, target Target, br
 // ADR-0009's gate exists to stop blind overwrites, which a create cannot do.
 func (w *Writer) createNote(ctx context.Context, target Target, branch string, note Note) (*Result, error) {
 	filePath := path.Join(NoteDir, slug(note.Kind)+"-"+duskmd.ContentHash(note.Body)[:8]+".md")
+
+	// The path is the body's hash, so an identical note is already at the path
+	// this one would take. Reading it is what turns a second copy into the id
+	// of the first (ADR-0053).
+	contents, err := target.ReadFileContents(ctx, branch, filePath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	if err == nil {
+		return w.duplicateOf(filePath, branch, contents.Data, note)
+	}
 
 	rendered, err := duskmd.FormatNote(&duskv1alpha1.Note{
 		Kind: note.Kind, Refs: note.Refs, Body: note.Body,
@@ -141,20 +152,62 @@ func (w *Writer) createNote(ctx context.Context, target Target, branch string, n
 		return nil, err
 	}
 
-	commit, err := target.CommitFile(ctx, githubapp.FileCommit{
-		Branch:  branch,
-		Path:    filePath,
-		Message: "note: add " + filePath,
-		Content: rendered,
+	alike := w.similarTo(ctx, note.Body)
+	result, err := w.land(ctx, change{
+		target:     target,
+		repository: w.ConfigRepository,
+		ref:        filePath,
+		created:    true,
+		commit: githubapp.FileCommit{
+			Branch:  branch,
+			Path:    filePath,
+			Message: "note: add " + filePath,
+			Content: rendered,
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
+	result.Similar = alike
+	return result, nil
+}
+
+// duplicateOf answers with the note that already says this, rather than
+// committing a second copy of it. It is a result and not an error: writing
+// something already written down is a mistake worth naming, not worth refusing.
+func (w *Writer) duplicateOf(filePath, branch string, data []byte, note Note) (*Result, error) {
+	existing, err := duskmd.ParseNote(filePath, data, duskmd.Provenance{Version: branch, ObservedAt: w.now()})
+	if err != nil {
+		return nil, fmt.Errorf("write: %s is already there and does not parse, so Dusk cannot tell whether it is this note: %w", filePath, err)
+	}
+
+	// Eight hex characters of the hash name the file, and the whole hash is what
+	// says the note is the same one.
+	if existing.GetContentHash() != duskmd.ContentHash(note.Body) {
+		return nil, fmt.Errorf("write: %s holds a different note whose body starts with the same hash. Rewording either of them moves it", filePath)
+	}
 	return &Result{
-		Ref: filePath, Repository: w.ConfigRepository, Path: filePath,
-		Commit: commit.SHA, URL: commit.URL, Created: true,
+		Ref: filePath, Repository: w.ConfigRepository, Path: filePath, Existing: true,
 	}, nil
 }
+
+// similarTo names notes that nearly say this already. A warning nobody could
+// compute is not worth losing a note over, so a failed lookup is no warning
+// rather than a failed write.
+func (w *Writer) similarTo(ctx context.Context, body string) []index.Similarity {
+	if w.Catalog == nil {
+		return nil
+	}
+	alike, err := w.Catalog.SimilarNotes(ctx, "", body, similarShown)
+	if err != nil {
+		return nil
+	}
+	return alike
+}
+
+// similarShown bounds the warning. Three is enough to recognise a duplicate and
+// short enough not to bury the answer it is attached to.
+const similarShown = 3
 
 // merge applies what the agent supplied over what the file already said, so
 // changing a note's body does not blank the refs it attaches to.
