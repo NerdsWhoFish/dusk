@@ -48,7 +48,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
-| `dusk_context(directory?)` | The operator's estate, tailored to the repository being worked in |
+| `dusk_context(directory?)` | The operator's estate and what they pinned worth knowing, tailored to the repository being worked in |
 | `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
@@ -82,6 +82,29 @@ It may attach to nothing at all, because an idea is often not about anything in 
 It carries a status, and `status: done` or `status: dropped` closes it.
 
 A closed note still comes back when asked for, because "I already had that idea and dropped it" is the answer somebody most needs and least expects.
+
+## What `dusk_context` spends its budget on
+
+The context has a hard byte ceiling, because every session pays for it whether or not it ever touches Dusk ([ADR-0014](../adr/0014-agent-context-injection.md)).
+It carries four sections, and pinning is how something earns a place in the two that matter most.
+
+| Section | What it is |
+| --- | --- |
+| Pinned, about this repository | Notes somebody pinned that attach to something this repository declares |
+| What this repository declares | The refs it owns |
+| Pinned, across the estate | Everything else pinned |
+| What this operator has | Every ref, grouped by kind |
+
+Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0048](../adr/0048-what-the-context-budget-buys-first.md)).
+Written knowledge wins that contest because a ref left out is one `search` away and a gotcha left out is reachable by nothing.
+
+Relevance orders the pinned set and does not widen it.
+An unpinned note about this repository still does not appear, because pinning is the operator saying it is worth every future session.
+
+**Nothing is dropped without being named.**
+A note that will not fit whole is printed as its kind, its id and its opening line, which is what to pass back to `note`.
+A kind whose refs will not fit prints its count.
+Below either, a line says how many entries were left out and which tool answers them.
 
 ## Three rules the answers follow
 

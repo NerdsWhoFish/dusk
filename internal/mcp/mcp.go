@@ -41,6 +41,7 @@ type Catalog interface {
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
+	Declared(ctx context.Context, gitRef, repository string) ([]string, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
 	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
@@ -112,7 +113,7 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 
 - note reads and writes what has been written down. An **idea** is a note of kind idea: something somebody wants to keep, attached to what it is about or to nothing at all. Ask for them with note and no body, narrowed by kind, status and ref, and close one with status done or dropped.
 
-- dusk_context returns this operator's inventory, tailored to the repository you are working in.
+- dusk_context returns this operator's inventory and the notes they pinned, tailored to the repository you are working in. A note it names but does not print is one to ask note for.
 
 Every result carries a ref of the form kind:namespace/name. Refs feed straight back into get.
 
@@ -176,7 +177,7 @@ func (s *Server) sdkServer() *sdk.Server {
 
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "dusk_context",
-		Description: "What this operator's catalog knows, tailored to the repository you are working in. Call this once at the start of a session, before assuming anything about their infrastructure.",
+		Description: "What this operator's catalog knows, tailored to the repository you are working in: what they pinned worth knowing before you start, what the repository declares, and what else they have. Call this once at the start of a session, before assuming anything about their infrastructure.",
 	}, s.duskContext)
 
 	// One tool, however many plugins are installed. A plugin's capability is an
@@ -383,18 +384,24 @@ func renderNotes(notes []*duskv1alpha1.Note) string {
 	var out strings.Builder
 	out.WriteString("## Notes\n\n")
 	for _, note := range notes {
-		marks := ""
-		if note.GetPinned() {
-			marks += " · pinned"
-		}
-		// A closed note is still shown, because "I already had that idea and
-		// dropped it" is the answer somebody most needs and least expects.
-		if status := note.GetStatus(); status != "" && status != duskmd.StatusOpen {
-			marks += " · " + status
-		}
-		fmt.Fprintf(&out, "**%s**%s · `%s`\n\n%s\n\n", note.GetKind(), marks, note.GetId(), strings.TrimSpace(note.GetBody()))
+		out.WriteString(renderNote(note))
 	}
 	return out.String()
+}
+
+// renderNote is one note whole. A closed one is still shown, because "I already
+// had that idea and dropped it" is the answer somebody most needs and least
+// expects.
+func renderNote(note *duskv1alpha1.Note) string {
+	marks := ""
+	if note.GetPinned() {
+		marks += " · pinned"
+	}
+	if status := note.GetStatus(); status != "" && status != duskmd.StatusOpen {
+		marks += " · " + status
+	}
+	return fmt.Sprintf("**%s**%s · `%s`\n\n%s\n\n",
+		note.GetKind(), marks, note.GetId(), strings.TrimSpace(note.GetBody()))
 }
 
 type neighborsInput struct {
