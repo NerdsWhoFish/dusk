@@ -191,6 +191,33 @@ Replacing needs a proof token, exactly as an entity update does; writing a new n
 
 An update merges over what the file already says, so changing a body leaves the refs and kind alone.
 
+### Writing the same note twice
+
+An agent with no memory of a previous session cannot know an id, so two more things stop a duplicate ([ADR-0049](../adr/0049-note-dedup.md)).
+
+**The same words are the same note.** The path is the body's hash, so writing it again commits nothing and answers with the id of the note that already says it:
+
+```text
+That note is already there, word for word, so nothing was written.
+
+It is at `.dusk/gotcha-1a2b3c4d.md` in example/config.
+```
+
+Nothing is merged into that note. Attaching it to something else is a `note` call with its `id` and a proof token, because a create is exempt from the gate only on the grounds that it cannot overwrite anything.
+
+**Nearly the same words are written, and named.** A note that overlaps an existing one is committed, and the answer says what it nearly repeats:
+
+```text
+Wrote the note at `.dusk/gotcha-5e6f7a8b.md` in example/config.
+...
+
+**One note already says something close to this:**
+
+- `.dusk/gotcha-1a2b3c4d.md` (gotcha) Transcoding is off on purpose...
+```
+
+It is a warning rather than a refusal, for the reason [ADR-0033](../adr/0033-graph-integrity.md) gives about a ref that resolves to nothing: two notes that overlap are often both worth keeping, and only a person can tell.
+
 With no `DUSK_CONFIG_REPOSITORY` set, the tool is not offered at all.
 Everything else keeps working: a tool that always fails is worse than one that is absent.
 

@@ -30,11 +30,11 @@ Garbage collecting a closed pull request is then a delete scoped to its ref, wit
 | --- | --- |
 | `entities` | One row per entity, per repository, per git ref. Primary key is `(repository, git_ref, ref)` |
 | `relations` | Typed edges. Primary key is `(repository, git_ref, from_ref, to_ref, type)` |
-| `entity_fts` | FTS5 virtual table mirroring entity text for search |
+| `catalog_fts` | FTS5 virtual table mirroring entity and note text, so one search ranks both |
 
 Attributes are stored as protojson, so what comes back out is the same `structpb.Struct` that went in.
 
-`entity_fts` is kept in step by SQLite triggers on `entities` rather than by explicit writes, so a second writer cannot forget to update it.
+`catalog_fts` is kept in step by SQLite triggers rather than by explicit writes, so a second writer cannot forget to update it.
 
 ## Operations
 
@@ -44,6 +44,7 @@ Attributes are stored as protojson, so what comes back out is the same `structpb
 | `Get` | One entity, or `ErrNotFound` |
 | `List` | Every entity at a git ref, optionally one kind |
 | `Search` | Full-text query, ranked, with a snippet |
+| `SimilarNotes` | Notes that nearly say a given body already, scored and ordered |
 | `Neighbors` | Every relation with an entity at either end |
 | `Dependents` | Walks relations inbound, transitively, to a bounded depth |
 | `DropGitRef` | Removes every repository's contents at a git ref |
@@ -64,6 +65,16 @@ Free text is turned into a query that cannot be a syntax error.
 Each token is quoted as a phrase and the last is treated as a prefix, so results narrow as a query is typed and punctuation a user happens to type is searched for rather than interpreted.
 
 Searches are scoped to a git ref and span every repository contributing to it, which is what makes the catalog searchable as one thing rather than per repository.
+
+## Notes that nearly say the same thing
+
+`SimilarNotes` is what stops the catalog accumulating the same knowledge twice ([ADR-0049](../adr/0049-note-dedup.md)).
+
+It is two mechanisms because one will not do.
+FTS5 matches **any** of the body's words rather than all of them, which is what keeps a reworded note a candidate, and ranks them, so the catalog is narrowed to fifty rows for the cost of one query.
+The score is then counted in Go as the share of vocabulary the two have in common, because bm25 rank is relative to its query and no fixed threshold can be written against it.
+
+Words of two characters or fewer are ignored. There is no stemming and no stopword list, so this finds a copy and a light edit, not a paraphrase.
 
 ## Dependents
 

@@ -553,14 +553,18 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 	if result.Proposed {
 		return text(proposal(result)), nil, nil
 	}
+	if result.Existing {
+		return text(renderExisting(result)), nil, nil
+	}
 
 	verb := "Updated"
 	if result.Created {
 		verb = "Wrote"
 	}
 	return text(fmt.Sprintf(
-		"%s the note at `%s` in %s.\n\nCommit: %s\n\nIts id is `%s`. Pass that as `id` to replace it rather than writing a second one.",
-		verb, result.Path, result.Repository, result.URL, result.Path)), nil, nil
+		"%s the note at `%s` in %s.\n\nCommit: %s\n\nIts id is `%s`. Pass that as `id` to replace it rather than writing a second one.%s",
+		verb, result.Path, result.Repository, result.URL, result.Path,
+		renderSimilar(result.Similar))), nil, nil
 }
 
 // renderIntegrity appends what is wrong with the graph. It arrives unasked

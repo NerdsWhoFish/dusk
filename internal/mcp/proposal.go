@@ -28,6 +28,7 @@ func proposal(result *write.Result) string {
 	fmt.Fprintf(&out, "This is what it would have %s, at `%s` in %s:\n\n```diff\n%s```\n\n",
 		verb, result.Path, result.Repository, result.Diff)
 	out.WriteString("Hand that to somebody who can apply it. `git apply` takes it as it stands, from the root of that repository.\n")
+	out.WriteString(renderSimilar(result.Similar))
 	return out.String()
 }
 

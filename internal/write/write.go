@@ -47,6 +47,10 @@ type Repositories interface {
 type Catalog interface {
 	Locate(ctx context.Context, gitRef, entityRef string) (*index.Location, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
+
+	// SimilarNotes is what turns a second copy of somebody's knowledge into a
+	// warning naming the first, rather than a note nobody will find twice.
+	SimilarNotes(ctx context.Context, gitRef, body string, limit int) ([]index.Similarity, error)
 }
 
 // Access reports how much Dusk may do to the repositories it watches. It is
@@ -103,6 +107,14 @@ type Result struct {
 
 	// Mode is what Dusk was registered to do, which is why a proposal is one.
 	Mode store.AccessMode
+
+	// Existing means a note saying exactly this is already there, so nothing
+	// was written and Path is the note that already says it.
+	Existing bool
+
+	// Similar names notes that nearly say this already. Notes only: an entity
+	// is deduplicated by its ref.
+	Similar []index.Similarity
 }
 
 // change is one file write, before Dusk decides whether it may make it.
