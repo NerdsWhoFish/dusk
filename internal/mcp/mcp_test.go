@@ -140,10 +140,10 @@ func TestToolSurfaceIsSmall(t *testing.T) {
 		}
 	}
 
-	// Six reads and note, which reads as well as writes. Adding one is a
-	// decision, not a default, and the failure ADR-0010 names is thirty tools
-	// nobody chose.
-	want := "changes,drift,dusk_context,get,neighbors,note,search"
+	// Six reads, plus note and kinds, which read as well as write. Adding one
+	// is a decision, not a default, and the failure ADR-0010 names is thirty
+	// tools nobody chose.
+	want := "changes,drift,dusk_context,get,kinds,neighbors,note,search"
 	if got := joinSorted(names); got != want {
 		t.Errorf("tools = %s, want %s", got, want)
 	}

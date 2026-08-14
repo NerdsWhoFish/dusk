@@ -31,6 +31,10 @@ const (
 	// FromPage is reading the portal page, which is the only read that
 	// witnesses the whole of what a write would replace.
 	FromPage Origin = "page"
+
+	// FromKinds is reading the vocabulary. Extending one you have not read is
+	// how `svc` gets invented next to `service` (ADR-0048).
+	FromKinds Origin = "kinds"
 )
 
 // DefaultTTL is a backstop, not the mechanism. Tokens are invalidated by the
@@ -133,12 +137,29 @@ func (s *Store) AuthorizeUpdate(tokenID, ref, currentVersion string) error {
 // The action names which read satisfies it, so a token from a different one is
 // refused with that call rather than with a generic complaint (ADR-0015).
 func (s *Store) AuthorizeAction(tokenID, ref, currentVersion string, from Origin) error {
+	return s.authorizeFrom(tokenID, ref, currentVersion, from,
+		"running an action requires having read what it acts on",
+		"this action is satisfied by %s, and the token came from %s")
+}
+
+// AuthorizeUpdateFrom accepts a write whose token has to have come from one
+// particular read, which is what makes reading the thing part of the contract
+// rather than reading anything at all.
+func (s *Store) AuthorizeUpdateFrom(tokenID, ref, currentVersion string, from Origin) error {
+	return s.authorizeFrom(tokenID, ref, currentVersion, from,
+		fmt.Sprintf("this write requires having read what it changes, with %s", from),
+		"this write is satisfied by %s, and the token came from %s")
+}
+
+// authorizeFrom is the origin check both callers share, with their own wording:
+// two copies of one rule is how they come to disagree.
+func (s *Store) authorizeFrom(tokenID, ref, currentVersion string, from Origin, missing, wrong string) error {
 	token := s.Lookup(tokenID)
 	if token == nil {
 		return &Rejection{
 			Code:   CodeRequired,
 			Ref:    ref,
-			Detail: "running an action requires having read what it acts on",
+			Detail: missing,
 			Fix:    fmt.Sprintf(`%s(%q)`, from, ref),
 		}
 	}
@@ -147,7 +168,7 @@ func (s *Store) AuthorizeAction(tokenID, ref, currentVersion string, from Origin
 		return &Rejection{
 			Code:   CodeWrongRead,
 			Ref:    ref,
-			Detail: fmt.Sprintf("this action is satisfied by %s, and the token came from %s", from, token.Origin),
+			Detail: fmt.Sprintf(wrong, from, token.Origin),
 			Fix:    fmt.Sprintf(`%s(%q)`, from, ref),
 		}
 	}
