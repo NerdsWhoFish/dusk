@@ -43,6 +43,7 @@ Attributes are stored as protojson, so what comes back out is the same `structpb
 | `Put` | Replaces what one repository contributes at a git ref, in one transaction |
 | `Get` | One entity, or `ErrNotFound` |
 | `List` | Every entity at a git ref, optionally one kind |
+| `Declared` | The refs one repository declares, which provenance cannot answer because it records the file and not the repository |
 | `Search` | Full-text query, ranked, with a snippet |
 | `Neighbors` | Every relation with an entity at either end |
 | `Dependents` | Walks relations inbound, transitively, to a bounded depth |

@@ -104,6 +104,15 @@ type NoteFilter struct {
 	// Ref limits to notes attached to one entity.
 	Ref string
 
+	// AboutRepository limits to notes attached to an entity that repository
+	// declares. Not notes stored in it: a note about a service usually lives in
+	// the config repository.
+	AboutRepository string
+
+	// Pinned limits to what somebody marked worth keeping at the top, for a
+	// caller that wants only those rather than only their ordering.
+	Pinned bool
+
 	Limit int
 }
 
@@ -127,10 +136,17 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	default:
 		query = query.Where("notes.status = ?", filter.Status)
 	}
+	if filter.Pinned {
+		query = query.Where("notes.pinned = ?", true)
+	}
 	if filter.Ref != "" {
-		query = query.Joins("JOIN note_refs ON note_refs.repository = notes.repository"+
-			" AND note_refs.git_ref = notes.git_ref AND note_refs.note_id = notes.note_id").
-			Where("note_refs.ref = ?", filter.Ref)
+		query = query.Where(attachedTo("note_refs.ref = ?"), filter.Ref)
+	}
+	if filter.AboutRepository != "" {
+		scope, scopeArgs := scopeClause("entities", gitRef)
+		where := attachedTo("EXISTS (SELECT 1 FROM entities WHERE entities.ref = note_refs.ref" +
+			" AND entities.repository = ? AND " + scope + ")")
+		query = query.Where(where, append([]any{filter.AboutRepository}, scopeArgs...)...)
 	}
 
 	var rows []noteRow
@@ -147,6 +163,14 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 		notes = append(notes, row.note())
 	}
 	return notes, nil
+}
+
+// attachedTo correlates a note_refs predicate to the note. A join would
+// answer once per ref matched, duplicating a note about two things.
+func attachedTo(predicate string) string {
+	return "EXISTS (SELECT 1 FROM note_refs WHERE note_refs.repository = notes.repository" +
+		" AND note_refs.git_ref = notes.git_ref AND note_refs.note_id = notes.note_id" +
+		" AND " + predicate + ")"
 }
 
 // KindCount is how many entities share one kind.
@@ -222,6 +246,23 @@ func (db *DB) ObservedBy(ctx context.Context, gitRef, entityRef string) ([]strin
 		scopes = append(scopes, strings.TrimPrefix(repository, observedPrefix))
 	}
 	return scopes, nil
+}
+
+// Declared returns the refs one repository declares at gitRef, in ref order.
+// Provenance records only the file a declaration came from, so which repository
+// owns an entity is a column and cannot be derived from a read.
+func (db *DB) Declared(ctx context.Context, gitRef, repository string) ([]string, error) {
+	var refs []string
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Model(&entityRow{}).
+		Where("repository = ? AND observed = ?", repository, false).
+		Distinct().
+		Order("ref").
+		Pluck("ref", &refs).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: declared by %q at %q: %w", repository, gitRef, err)
+	}
+	return refs, nil
 }
 
 // List returns every entity at gitRef, optionally narrowed to one kind.
