@@ -21,7 +21,7 @@ import (
 const ContextBudget = 8000
 
 // contextNotes bounds the note queries above what the budget could ever name,
-// so ADR-0048's ranking decides what is shown rather than a query limit nobody
+// so ADR-0050's ranking decides what is shown rather than a query limit nobody
 // would see hit. No line naming a note is shorter than twenty bytes.
 const contextNotes = ContextBudget / 20
 
@@ -159,7 +159,7 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, en
 
 	// Written knowledge outranks enumerable fact: a ref left out is one
 	// `search` away, and a gotcha left out is reachable by nothing, because
-	// nobody asks for what they were never told exists (ADR-0048).
+	// nobody asks for what they were never told exists (ADR-0050).
 	return []*section{notesHere, owned, notesElsewhere, inventory},
 		[]*section{notesHere, notesElsewhere, owned, inventory}
 }
@@ -223,7 +223,7 @@ type item struct {
 
 // section is one block of the answer. Sections are given budget in priority
 // order and written in reading order, which is what lets a pinned note outrank
-// an inventory printed above it (ADR-0048).
+// an inventory printed above it (ADR-0050).
 type section struct {
 	heading string
 	items   []item
@@ -387,7 +387,7 @@ func (s *Server) matchRepository(ctx context.Context, root string) (string, erro
 	return "", nil
 }
 
-// truncate is the backstop under ADR-0048's allocation, which is meant to keep
+// truncate is the backstop under ADR-0050's allocation, which is meant to keep
 // the answer inside the budget by itself. A silently shortened context degrades
 // every answer with nothing to connect the degradation to.
 func truncate(body string, budget int) string {

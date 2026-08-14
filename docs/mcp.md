@@ -95,7 +95,7 @@ It carries four sections, and pinning is how something earns a place in the two 
 | Pinned, across the estate | Everything else pinned |
 | What this operator has | Every ref, grouped by kind |
 
-Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0048](../adr/0048-what-the-context-budget-buys-first.md)).
+Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 Written knowledge wins that contest because a ref left out is one `search` away and a gotcha left out is reachable by nothing.
 
 Relevance orders the pinned set and does not widen it.

@@ -74,10 +74,10 @@ func TestContextMatchesARepositoryFromItsPath(t *testing.T) {
 	}
 }
 
-// ADR-0048: the shortest path from "the operator wrote down a gotcha" to "the
+// ADR-0050: the shortest path from "the operator wrote down a gotcha" to "the
 // agent knew it before it started". A pinned note about the repository being
 // worked in arrives whole, without being asked for.
-func TestADR0048_PinnedNotesReachTheContext(t *testing.T) {
+func TestADR0050_PinnedNotesReachTheContext(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	notes(t, idx, []*duskv1alpha1.Note{
@@ -109,7 +109,7 @@ func TestADR0048_PinnedNotesReachTheContext(t *testing.T) {
 
 // A note about a repository other than the one being worked in is not local to
 // it, however loudly it is pinned. Relevance is what orders the pinned set.
-func TestADR0048_RelevanceOrdersThePinnedSet(t *testing.T) {
+func TestADR0050_RelevanceOrdersThePinnedSet(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	notes(t, idx, []*duskv1alpha1.Note{
@@ -133,7 +133,7 @@ func TestADR0048_RelevanceOrdersThePinnedSet(t *testing.T) {
 // A silently shortened context degrades every answer with nothing to connect
 // the degradation to, so a section that cannot fit its items says how many it
 // left out rather than ending early.
-func TestADR0048_NothingIsDroppedSilently(t *testing.T) {
+func TestADR0050_NothingIsDroppedSilently(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	crowd(t, idx)
@@ -183,7 +183,7 @@ func TestADR0048_NothingIsDroppedSilently(t *testing.T) {
 // A pinned note beats a ref that would otherwise be listed: the ref is one
 // `search` away and the gotcha is reachable by nothing, because nobody asks for
 // what they were never told exists.
-func TestADR0048_WrittenKnowledgeOutranksTheInventory(t *testing.T) {
+func TestADR0050_WrittenKnowledgeOutranksTheInventory(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	crowd(t, idx)
