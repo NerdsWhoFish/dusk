@@ -37,10 +37,10 @@ const SocketEnv = "DUSK_PLUGIN_SOCKET"
 // and keeps composition going through Dusk.
 const TokenEnv = "DUSK_PLUGIN_TOKEN"
 
-// SocketDir is short on purpose. A unix socket address is capped near 104
-// bytes, and putting sockets under the data directory would blow that on any
-// deployment whose data path is nested.
-const SocketDir = "/tmp/dusk-plugins"
+// SocketDir is short on purpose: a unix socket address is capped near 104
+// bytes. A variable rather than a constant because the path is keyed only by
+// plugin id, so two Dusks on one machine would otherwise fight over it.
+var SocketDir = "/tmp/dusk-plugins"
 
 // maxSocketPath is the portable floor for a socket address, below the 108 that
 // Linux allows and equal to what macOS and BSD do.

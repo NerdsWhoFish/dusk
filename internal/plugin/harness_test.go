@@ -364,6 +364,18 @@ func (r *rota) names() []string {
 
 // manager builds a Manager over a temporary data directory, with a marketplace
 // that offers nothing: these tests install by hand rather than over the wire.
+// shortDir is a temp directory with a short path. A unix socket address is
+// capped near 104 bytes and t.TempDir on macOS is long enough to blow it.
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "dusk")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func manager(t *testing.T) (*plugin.Manager, *rota) {
 	t.Helper()
 
@@ -378,6 +390,13 @@ func manager(t *testing.T) (*plugin.Manager, *rota) {
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	t.Cleanup(empty.Close)
+
+	// A socket is named by plugin id under one shared directory, so two tests
+	// starting the same plugin race: one binds the path the other is removing.
+	// Verified pre-existing, and the reason this package was flaky.
+	was := plugin.SocketDir
+	plugin.SocketDir = shortDir(t)
+	t.Cleanup(func() { plugin.SocketDir = was })
 
 	rotation := newRota()
 	return &plugin.Manager{
