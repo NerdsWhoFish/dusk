@@ -31,6 +31,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // Catalog is the slice of the index the tools need, declared here so the tools
@@ -47,6 +48,7 @@ type Catalog interface {
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
+	Vocabulary(ctx context.Context, gitRef string) ([]vocab.Kind, error)
 }
 
 // Syncs reports what the controller last did, so an agent can tell a stale
@@ -79,6 +81,11 @@ type Declarer interface {
 	// is work an agent is good at.
 	Home(ctx context.Context) ([]byte, error)
 	SetHome(ctx context.Context, token string, body []byte) (*write.Result, error)
+
+	// Vocabulary reads the minted kinds as committed, which is what a mint has
+	// to prove it saw, and MintKind adds one.
+	Vocabulary(ctx context.Context) (*write.Minted, error)
+	MintKind(ctx context.Context, token string, kind vocab.Kind) (*write.Result, error)
 }
 
 // Options are the server's dependencies.
@@ -112,6 +119,8 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - invoke does something to an entity. What can be done is part of what get returns, so read a thing to learn what you can do to it. Anything that changes something needs the proof token from the read it names; anything destructive needs confirm; pass preview to see what would happen first.
 
 - note reads and writes what has been written down. An **idea** is a note of kind idea: something somebody wants to keep, attached to what it is about or to nothing at all. Ask for them with note and no body, narrowed by kind, status and ref, and close one with status done or dropped.
+
+- kinds lists the vocabulary: every kind in use, what it is for, and how many things carry it. Read it before inventing a kind, because kinds are open and nothing will stop you creating a second spelling of one that exists. Minting one with a role is what makes something act on it.
 
 - dusk_context returns this operator's inventory and the notes they pinned, tailored to the repository you are working in. A note it names but does not print is one to ask note for.
 
@@ -200,6 +209,14 @@ func (s *Server) sdkServer() *sdk.Server {
 		}, s.configure)
 	}
 
+	// Registered whether or not anything can be written, for the same reason
+	// note is: knowing what kinds exist is what stops the next one being a
+	// misspelling of one that does.
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "kinds",
+		Description: "Read the catalog's vocabulary of kinds, or extend it. Every kind in use is listed with what it is for and how many things carry it. Pass mint with a namespace and a role to add one, against the proof token this read returns. Kinds are open, so declaring an unlisted one always works; minting is how a kind gets a meaning something acts on.",
+	}, s.kinds)
+
 	// Registered whether or not anything can be written: reading what has been
 	// written down is a read, and a deployment with nowhere to put a new note
 	// can still answer "what ideas do I have".
@@ -270,7 +287,7 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		}
 		shown++
 		seen[hit.Ref] = hit.Version
-		fmt.Fprintf(&out, "- **%s** `%s`\n", displayName(hit.Title, hit.Ref), hit.Ref)
+		fmt.Fprintf(&out, "- %s**%s** `%s`\n", noteMark(hit), displayName(hit.Title, hit.Ref), hit.Ref)
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
 			fmt.Fprintf(&out, "  %s\n", singleLine(snippet))
 		}
@@ -284,6 +301,16 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	}
 	return text(fmt.Sprintf("%d result(s) for %q. Pass a ref to `get` for the full picture.\n\n%s%s",
 		shown, in.Query, out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+}
+
+// noteMark labels a note hit with its kind. A note's ref is a file path, so
+// without this a gotcha and a todo are indistinguishable in a result list, and
+// ADR-0010 asks kind to affect rendering as well as ranking.
+func noteMark(hit index.SearchResult) string {
+	if hit.Type != "note" || hit.Kind == "" {
+		return ""
+	}
+	return hit.Kind + " · "
 }
 
 type getInput struct {
@@ -480,9 +507,15 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	if result.Created {
 		verb = "Created"
 	}
+
+	// A kind already in the catalog resolves and says nothing, so this only
+	// speaks when the declaration is what introduced the kind.
+	kind, _, _ := strings.Cut(in.Ref, ":")
+	warning := s.warnAboutKind(ctx, vocab.Entity, kind)
+
 	return text(fmt.Sprintf(
-		"%s `%s` in %s at `%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.",
-		verb, result.Ref, result.Repository, result.Path, result.URL)), nil, nil
+		"%s `%s` in %s at `%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.%s",
+		verb, result.Ref, result.Repository, result.Path, result.URL, warning)), nil, nil
 }
 
 // noteInput leaves kind and body optional because an update merges over what
@@ -576,7 +609,7 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 	return text(fmt.Sprintf(
 		"%s the note at `%s` in %s.\n\nCommit: %s\n\nIts id is `%s`. Pass that as `id` to replace it rather than writing a second one.%s",
 		verb, result.Path, result.Repository, result.URL, result.Path,
-		renderSimilar(result.Similar))), nil, nil
+		renderSimilar(result.Similar)+s.warnAboutKind(ctx, vocab.Note, in.Kind))), nil, nil
 }
 
 // renderIntegrity appends what is wrong with the graph. It arrives unasked

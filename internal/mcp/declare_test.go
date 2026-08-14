@@ -15,6 +15,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // recordingWriter accepts anything, so these tests are about the surface rather
@@ -25,6 +26,8 @@ type recordingWriter struct {
 	notes  []write.Note
 	home   []byte
 	wrote  []byte
+	kinds  []byte
+	minted []vocab.Kind
 
 	// notesGo is where notes land, and empty means the tool is not offered.
 	notesGo string

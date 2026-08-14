@@ -12,10 +12,6 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 )
 
-// WellKnownNoteKinds seed the vocabulary. Kind drives ranking and rendering
-// rather than only labelling, so a gotcha surfaces where a todo does not.
-var WellKnownNoteKinds = []string{"gotcha", "runbook", "howto", "decision", "incident", "todo", "idea"}
-
 // Statuses a note that is work can be in. Empty means open, so a note written
 // before there was a status is not silently closed.
 const (
@@ -23,10 +19,6 @@ const (
 	StatusDone    = "done"
 	StatusDropped = "dropped"
 )
-
-// Working are the kinds a status means something for. A gotcha is never done;
-// an idea and a todo are the things somebody finishes or abandons.
-var Working = []string{"idea", "todo"}
 
 // noteFrontmatter is the authorable shape of a note file.
 type noteFrontmatter struct {

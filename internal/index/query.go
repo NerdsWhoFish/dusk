@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gorm.io/gorm"
@@ -11,6 +12,7 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // SearchResult is one full-text hit, carrying enough to render a list without
@@ -58,9 +60,9 @@ func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.
 	return row.entity()
 }
 
-// NotesFor returns the notes attached to an entity, pinned first then by id.
-// It is what makes a note's refs worth writing, since knowledge about a service
-// is only useful if it arrives when somebody asks about that service.
+// NotesFor returns the notes attached to an entity, pinned first, then by what
+// their kind is for, then by id. A gotcha reaching the top without anybody
+// pinning it is what ADR-0049 exists for.
 func (db *DB) NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error) {
 	clause, args := scopeClause("notes", gitRef)
 
@@ -71,17 +73,42 @@ func (db *DB) NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1
 			" AND note_refs.git_ref = notes.git_ref AND note_refs.note_id = notes.note_id").
 		Where("note_refs.ref = ?", entityRef).
 		Where(clause, args...).
-		Order("notes.pinned DESC, notes.note_id").
 		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: notes for %q at %q: %w", entityRef, gitRef, err)
 	}
+
+	minted, err := db.Minted(ctx, gitRef)
+	if err != nil {
+		return nil, err
+	}
+	rank(rows, minted)
 
 	notes := make([]*duskv1alpha1.Note, 0, len(rows))
 	for _, row := range rows {
 		notes = append(notes, row.note())
 	}
 	return notes, nil
+}
+
+// rank orders notes by what their kind is for. It sorts here rather than in SQL
+// because the rule belongs to vocab, and a second copy of it as a CASE would
+// drift from the first.
+func rank(rows []noteRow, minted []vocab.Kind) {
+	slices.SortFunc(rows, func(a, b noteRow) int {
+		if a.Pinned != b.Pinned {
+			if a.Pinned {
+				return -1
+			}
+			return 1
+		}
+		aRank := vocab.Rank(vocab.RoleOf(vocab.Note, a.Kind, minted))
+		bRank := vocab.Rank(vocab.RoleOf(vocab.Note, b.Kind, minted))
+		if aRank != bRank {
+			return aRank - bRank
+		}
+		return strings.Compare(a.NoteID, b.NoteID)
+	})
 }
 
 // RecentNotes returns the most recently observed notes, pinned first. It backs
@@ -302,7 +329,9 @@ func (db *DB) Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv
 	return relations, nil
 }
 
-// Search runs a full-text query against entity text at gitRef.
+// Search runs a full-text query against entity text at gitRef. A note whose
+// kind is work ranks below every other hit and by relevance within that group,
+// so a todo never outranks a gotcha or an entity (ADR-0049).
 func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]SearchResult, error) {
 	match := matchExpression(query)
 	if match == "" {
@@ -312,13 +341,20 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		limit = defaultSearchLimit
 	}
 
+	minted, err := db.Minted(ctx, gitRef)
+	if err != nil {
+		return nil, err
+	}
+	work := namesWithRole(minted, vocab.Note, vocab.Work)
+
 	// Qualified, because the join makes a bare git_ref ambiguous.
 	scope, scopeArgs := scopeClause("f", gitRef)
 	args := append([]any{match}, scopeArgs...)
+	args = append(args, asAny(work)...)
 	args = append(args, limit)
 
 	var results []SearchResult
-	err := db.gorm.WithContext(ctx).Raw(`
+	err = db.gorm.WithContext(ctx).Raw(`
 		SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
 		       -- Column 7 is body. snippet() takes a positional index, so
 		       -- adding a column to catalog_fts silently moves this.
@@ -328,7 +364,8 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		  LEFT JOIN entities e
 		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
 		 WHERE catalog_fts MATCH ? AND `+scope+`
-		 ORDER BY rank
+		 ORDER BY CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
+		               THEN 1 ELSE 0 END, rank
 		 LIMIT ?`, args...,
 	).Scan(&results).Error
 	if err != nil {

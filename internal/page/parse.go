@@ -6,15 +6,18 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 )
 
 // byteOrderMark is UTF-8's, written as bytes because Go source cannot hold it
 // as a literal.
 var byteOrderMark = []byte{0xEF, 0xBB, 0xBF}
 
-// Path is where the config repository declares its portal page. It sits in
-// `.dusk/` because ADR-0031 already keeps that directory always in scope.
-const Path = ".dusk/home.md"
+// Path is where the config repository declares its portal page. `catalogfs`
+// owns the constant, because that is what keeps a reconcile from reading it as
+// catalog content (ADR-0048).
+const Path = catalogfs.HomePath
 
 // Parse reads a declared page. The prose below the frontmatter is the page's
 // own introduction, and is returned separately so a renderer can place it.

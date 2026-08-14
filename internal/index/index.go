@@ -159,7 +159,7 @@ func (db *DB) migrate() error {
 	if err := db.gorm.Exec(`PRAGMA foreign_keys=ON`).Error; err != nil {
 		return fmt.Errorf("index: enable foreign keys: %w", err)
 	}
-	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &defaultView{}); err != nil {
+	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &defaultView{}); err != nil {
 		return fmt.Errorf("index: migrate: %w", err)
 	}
 	for _, stmt := range ftsSchema {
@@ -356,6 +356,7 @@ func deleteWhere(tx *gorm.DB, query string, args ...any) error {
 		{"note refs", &noteRefRow{}},
 		{"notes", &noteRow{}},
 		{"aliases", &aliasRow{}},
+		{"kinds", &kindRow{}},
 		{"entities", &entityRow{}},
 	} {
 		if err := tx.Where(query, args...).Delete(target.row).Error; err != nil {

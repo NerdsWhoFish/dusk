@@ -25,6 +25,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // RootFile is the file whose presence opts a repository into the catalog.
@@ -77,6 +78,10 @@ type Graph struct {
 	// Notes are the curated knowledge attached to entities, which may live in
 	// this repository while the entities they describe live elsewhere.
 	Notes []*duskv1alpha1.Note
+
+	// Kinds are what this repository mints, from the reserved vocabulary file.
+	// They are read here so `dusk validate` catches a bad one locally.
+	Kinds []vocab.Kind
 }
 
 // declarations pairs each entity with the file that declared it. Files and
@@ -132,10 +137,16 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 		return nil, err
 	}
 
+	kinds, err := readKinds(tree)
+	if err != nil {
+		return nil, err
+	}
+
 	graph := &Graph{
 		GitRef: gitRef, Commit: commit, Participating: true,
 		Files: make([]string, 0, len(files)),
 		Notes: notes,
+		Kinds: kinds,
 	}
 	if err := graph.merge(files); err != nil {
 		return nil, err
@@ -160,6 +171,25 @@ func readRoot(tree *catalogfs.Tree, commit string, provenance duskmd.Provenance)
 	return root, nil
 }
 
+// readKinds reads the vocabulary a repository mints, which is absent from most
+// of them. A malformed one fails the reconcile rather than minting silently
+// nothing, because the whole point of a role is that something acts on it.
+func readKinds(tree *catalogfs.Tree) ([]vocab.Kind, error) {
+	data, err := tree.Read(vocab.Path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: read %s: %w", vocab.Path, err)
+	}
+
+	kinds, err := duskmd.ParseKinds(vocab.Path, data)
+	if err != nil {
+		return nil, err
+	}
+	return kinds.Kinds, nil
+}
+
 // collect returns the root file followed by everything its includes reach,
 // separated into the entities they declare and the notes they carry.
 func collect(tree *catalogfs.Tree, commit string, root *duskmd.File, provenance duskmd.Provenance) ([]*duskmd.File, []*duskv1alpha1.Note, error) {
@@ -174,6 +204,13 @@ func collect(tree *catalogfs.Tree, commit string, root *duskmd.File, provenance 
 	var notes []*duskv1alpha1.Note
 	var problems []error
 	for _, filePath := range paths {
+		// Dusk's own declared configuration lives in the directory that is
+		// always in scope, and is read by what declared it. Parsing it as
+		// catalog content fails the whole repository's reconcile (ADR-0048).
+		if catalogfs.IsReserved(filePath) {
+			continue
+		}
+
 		data, err := tree.Read(filePath)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("reconcile: read %q at %q: %w", filePath, commit, err))
@@ -208,7 +245,7 @@ func collect(tree *catalogfs.Tree, commit string, root *duskmd.File, provenance 
 // DuskDir is read whenever it exists, with no include needed. A directory whose
 // whole purpose is catalog content is consent by construction, and it gives a
 // write somewhere to land in a repository that declares no include.
-const DuskDir = ".dusk"
+const DuskDir = catalogfs.DuskDir
 
 // expand resolves include patterns to a sorted, deduplicated path list. The
 // root file is excluded so that a pattern matching it cannot declare its entity
@@ -288,6 +325,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, o
 		return graph, nil
 	}
 	if err := r.index.Put(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes); err != nil {
+		return nil, err
+	}
+	if err := r.index.PutVocabulary(ctx, repository, gitRef, graph.Kinds); err != nil {
 		return nil, err
 	}
 	return graph, nil
