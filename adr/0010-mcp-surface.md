@@ -122,3 +122,18 @@ An operator who chose write mode has already said they trust the agent, and a qu
 
 `push()` therefore has nothing to flush in write mode and reports what already landed.
 It keeps its full meaning in proposal mode, where it is what opens the pull request.
+
+### 2026-08-13: `getKinds` and `mintKind` ship as one `kinds` tool, and a mint carries a role
+
+This ADR listed `getKinds` and `mintKind(namespace, name, aliases?)` as two tools.
+They ship as one, `kinds`, which reads with no `mint` argument and writes with one.
+
+`note` and `page` both landed in that shape after this ADR was written, for a reason that applies here unchanged: the read is what issues the proof token the write needs, so a separate read tool would look optional.
+It is stronger for a vocabulary than for either of those.
+The proof token for a mint is proof of having read the vocabulary being extended, so the near-match warning this ADR's own consequences call for is delivered by the very call that authorizes the mint.
+An agent cannot invent `svc` without having been shown `service` first, and that only holds while the read and the write are one tool.
+The tool count is also a product constraint this ADR set itself, and one tool is one rather than two.
+
+A mint additionally carries a **role**, which this ADR did not have.
+It is what makes "kind affects ranking and rendering, not just labelling" true of a minted kind rather than only of the six seeded ones.
+[ADR-0048](0048-the-kind-vocabulary.md) records where the vocabulary lives and why a near match warns rather than refuses, and [ADR-0049](0049-a-notes-kind-is-its-rank.md) records what a role does to ranking.
