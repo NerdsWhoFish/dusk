@@ -177,6 +177,8 @@ The three that shipped all act as well as observe, which is what "observe only, 
 
 ## Known gaps
 
+- **A socket directory is shared by every Dusk on a machine.** Sockets are named `<SocketDir>/<plugin-id>.sock`, so two Dusks on one host bind the same paths and each removes the other's on start and on stop. It is a variable rather than a constant now, and nothing sets it per deployment. Found because it made the plugin tests fail differently on every run.
+
 - Catalog content is fed to agents with no trust boundary of its own. [ADR-0030](../adr/0030-account-allowlist.md) narrows *who* can reach that path but does nothing about a compromised repository inside an allowed account.
 - Two repositories declaring the same entity is **reported but not resolved** ([0033](../adr/0033-graph-integrity.md)). `integrity` names both declarations; `Get` still returns whichever sorts first until a human picks.
 - The MCP surface authenticates but does not authorize. A bearer token answers "may you read", not "what may you read", so any agent holding one reads the whole catalog ([0012](../adr/0012-viewing-auth.md)).
