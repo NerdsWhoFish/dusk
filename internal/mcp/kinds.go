@@ -128,8 +128,8 @@ func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResu
 	}
 
 	var out strings.Builder
-	fmt.Fprintf(&out, "Minted `%s` as a %s kind, %s.\n\nCommit: %s\n\n%s\n",
-		kind.Name, kind.Namespace, kind.Role, result.URL, effect(kind))
+	fmt.Fprintf(&out, "Minted the %s kind `%s`, for %s.\n\nCommit: %s\n\n%s\n",
+		kind.Namespace, kind.Name, kind.Role, result.URL, effect(kind))
 	if near := vocab.Nearest(kind.Namespace, kind.Name, existing); len(near) > 0 {
 		fmt.Fprintf(&out, "\nIt is close to %s, which already exists. If they are the same thing, "+
 			"mint an alias on that one instead of keeping both.\n", quoteNames(near))
@@ -143,10 +143,10 @@ func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResu
 // that would say it properly.
 func refuseMint(wanted, clash vocab.Kind) string {
 	if wanted.Name == clash.Name {
-		return fmt.Sprintf("`%s` is already a %s kind, for %s. Nothing was minted.",
-			clash.Name, clash.Namespace, clash.Role)
+		return fmt.Sprintf("The %s kind `%s` already exists, for %s. Nothing was minted.",
+			clash.Namespace, clash.Name, clash.Role)
 	}
-	return fmt.Sprintf("`%s` is another spelling of `%s`, which is already a %s kind. Nothing was minted.\n\n"+
+	return fmt.Sprintf("`%s` is another spelling of `%s`, which the %s vocabulary already has. Nothing was minted.\n\n"+
 		"If they are the same thing, mint `%s` with `%s` in its aliases. "+
 		"If they are genuinely different, pick a name that is not a spelling of one that exists.",
 		wanted.Name, clash.Name, clash.Namespace, clash.Name, wanted.Name)
@@ -219,7 +219,7 @@ func (s *Server) warnAboutKind(ctx context.Context, namespace vocab.Namespace, n
 	if len(near) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("\n\nThis created a new %s kind, `%s`, and the catalog already has %s. "+
+	return fmt.Sprintf("\n\nThat created the %s kind `%s`, and the catalog already has %s. "+
 		"If they are the same thing, that is a split worth closing with `kinds`.",
 		namespace, name, quoteNames(near))
 }

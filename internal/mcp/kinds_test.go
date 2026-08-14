@@ -148,7 +148,7 @@ func TestMintingRefusesWhatIsAlreadyTheVocabularys(t *testing.T) {
 		mint string
 		want string
 	}{
-		{name: "the same name", mint: "service", want: "already a entity kind"},
+		{name: "the same name", mint: "service", want: "already exists"},
 		{name: "another spelling", mint: "Service", want: "another spelling"},
 		{name: "punctuated", mint: "ser-vice", want: "another spelling"},
 	} {
