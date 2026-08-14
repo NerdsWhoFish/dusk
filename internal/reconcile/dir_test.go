@@ -59,3 +59,39 @@ func TestDirAndTarballProduceTheSameTree(t *testing.T) {
 		t.Errorf("tree = %v, want %v", fromDir.Paths(), want)
 	}
 }
+
+// A symlink is carried by a tarball as the path it points at, so following one
+// here would make `dusk validate` and the server disagree. One pointing outside
+// the directory also cannot be read, which abandoned the whole repository over
+// a file nothing was asking for.
+func TestASymlinkDoesNotStopTheWalk(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dusk.md"), []byte(rootFile), 0o600); err != nil {
+		t.Fatalf("write the root: %v", err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "elsewhere.md")
+	if err := os.WriteFile(outside, []byte("not catalog content"), 0o600); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "escaping.md")); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	source, err := reconcile.NewDir(dir, commit)
+	if err != nil {
+		t.Fatalf("NewDir: %v", err)
+	}
+	t.Cleanup(func() { _ = source.Close() })
+
+	tree, err := source.Tree(t.Context(), commit)
+	if err != nil {
+		t.Fatalf("a symlink leaving the directory stopped the read: %v", err)
+	}
+	if tree.Has("escaping.md") {
+		t.Error("the symlink was followed, so this disagrees with what a tarball carries")
+	}
+	if !tree.Has("dusk.md") {
+		t.Error("the root file was not read")
+	}
+}

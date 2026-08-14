@@ -65,6 +65,13 @@ func (d *Dir) Tree(_ context.Context, commit string) (*catalogfs.Tree, error) {
 				return fs.SkipDir
 			}
 			return nil
+
+		// A tarball carries the link, not what it points at, so following one
+		// here is how this reader and the server disagree. One leaving the
+		// directory also fails, abandoning the whole repository with it.
+		case entry.Type()&fs.ModeSymlink != 0:
+			return nil
+
 		case !catalogfs.IsCatalogFile(candidate):
 			return nil
 		}
