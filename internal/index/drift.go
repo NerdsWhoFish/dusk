@@ -54,15 +54,15 @@ type driftRow struct {
 	Repository string
 }
 
-// Drift reports what the catalog claims and reality does not support: an
-// entity declared and nowhere found, and a note pointing at a ref nothing
-// holds. What is running and undeclared comes only on request (ADR-0045).
-func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter) ([]Drift, error) {
-	drifts, err := db.declaredNotObserved(ctx, gitRef)
+// Drift reports what the catalog claims and reality does not support: declared
+// and nowhere found, or a note pointing at nothing. Limited to what v may see
+// (ADR-0048); running and undeclared comes only on request (ADR-0045).
+func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter, v Visibility) ([]Drift, error) {
+	drifts, err := db.declaredNotObserved(ctx, gitRef, v)
 	if err != nil {
 		return nil, err
 	}
-	notes, err := db.notesWithoutEntity(ctx, gitRef)
+	notes, err := db.notesWithoutEntity(ctx, gitRef, v)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter) ([]D
 	if !filter.Undeclared {
 		return drifts, nil
 	}
-	undeclared, err := db.observedNotDeclared(ctx, gitRef)
+	undeclared, err := db.observedNotDeclared(ctx, gitRef, v)
 	if err != nil {
 		return nil, err
 	}
@@ -81,16 +81,18 @@ func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter) ([]D
 // notesWithoutEntity finds notes attached to a ref nothing holds. ADR-0031
 // accepted that a note's refs go unchecked at write time, so this is where a
 // typo, or a declaration somebody removed, stops being silent.
-func (db *DB) notesWithoutEntity(ctx context.Context, gitRef string) ([]Drift, error) {
+func (db *DB) notesWithoutEntity(ctx context.Context, gitRef string, v Visibility) ([]Drift, error) {
 	clause, args := scopeClause("note_refs", gitRef)
-	entityScope, entityArgs := scopeClause("e", gitRef)
+	entityScope, entityArgs := v.within("e", gitRef)
 
-	var rows []danglingRow
-	err := db.gorm.WithContext(ctx).
+	query := db.gorm.WithContext(ctx).
 		Model(&noteRefRow{}).
 		Select("note_refs.ref as target, group_concat(DISTINCT note_refs.note_id) as places").
 		Where(clause, args...).
-		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = note_refs.ref AND "+entityScope+")", entityArgs...).
+		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = note_refs.ref AND "+entityScope+")", entityArgs...)
+
+	var rows []danglingRow
+	err := visible(query, v, "note_refs").
 		Group("note_refs.ref").
 		Order("note_refs.ref").
 		Find(&rows).Error
@@ -109,8 +111,8 @@ func (db *DB) notesWithoutEntity(ctx context.Context, gitRef string) ([]Drift, e
 	return drifts, nil
 }
 
-func (db *DB) declaredNotObserved(ctx context.Context, gitRef string) ([]Drift, error) {
-	rows, err := db.compare(ctx, gitRef, false)
+func (db *DB) declaredNotObserved(ctx context.Context, gitRef string, v Visibility) ([]Drift, error) {
+	rows, err := db.compare(ctx, gitRef, false, v)
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +128,8 @@ func (db *DB) declaredNotObserved(ctx context.Context, gitRef string) ([]Drift, 
 	return drifts, nil
 }
 
-func (db *DB) observedNotDeclared(ctx context.Context, gitRef string) ([]Drift, error) {
-	rows, err := db.compare(ctx, gitRef, true)
+func (db *DB) observedNotDeclared(ctx context.Context, gitRef string, v Visibility) ([]Drift, error) {
+	rows, err := db.compare(ctx, gitRef, true, v)
 	if err != nil {
 		return nil, err
 	}
@@ -148,10 +150,10 @@ func (db *DB) observedNotDeclared(ctx context.Context, gitRef string) ([]Drift, 
 // appear on both sides, because a human and an ingester never pick one name.
 // Declared rows are limited to kinds something observes, because absence needs
 // an observer to be absent from.
-func (db *DB) compare(ctx context.Context, gitRef string, observed bool) ([]driftRow, error) {
+func (db *DB) compare(ctx context.Context, gitRef string, observed bool, v Visibility) ([]driftRow, error) {
 	clause, args := scopeClause("", gitRef)
-	otherScope, otherArgs := scopeClause("other", gitRef)
-	aliasScope, aliasArgs := scopeClause("entity_aliases", gitRef)
+	otherScope, otherArgs := v.within("other", gitRef)
+	aliasScope, aliasArgs := v.within("entity_aliases", gitRef)
 
 	matched := "NOT EXISTS (SELECT 1 FROM entities other WHERE other.observed = ? AND " + otherScope +
 		" AND (other.ref = entities.ref OR EXISTS (SELECT 1 FROM entity_aliases WHERE " + aliasScope + " AND "
@@ -165,14 +167,14 @@ func (db *DB) compare(ctx context.Context, gitRef string, observed bool) ([]drif
 		matched += "entity_aliases.ref = entities.ref AND entity_aliases.alias = other.ref)))"
 	}
 
-	query := db.gorm.WithContext(ctx).Model(&entityRow{}).
+	query := visible(db.gorm.WithContext(ctx).Model(&entityRow{}), v, "").
 		Select("ref, title, repository").
 		Where(clause, args...).
 		Where("observed = ?", observed).
 		Where(matched, append(append([]any{!observed}, otherArgs...), aliasArgs...)...)
 
 	if !observed {
-		watchedScope, watchedArgs := scopeClause("watched", gitRef)
+		watchedScope, watchedArgs := v.within("watched", gitRef)
 		query = query.Where("EXISTS (SELECT 1 FROM entities watched WHERE watched.observed = ?"+
 			" AND "+watchedScope+" AND watched.kind = entities.kind)",
 			append([]any{true}, watchedArgs...)...)

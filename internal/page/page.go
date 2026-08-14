@@ -127,9 +127,9 @@ type Catalog interface {
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
-	Drift(ctx context.Context, gitRef string, filter index.DriftFilter) ([]index.Drift, error)
-	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
-	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
+	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
+	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
+	Kinds(ctx context.Context, gitRef string, v index.Visibility) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 }
 
@@ -152,17 +152,17 @@ func Default() Page {
 	}
 }
 
-// Resolve runs every block's query. A failing block carries its reason and
-// renders empty; it never takes the page with it.
-func Resolve(ctx context.Context, catalog Catalog, p Page) []Resolved {
+// Resolve runs every block's query as v may see it. A failing block carries
+// its reason and renders empty; it never takes the page with it.
+func Resolve(ctx context.Context, catalog Catalog, p Page, v index.Visibility) []Resolved {
 	resolved := make([]Resolved, 0, len(p.Blocks))
 	for _, block := range p.Blocks {
-		resolved = append(resolved, resolveOne(ctx, catalog, block))
+		resolved = append(resolved, resolveOne(ctx, catalog, block, v))
 	}
 	return resolved
 }
 
-func resolveOne(ctx context.Context, catalog Catalog, block Block) Resolved {
+func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visibility) Resolved {
 	out := Resolved{Block: block}
 	if out.Title == "" {
 		out.Title = defaultTitle(block.Type)
@@ -175,11 +175,11 @@ func resolveOne(ctx context.Context, catalog Catalog, block Block) Resolved {
 	case TypeNotes:
 		out.Notes, err = catalog.Notes(ctx, "", notesFilter(block))
 	case TypeDrift:
-		out.Drift, out.Truncated, err = driftFor(ctx, catalog, block)
+		out.Drift, out.Truncated, err = driftFor(ctx, catalog, block, v)
 	case TypeIntegrity:
-		out.Problems, err = catalog.Integrity(ctx, "")
+		out.Problems, err = catalog.Integrity(ctx, "", v)
 	case TypeKinds:
-		out.Kinds, err = catalog.Kinds(ctx, "")
+		out.Kinds, err = catalog.Kinds(ctx, "", v)
 	case TypeReads:
 		out.Reads, err = readsFor(ctx, catalog)
 	case TypeView:
@@ -287,9 +287,9 @@ func onlyRelated(ctx context.Context, catalog Catalog, entities []*duskv1alpha1.
 
 // driftFor reads `undeclared` out of the block query rather than taking a
 // field of its own, because a block is a query (ADR-0013).
-func driftFor(ctx context.Context, catalog Catalog, block Block) ([]index.Drift, bool, error) {
+func driftFor(ctx context.Context, catalog Catalog, block Block, v index.Visibility) ([]index.Drift, bool, error) {
 	filter := index.DriftFilter{Undeclared: strings.Contains(block.Query, "undeclared")}
-	drifts, err := catalog.Drift(ctx, "", filter)
+	drifts, err := catalog.Drift(ctx, "", filter, v)
 	if err != nil {
 		return nil, false, err
 	}

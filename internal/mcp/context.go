@@ -140,7 +140,7 @@ func (s *Server) renderInventory(ctx context.Context, out *strings.Builder) erro
 // renderDriftSummary is a count rather than a list. The detail is a `drift`
 // call away, and spending the budget on it would crowd out the inventory.
 func (s *Server) renderDriftSummary(ctx context.Context, out *strings.Builder) error {
-	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{})
+	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{}, s.viewer())
 	if err != nil {
 		return err
 	}

@@ -1,9 +1,11 @@
 package page_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/page"
 )
 
@@ -72,7 +74,7 @@ func TestABadBlockDoesNotBreakThePage(t *testing.T) {
 			{Type: page.TypeKinds},
 			{Type: page.TypeDrift},
 		},
-	})
+	}, index.Unrestricted())
 
 	if len(resolved) != 2 {
 		t.Fatalf("resolved %d blocks, want both", len(resolved))
@@ -80,6 +82,34 @@ func TestABadBlockDoesNotBreakThePage(t *testing.T) {
 	for _, block := range resolved {
 		if block.Err == "" {
 			t.Errorf("block %s hid its failure", block.Type)
+		}
+	}
+}
+
+// ADR-0048: a block whose answer is a count or a comparison cannot be filtered
+// after the fact, so the viewer has to reach the query. One that never arrives
+// is a page block answering about the whole estate.
+func TestADR0048_EveryAggregateBlockIsResolvedForTheViewer(t *testing.T) {
+	recorded.asked = nil
+	t.Cleanup(func() { recorded.asked = nil })
+
+	want := index.Visibility{Repositories: []string{"example/public"}}
+	aggregates := []page.Type{page.TypeKinds, page.TypeDrift, page.TypeIntegrity}
+
+	blocks := make([]page.Block, 0, len(aggregates))
+	for _, blockType := range aggregates {
+		blocks = append(blocks, page.Block{Type: blockType})
+	}
+	page.Resolve(t.Context(), &recording{}, page.Page{Blocks: blocks}, want)
+
+	for _, blockType := range aggregates {
+		got, ok := recorded.asked[blockType]
+		if !ok {
+			t.Errorf("the %s block never reached the catalog", blockType)
+			continue
+		}
+		if !slices.Equal(got.Repositories, want.Repositories) || got.Observed != want.Observed {
+			t.Errorf("the %s block resolved for %+v, want %+v", blockType, got, want)
 		}
 	}
 }
@@ -98,7 +128,7 @@ func TestDefaultPageNeedsNoDeclaration(t *testing.T) {
 func TestQuerySplitsKindFromWords(t *testing.T) {
 	resolved := page.Resolve(t.Context(), &recording{}, page.Page{
 		Blocks: []page.Block{{Type: page.TypeEntities, Query: "kind:service jellyfin"}},
-	})
+	}, index.Unrestricted())
 	if resolved[0].Err != "" {
 		t.Fatalf("resolve: %s", resolved[0].Err)
 	}

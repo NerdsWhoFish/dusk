@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
 	"github.com/NerdsWhoFish/dusk/internal/page"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
@@ -27,8 +29,16 @@ type Pages interface {
 func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 	declared, prose, problem := s.homePage(r.Context())
 
-	blocks := page.Resolve(r.Context(), s.catalog, declared)
+	blocks := page.Resolve(r.Context(), s.catalog, declared, s.visibilityFor(r))
 	s.mountViews(blocks)
+
+	// A block whose query counts is filtered where it is computed; one that
+	// lists is filtered here, so a hidden ref cannot arrive under a count that
+	// already excluded it (ADR-0048).
+	if err := s.hideEntities(r, blocks); err != nil {
+		writeError(w, err)
+		return
+	}
 
 	answer := map[string]any{
 		"title":  declared.Title,
@@ -53,6 +63,32 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+// hideEntities drops the entities a viewer may not see from every resolved
+// block. The limit was applied before this, so a block can come back shorter
+// than it asked for, which is the same trade search already makes.
+func (s *Server) hideEntities(r *http.Request, blocks []page.Resolved) error {
+	if !s.visibilityFor(r).Restricted() {
+		return nil
+	}
+
+	visible, err := s.visible(r)
+	if err != nil {
+		return err
+	}
+
+	for i := range blocks {
+		block := &blocks[i]
+		kept := make([]*duskv1alpha1.Entity, 0, len(block.Entities))
+		for _, entity := range block.Entities {
+			if visible(entity.GetRef()) {
+				kept = append(kept, entity)
+			}
+		}
+		block.Entities = kept
+	}
+	return nil
 }
 
 func (s *Server) homePage(ctx context.Context) (page.Page, string, string) {
