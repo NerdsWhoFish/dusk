@@ -29,13 +29,13 @@ type Catalog interface {
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
-	Kinds(ctx context.Context, gitRef string) ([]index.KindCount, error)
+	Kinds(ctx context.Context, gitRef string, v index.Visibility) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
-	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
-	Drift(ctx context.Context, gitRef string, filter index.DriftFilter) ([]index.Drift, error)
+	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
+	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
 	Diff(ctx context.Context, base, head string) ([]index.Change, error)
-	Orphans(ctx context.Context, live []string) ([]index.Problem, error)
+	Orphans(ctx context.Context, live []string, v index.Visibility) ([]index.Problem, error)
 	Forget(ctx context.Context, scope string) error
 }
 
@@ -336,7 +336,7 @@ func (s *Server) visible(r *http.Request) (func(ref string) bool, error) {
 // before anybody searches. One call rather than three, because a waterfall on
 // the first page loaded is the slowest the product ever feels.
 func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
-	kinds, err := s.catalog.Kinds(r.Context(), "")
+	kinds, err := s.catalog.Kinds(r.Context(), "", s.visibilityFor(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -423,7 +423,9 @@ func (s *Server) handleAPIViewer(w http.ResponseWriter, r *http.Request) {
 // handleAPIIntegrity answers GET /api/integrity: what is wrong with the graph
 // that no other read would mention.
 func (s *Server) handleAPIIntegrity(w http.ResponseWriter, r *http.Request) {
-	problems, err := s.catalog.Integrity(r.Context(), "")
+	visibility := s.visibilityFor(r)
+
+	problems, err := s.catalog.Integrity(r.Context(), "", visibility)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -432,7 +434,7 @@ func (s *Server) handleAPIIntegrity(w http.ResponseWriter, r *http.Request) {
 	// Orphans need both halves: the index knows which scopes exist, and only
 	// the rotation knows which of them anything still refreshes.
 	if s.rotation != nil {
-		orphans, err := s.catalog.Orphans(r.Context(), s.rotation.Names())
+		orphans, err := s.catalog.Orphans(r.Context(), s.rotation.Names(), visibility)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -470,7 +472,7 @@ func (s *Server) handleAPIForget(w http.ResponseWriter, r *http.Request) {
 // does not support. `?undeclared=true` adds the other direction.
 func (s *Server) handleAPIDrift(w http.ResponseWriter, r *http.Request) {
 	filter := index.DriftFilter{Undeclared: r.URL.Query().Get("undeclared") == "true"}
-	drifts, err := s.catalog.Drift(r.Context(), "", filter)
+	drifts, err := s.catalog.Drift(r.Context(), "", filter, s.visibilityFor(r))
 	if err != nil {
 		writeError(w, err)
 		return

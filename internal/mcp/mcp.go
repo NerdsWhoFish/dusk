@@ -44,8 +44,8 @@ type Catalog interface {
 	Declared(ctx context.Context, gitRef, repository string) ([]string, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
-	Integrity(ctx context.Context, gitRef string) ([]index.Problem, error)
-	Drift(ctx context.Context, gitRef string, filter index.DriftFilter) ([]index.Drift, error)
+	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
+	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 }
 
@@ -128,6 +128,11 @@ type Server struct {
 
 // New builds the MCP server.
 func New(opts Options) *Server { return &Server{opts: opts} }
+
+// viewer is what this surface may see. One shared bearer token carries no
+// identity, so it is the whole catalog until there is a per-caller credential
+// to derive one from (ADR-0012, ADR-0036).
+func (s *Server) viewer() index.Visibility { return index.Unrestricted() }
 
 // Handler serves the streamable HTTP transport.
 func (s *Server) Handler() http.Handler {
@@ -568,7 +573,7 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 // for, like the proof token does, because an agent that has to know to ask
 // whether an answer is trustworthy will not ask.
 func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) error {
-	problems, err := s.opts.Catalog.Integrity(ctx, "")
+	problems, err := s.opts.Catalog.Integrity(ctx, "", s.viewer())
 	if err != nil {
 		return err
 	}
@@ -611,7 +616,7 @@ type driftInput struct {
 }
 
 func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInput) (*sdk.CallToolResult, any, error) {
-	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{Undeclared: in.Undeclared})
+	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{Undeclared: in.Undeclared}, s.viewer())
 	if err != nil {
 		return nil, nil, err
 	}

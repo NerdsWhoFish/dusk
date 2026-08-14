@@ -21,7 +21,7 @@ func TestIntegrityIsQuietWhenTheGraphIsSound(t *testing.T) {
 		[]*duskv1alpha1.Relation{relation("service:home/jellyfin", "host:home/nas", "runs_on")},
 	)
 
-	problems, err := db.Integrity(t.Context(), mainRef)
+	problems, err := db.Integrity(t.Context(), mainRef, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Integrity: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestOrphansFindsAScopeNobodyClaims(t *testing.T) {
 	observe(t, db, "kubernetes:prod", entity("host:prod/node-1", "node-1", ""))
 	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
 
-	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
+	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Orphans: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestOrphansLeavesLiveIngestersAlone(t *testing.T) {
 	db := newDB(t)
 	observe(t, db, "plugin:kubernetes", entity("host:prod/node-1", "node-1", ""))
 
-	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
+	problems, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Orphans: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestForgetRemovesTheObservations(t *testing.T) {
 		t.Errorf("forgetting left the duplicate behind: %+v", problems)
 	}
 
-	orphans, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"})
+	orphans, err := db.Orphans(t.Context(), []string{"plugin:kubernetes"}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Orphans: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestIntegrityAcceptsACrossRepositoryReference(t *testing.T) {
 
 func integrityOf(t *testing.T, db *index.DB, kind string) []index.Problem {
 	t.Helper()
-	all, err := db.Integrity(t.Context(), mainRef)
+	all, err := db.Integrity(t.Context(), mainRef, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Integrity: %v", err)
 	}

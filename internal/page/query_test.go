@@ -6,6 +6,7 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/page"
 )
 
@@ -30,7 +31,7 @@ func TestEntitiesSortsBeforeCutting(t *testing.T) {
 		Blocks: []page.Block{{
 			Type: page.TypeEntities, Query: "kind:flight", Sort: "-date", Limit: 2,
 		}},
-	})
+	}, index.Unrestricted())
 
 	got := resolved[0].Entities
 	if len(got) != 2 {
@@ -60,7 +61,7 @@ func TestEntitiesFiltersByRelationInEitherDirection(t *testing.T) {
 		Blocks: []page.Block{{
 			Type: page.TypeEntities, Query: "kind:flight related:airport:airtrail/atl",
 		}},
-	})
+	}, index.Unrestricted())
 
 	got := resolved[0].Entities
 	if len(got) != 2 {
@@ -76,7 +77,7 @@ func TestEntitiesFiltersByRelationInEitherDirection(t *testing.T) {
 func TestViewBlockNeedsAPlugin(t *testing.T) {
 	resolved := page.Resolve(t.Context(), &recording{}, page.Page{
 		Blocks: []page.Block{{Type: page.TypeView}},
-	})
+	}, index.Unrestricted())
 	if resolved[0].Err == "" {
 		t.Error("a view block naming no plugin was accepted")
 	}

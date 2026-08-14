@@ -456,16 +456,16 @@ func TestAnInvocationIsRecordedAsAnEvent(t *testing.T) {
 // A plugin asking for input gets it, and the answer reaches the same action on
 // the turn that follows.
 func TestAPluginCanAskTheInvokerForInput(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-once:"}}
 	manager, _, _, _ := acting(t, standIn{
-		ID:      "asker",
+		ID:      "asks-once",
 		Kinds:   []string{"widget"},
 		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
 	}, observed)
 
 	var asked plugin.Ask
 	outcome, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: "widget:asker/one", Action: "poke",
+		Ref: "widget:asks-once/one", Action: "poke",
 		Elicit: func(_ context.Context, ask plugin.Ask) (plugin.Answer, error) {
 			asked = ask
 			return plugin.Answer{Outcome: plugin.Accepted, Values: map[string]any{"reason": "because"}}, nil
@@ -490,14 +490,14 @@ func TestAPluginCanAskTheInvokerForInput(t *testing.T) {
 // The plugin is told nobody can answer and decides for itself, which is what
 // keeps one declaration usable from the UI, a chain and a schedule (ADR-0046).
 func TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-unattended:"}}
 	manager, _, _, _ := acting(t, standIn{
-		ID:      "asker",
+		ID:      "asks-unattended",
 		Kinds:   []string{"widget"},
 		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
 	}, observed)
 
-	outcome, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:asker/one", Action: "poke"})
+	outcome, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:asks-unattended/one", Action: "poke"})
 	if err != nil {
 		t.Fatalf("invoke with nobody to ask: %v", err)
 	}
@@ -512,9 +512,9 @@ func TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging(t *testing.T) {
 // A plugin that keeps asking however it is answered is looping, and Dusk stops
 // it rather than putting the same question to somebody forever.
 func TestAnEndlessElicitationIsStopped(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-forever:"}}
 	manager, _, _, _ := acting(t, standIn{
-		ID:    "asker",
+		ID:    "asks-forever",
 		Kinds: []string{"widget"},
 		Actions: []standInAction{{
 			Name: "poke", Class: readOnly, Kinds: []string{"widget"},
@@ -524,7 +524,7 @@ func TestAnEndlessElicitationIsStopped(t *testing.T) {
 
 	var asks int
 	_, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: "widget:asker/one", Action: "poke",
+		Ref: "widget:asks-forever/one", Action: "poke",
 		Elicit: func(_ context.Context, _ plugin.Ask) (plugin.Answer, error) {
 			asks++
 			return plugin.Answer{Outcome: plugin.Accepted, Values: map[string]any{"reason": "again"}}, nil
@@ -541,15 +541,15 @@ func TestAnEndlessElicitationIsStopped(t *testing.T) {
 // A browser cannot be held open, so a plugin's question comes back as the
 // result and the same action is invoked again with the answer (ADR-0046).
 func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asker:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-resumable:"}}
 	manager, _, log, _ := acting(t, standIn{
-		ID:      "asker",
+		ID:      "asks-resumable",
 		Kinds:   []string{"widget"},
 		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}, Asks: "reason"}},
 	}, observed)
 
 	pending, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: "widget:asker/one", Action: "poke", CanResume: true,
+		Ref: "widget:asks-resumable/one", Action: "poke", CanResume: true,
 	})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
@@ -575,7 +575,7 @@ func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
 	}
 
 	resumed, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: "widget:asker/one", Action: "poke", CanResume: true,
+		Ref: "widget:asks-resumable/one", Action: "poke", CanResume: true,
 		Elicited: &plugin.Answer{
 			Outcome: plugin.Accepted,
 			Token:   pending.Ask.Token,

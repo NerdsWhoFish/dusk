@@ -29,7 +29,7 @@ func TestDriftIsSilentWithNoIngesters(t *testing.T) {
 	mustPut(t, db, testRepo, mainRef,
 		[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}, nil)
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestADR0038_DriftIsSilentWhereNothingObserves(t *testing.T) {
 	}, nil)
 	observe(t, db, "kubernetes", entity("service:home/surprise", "surprise", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestDriftComparesDeclaredAgainstObserved(t *testing.T) {
 		entity("service:home/surprise", "surprise", ""),
 	)
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestDriftFollowsObservedAsAliases(t *testing.T) {
 
 	observe(t, db, "kubernetes", entity("service:prod/media-jellyfin", "media-jellyfin", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestDriftStillReportsAnAliasThatMatchesNothing(t *testing.T) {
 
 	observe(t, db, "kubernetes", entity("service:prod/media-jellyfin", "media-jellyfin", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestADR0045_DriftIsSilentAboutWhatIsMerelyObserved(t *testing.T) {
 		entity("service:home/surprise", "surprise", ""),
 	)
 
-	quiet, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	quiet, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestADR0045_DriftIsSilentAboutWhatIsMerelyObserved(t *testing.T) {
 		t.Errorf("drift reported %d items by default, want silence about what is only observed: %+v", len(quiet), quiet)
 	}
 
-	asked, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true})
+	asked, err := db.Drift(t.Context(), mainRef, index.DriftFilter{Undeclared: true}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift asking for undeclared: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestDriftReportsANoteWhoseSubjectIsGone(t *testing.T) {
 		t.Fatalf("SetDefaultView: %v", err)
 	}
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestDriftReportsOnlyTheNoteRefThatResolvesToNothing(t *testing.T) {
 	}
 
 	var reported []index.Drift
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestDriftDoesNotReportTwoIngestersAgreeing(t *testing.T) {
 	observe(t, db, "kubernetes", entity("service:home/jellyfin", "jellyfin", ""))
 	observe(t, db, "docker", entity("service:home/jellyfin", "jellyfin", ""))
 
-	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{})
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
 	if err != nil {
 		t.Fatalf("Drift: %v", err)
 	}

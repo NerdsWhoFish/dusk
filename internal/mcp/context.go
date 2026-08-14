@@ -194,7 +194,7 @@ func header(root, repository string, declared, total int) string {
 func (s *Server) tail(ctx context.Context) (string, error) {
 	var out strings.Builder
 
-	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{})
+	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{}, s.viewer())
 	if err != nil {
 		return "", err
 	}

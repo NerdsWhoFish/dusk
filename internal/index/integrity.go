@@ -42,15 +42,15 @@ const (
 	ProblemOrphanedObservations = "orphaned_observations"
 )
 
-// Integrity reports everything wrong with the graph at gitRef. One call for
-// every class of problem, because an operator asking "is my catalog sound"
-// wants the answer rather than three separate questions.
-func (db *DB) Integrity(ctx context.Context, gitRef string) ([]Problem, error) {
-	duplicates, err := db.duplicates(ctx, gitRef)
+// Integrity reports everything wrong with the graph at gitRef, limited to what
+// v may see (ADR-0051). One call for every class of problem, because an
+// operator asking "is my catalog sound" wants the answer, not three questions.
+func (db *DB) Integrity(ctx context.Context, gitRef string, v Visibility) ([]Problem, error) {
+	duplicates, err := db.duplicates(ctx, gitRef, v)
 	if err != nil {
 		return nil, err
 	}
-	relations, err := db.danglingRelations(ctx, gitRef)
+	relations, err := db.danglingRelations(ctx, gitRef, v)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,13 @@ func (db *DB) Integrity(ctx context.Context, gitRef string) ([]Problem, error) {
 // Orphans reports observation scopes no live ingester claims. Renaming an
 // ingester renames its scope, so the old one keeps answering with entities
 // nothing updates, and every ref reads as declared twice.
-func (db *DB) Orphans(ctx context.Context, live []string) ([]Problem, error) {
+func (db *DB) Orphans(ctx context.Context, live []string, v Visibility) ([]Problem, error) {
+	// Naming a scope names an ingester and what it saw, so a viewer who may
+	// not see observations may not see that there were any.
+	if v.Restricted() && !v.Observed {
+		return []Problem{}, nil
+	}
+
 	scopes, err := db.Scopes(ctx)
 	if err != nil {
 		return nil, err
@@ -116,12 +122,13 @@ type duplicateRow struct {
 // Grouping on observed excludes a declaration over its own observation, which
 // is the good case and has a winner. Two repositories do not, nor do two
 // ingesters.
-func (db *DB) duplicates(ctx context.Context, gitRef string) ([]Problem, error) {
+func (db *DB) duplicates(ctx context.Context, gitRef string, v Visibility) ([]Problem, error) {
 	clause, args := scopeClause("", gitRef)
 
+	// Filtered before the grouping rather than after: a copy in a repository
+	// the viewer cannot read must raise no duplicate and appear in no Where.
 	var rows []duplicateRow
-	err := db.gorm.WithContext(ctx).
-		Model(&entityRow{}).
+	err := visible(db.gorm.WithContext(ctx).Model(&entityRow{}), v, "").
 		Select("ref, observed, count(*) as copies, group_concat(repository || ' at ' || path, char(10)) as places").
 		Where(clause, args...).
 		Group("ref, observed").
@@ -157,16 +164,18 @@ type danglingRow struct {
 // danglingRelations finds relations whose target nothing declares. The target
 // may legitimately live in a repository Dusk cannot see, which is why this is
 // reported rather than rejected at write time.
-func (db *DB) danglingRelations(ctx context.Context, gitRef string) ([]Problem, error) {
+func (db *DB) danglingRelations(ctx context.Context, gitRef string, v Visibility) ([]Problem, error) {
 	clause, args := scopeClause("relations", gitRef)
-	entityScope, entityArgs := scopeClause("e", gitRef)
+	entityScope, entityArgs := v.within("e", gitRef)
 
-	var rows []danglingRow
-	err := db.gorm.WithContext(ctx).
+	query := db.gorm.WithContext(ctx).
 		Model(&relationRow{}).
 		Select("relations.to_ref as target, group_concat(DISTINCT relations.from_ref) as places").
 		Where(clause, args...).
-		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = relations.to_ref AND "+entityScope+")", entityArgs...).
+		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = relations.to_ref AND "+entityScope+")", entityArgs...)
+
+	var rows []danglingRow
+	err := visible(query, v, "relations").
 		Group("relations.to_ref").
 		Order("relations.to_ref").
 		Find(&rows).Error
