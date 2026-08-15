@@ -184,7 +184,7 @@ func (w *Writer) Declare(ctx context.Context, token string, declaration Declarat
 }
 
 func (w *Writer) update(ctx context.Context, token, ref string, declaration Declaration, at *index.Location) (*Result, error) {
-	if err := w.Proof.AuthorizeUpdate(token, ref, at.Version); err != nil {
+	if err := w.Proof.AuthorizeUpdate(token, proof.Entity(ref), at.Version); err != nil {
 		return nil, err
 	}
 
@@ -225,7 +225,7 @@ func (w *Writer) update(ctx context.Context, token, ref string, declaration Decl
 }
 
 func (w *Writer) create(ctx context.Context, token, ref string, declaration Declaration) (*Result, error) {
-	if err := w.Proof.AuthorizeCreate(token, ref); err != nil {
+	if err := w.Proof.AuthorizeCreate(token, proof.Entity(ref)); err != nil {
 		return nil, err
 	}
 	if declaration.Repository == "" {

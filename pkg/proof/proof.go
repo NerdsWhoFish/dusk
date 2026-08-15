@@ -28,6 +28,10 @@ const (
 	// FromNeighbors resolves around one ref and cannot either.
 	FromNeighbors Origin = "neighbors"
 
+	// FromNote is reading what has been written down. A note's id is a file
+	// path, so nothing else can name one: `get` takes entity refs.
+	FromNote Origin = "note"
+
 	// FromPage is reading the portal page, which is the only read that
 	// witnesses the whole of what a write would replace.
 	FromPage Origin = "page"
@@ -36,6 +40,48 @@ const (
 	// how `svc` gets invented next to `service` (ADR-0048).
 	FromKinds Origin = "kinds"
 )
+
+// Call renders the invocation that re-reads ref, which is what a rejection
+// names. There is no one shape: `get` takes an entity ref, `note` takes the
+// path that is a note's id, and `kinds` and `page` take nothing at all.
+func (o Origin) Call(ref string) string {
+	switch o {
+	case FromNote:
+		return fmt.Sprintf("note(id: %q)", ref)
+	case FromKinds, FromPage:
+		return string(o) + "()"
+	case FromSearch, FromNeighbors:
+		return fmt.Sprintf("%s(%q)", o, ref)
+	default:
+		return fmt.Sprintf("%s(%q)", FromGet, ref)
+	}
+}
+
+// Subject is what a write is against: the ref a token has to cover, and the
+// read that re-reads it. Two facts rather than one, because a note is covered
+// by its file path and re-read by `note`, and nothing turns one into the other.
+type Subject struct {
+	Ref string
+
+	// Read is the tool that re-reads Ref. The zero value is get, which is the
+	// recovery for an entity.
+	Read Origin
+}
+
+// Entity is an entity ref, re-read by get.
+func Entity(ref string) Subject { return Subject{Ref: ref, Read: FromGet} }
+
+// Note is a note by its id, which is its path, re-read by note.
+func Note(id string) Subject { return Subject{Ref: id, Read: FromNote} }
+
+// Portal is the homepage at path, re-read by page.
+func Portal(path string) Subject { return Subject{Ref: path, Read: FromPage} }
+
+// Vocabulary is the minted kinds at path, re-read by kinds.
+func Vocabulary(path string) Subject { return Subject{Ref: path, Read: FromKinds} }
+
+// fix is the call that recovers from a rejection against this subject.
+func (s Subject) fix() string { return s.Read.Call(s.Ref) }
 
 // DefaultTTL is a backstop, not the mechanism. Tokens are invalidated by the
 // data changing; time only stops an abandoned one lingering forever.
@@ -104,30 +150,35 @@ func (s *Store) Lookup(id string) *Token {
 	return token
 }
 
-// AuthorizeUpdate accepts a write to a ref that already exists. A token
+// AuthorizeUpdate accepts a write to a subject that already exists. A token
 // recording a version other than currentVersion means somebody wrote in
 // between, which is the collision this gate exists to catch.
-func (s *Store) AuthorizeUpdate(tokenID, ref, currentVersion string) error {
+func (s *Store) AuthorizeUpdate(tokenID string, subject Subject, currentVersion string) error {
 	token := s.Lookup(tokenID)
 	if token == nil {
-		return required(ref)
+		return &Rejection{
+			Code:   CodeRequired,
+			Ref:    subject.Ref,
+			Detail: "no valid proof token was presented",
+			Fix:    subject.fix(),
+		}
 	}
 
-	seenVersion, covered := token.seen[ref]
+	seenVersion, covered := token.seen[subject.Ref]
 	if !covered {
 		return &Rejection{
 			Code:   CodeUnseen,
-			Ref:    ref,
-			Detail: "the token presented came from a read that did not return this entity",
-			Fix:    fmt.Sprintf(`get(%q)`, ref),
+			Ref:    subject.Ref,
+			Detail: "the token presented came from a read that did not return this",
+			Fix:    subject.fix(),
 		}
 	}
 	if seenVersion != currentVersion {
 		return &Rejection{
 			Code:   CodeStale,
-			Ref:    ref,
+			Ref:    subject.Ref,
 			Detail: "it changed after the read that issued this token",
-			Fix:    fmt.Sprintf(`get(%q)`, ref),
+			Fix:    subject.fix(),
 		}
 	}
 	return nil
@@ -137,84 +188,75 @@ func (s *Store) AuthorizeUpdate(tokenID, ref, currentVersion string) error {
 // The action names which read satisfies it, so a token from a different one is
 // refused with that call rather than with a generic complaint (ADR-0015).
 func (s *Store) AuthorizeAction(tokenID, ref, currentVersion string, from Origin) error {
-	return s.authorizeFrom(tokenID, ref, currentVersion, from,
+	return s.authorizeFrom(tokenID, Subject{Ref: ref, Read: from}, currentVersion,
 		"running an action requires having read what it acts on",
 		"this action is satisfied by %s, and the token came from %s")
 }
 
-// AuthorizeUpdateFrom accepts a write whose token has to have come from one
-// particular read, which is what makes reading the thing part of the contract
-// rather than reading anything at all.
-func (s *Store) AuthorizeUpdateFrom(tokenID, ref, currentVersion string, from Origin) error {
-	return s.authorizeFrom(tokenID, ref, currentVersion, from,
-		fmt.Sprintf("this write requires having read what it changes, with %s", from),
+// AuthorizeUpdateFrom accepts a write whose token has to have come from the
+// subject's own read, which is what makes reading the thing part of the
+// contract rather than reading anything at all.
+func (s *Store) AuthorizeUpdateFrom(tokenID string, subject Subject, currentVersion string) error {
+	return s.authorizeFrom(tokenID, subject, currentVersion,
+		fmt.Sprintf("this write requires having read what it changes, with %s", subject.Read),
 		"this write is satisfied by %s, and the token came from %s")
 }
 
 // authorizeFrom is the origin check both callers share, with their own wording:
 // two copies of one rule is how they come to disagree.
-func (s *Store) authorizeFrom(tokenID, ref, currentVersion string, from Origin, missing, wrong string) error {
+func (s *Store) authorizeFrom(tokenID string, subject Subject, currentVersion string, missing, wrong string) error {
 	token := s.Lookup(tokenID)
 	if token == nil {
 		return &Rejection{
 			Code:   CodeRequired,
-			Ref:    ref,
+			Ref:    subject.Ref,
 			Detail: missing,
-			Fix:    fmt.Sprintf(`%s(%q)`, from, ref),
+			Fix:    subject.fix(),
 		}
 	}
 
-	if from != "" && token.Origin != from {
+	if subject.Read != "" && token.Origin != subject.Read {
 		return &Rejection{
 			Code:   CodeWrongRead,
-			Ref:    ref,
-			Detail: fmt.Sprintf(wrong, from, token.Origin),
-			Fix:    fmt.Sprintf(`%s(%q)`, from, ref),
+			Ref:    subject.Ref,
+			Detail: fmt.Sprintf(wrong, subject.Read, token.Origin),
+			Fix:    subject.fix(),
 		}
 	}
-	return s.AuthorizeUpdate(tokenID, ref, currentVersion)
+	return s.AuthorizeUpdate(tokenID, subject, currentVersion)
 }
 
-// AuthorizeCreate accepts a write creating a ref that does not exist. It needs
-// a token from a search that did not return it, so an agent cannot duplicate
-// something it never looked for.
-func (s *Store) AuthorizeCreate(tokenID, ref string) error {
+// AuthorizeCreate accepts a write creating a subject that does not exist. It
+// needs a token from a search that did not return it, so an agent cannot
+// duplicate something it never looked for.
+func (s *Store) AuthorizeCreate(tokenID string, subject Subject) error {
 	token := s.Lookup(tokenID)
 	if token == nil {
 		return &Rejection{
 			Code:   CodeRequired,
-			Ref:    ref,
+			Ref:    subject.Ref,
 			Detail: "creating an entity requires having searched for it first",
-			Fix:    fmt.Sprintf(`search(%q)`, ref),
+			Fix:    FromSearch.Call(subject.Ref),
 		}
 	}
 
 	if token.Origin != FromSearch {
 		return &Rejection{
 			Code:   CodeSearchRequired,
-			Ref:    ref,
+			Ref:    subject.Ref,
 			Detail: fmt.Sprintf("the token came from %s, which cannot witness that something is absent", token.Origin),
-			Fix:    fmt.Sprintf(`search(%q)`, ref),
+			Fix:    FromSearch.Call(subject.Ref),
 		}
 	}
-	if token.Covers(ref) {
+	if token.Covers(subject.Ref) {
 		return &Rejection{
 			Code:   CodeExists,
-			Ref:    ref,
+			Ref:    subject.Ref,
 			Detail: "the search that issued this token already found it",
-			Fix:    fmt.Sprintf(`declare(%q) as an update instead`, ref),
+			Fix:    fmt.Sprintf(`declare(%q) as an update instead`, subject.Ref),
 		}
 	}
 	return nil
-}
-
-func required(ref string) error {
-	return &Rejection{
-		Code:   CodeRequired,
-		Ref:    ref,
-		Detail: "no valid proof token was presented",
-		Fix:    fmt.Sprintf(`get(%q)`, ref),
-	}
 }
 
 func (s *Store) now() time.Time {

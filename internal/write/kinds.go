@@ -88,7 +88,7 @@ func (w *Writer) MintKind(ctx context.Context, token string, kind vocab.Kind) (*
 	if err != nil {
 		return nil, err
 	}
-	if err := w.Proof.AuthorizeUpdateFrom(token, vocab.Path, minted.Version, proof.FromKinds); err != nil {
+	if err := w.Proof.AuthorizeUpdateFrom(token, proof.Vocabulary(vocab.Path), minted.Version); err != nil {
 		return nil, err
 	}
 	if _, clash := vocab.Lookup(kind.Namespace, kind.Name, minted.Kinds.Kinds); clash {

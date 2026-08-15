@@ -35,7 +35,7 @@ func (w *recordingWriter) vocabulary() *duskmd.Kinds {
 }
 
 func (w *recordingWriter) MintKind(_ context.Context, token string, kind vocab.Kind) (*write.Result, error) {
-	err := w.tokens.AuthorizeUpdateFrom(token, vocab.Path, duskmd.ContentHash(string(w.kinds)), proof.FromKinds)
+	err := w.tokens.AuthorizeUpdateFrom(token, proof.Vocabulary(vocab.Path), duskmd.ContentHash(string(w.kinds)))
 	if err != nil {
 		return nil, err
 	}

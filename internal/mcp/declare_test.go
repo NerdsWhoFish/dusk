@@ -43,7 +43,7 @@ func (w *recordingWriter) Record(_ context.Context, token string, n write.Note) 
 	// Replacing a note is a write over something the agent should have read.
 	// Creating one is not, so only the first needs a token.
 	if n.Id != "" {
-		if err := w.tokens.AuthorizeUpdate(token, n.Id, duskmd.ContentHash(w.noteBodies[n.Id])); err != nil {
+		if err := w.tokens.AuthorizeUpdate(token, proof.Note(n.Id), duskmd.ContentHash(w.noteBodies[n.Id])); err != nil {
 			return nil, err
 		}
 	}
@@ -220,7 +220,7 @@ func (w *recordingWriter) Home(context.Context) ([]byte, error) {
 }
 
 func (w *recordingWriter) SetHome(_ context.Context, token string, body []byte) (*write.Result, error) {
-	if err := w.tokens.AuthorizeUpdate(token, page.Path, duskmd.ContentHash(string(w.home))); err != nil {
+	if err := w.tokens.AuthorizeUpdate(token, proof.Portal(page.Path), duskmd.ContentHash(string(w.home))); err != nil {
 		return nil, err
 	}
 	w.wrote = body

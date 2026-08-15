@@ -78,6 +78,9 @@ The cost is real and worth stating: an agent that never calls `get` never discov
 Passing no body asks what is there, narrowed by `kind`, `status` and `ref`.
 Passing a body writes one.
 
+**An `id` on its own reads that one note** and returns the token to replace it, because that is the call a refused write against a note names and an instruction that does not work is worse than none.
+An `id` with something to change is a replacement, as it always was.
+
 An **idea** is a note of kind `idea`: something worth keeping that is not a description of anything.
 It may attach to nothing at all, because an idea is often not about anything in the catalog yet.
 It carries a status, and `status: done` or `status: dropped` closes it.
@@ -171,6 +174,10 @@ E_PROOF_STALE: service:home/jellyfin: it changed after the read that
 issued this token; call get("service:home/jellyfin")
 ```
 
+**The call it names is the read of whatever was being written**, which is a separate fact from the ref rather than something derived from it.
+`get` takes an entity ref, `note` takes the path that is a note's id, and `kinds` and `page` take nothing at all, so a rejection against a note names `note(id: "…")` and one against the vocabulary names `kinds()`.
+An error naming a call that does not work is worse than no error: an agent follows it, fails again, and concludes the tool is broken.
+
 ### Where a write can reach
 
 Two limits, neither of them configuration:
@@ -223,7 +230,7 @@ The config repository is not exempt from consent: it needs its own root `dusk.md
 Without it a note would be committed and then never read back, so `note` refuses up front instead of succeeding into a hole.
 
 **A note's id is its path.**
-The answer hands it back, and passing it as `id` replaces that note rather than writing a second one.
+The answer hands it back, and passing it as `id` reads that note, or replaces it when something is passed to change.
 Replacing needs a proof token, exactly as an entity update does; writing a new note does not, because a create cannot overwrite anything.
 
 An update merges over what the file already says, so changing a body leaves the refs and kind alone.

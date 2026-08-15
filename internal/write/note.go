@@ -14,6 +14,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // NoteDir is where a written note lands. ADR-0031 makes it always in scope, so
@@ -103,7 +104,7 @@ func (w *Writer) updateNote(ctx context.Context, token string, target Target, br
 	if err != nil {
 		return nil, err
 	}
-	if err := w.Proof.AuthorizeUpdate(token, filePath, existing.GetContentHash()); err != nil {
+	if err := w.Proof.AuthorizeUpdate(token, proof.Note(filePath), existing.GetContentHash()); err != nil {
 		return nil, err
 	}
 

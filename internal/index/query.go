@@ -122,6 +122,10 @@ func (db *DB) RecentNotes(ctx context.Context, gitRef string, limit int) ([]*dus
 // NoteFilter narrows what Notes answers with. An empty filter is every note,
 // newest first.
 type NoteFilter struct {
+	// Id is one note by its path. It is what a refused write against a note
+	// names, so without it nothing could re-read exactly the note it refused.
+	Id string
+
 	// Kind is a note kind such as idea or gotcha.
 	Kind string
 
@@ -154,6 +158,9 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	clause, args := scopeClause("notes", gitRef)
 	query := db.gorm.WithContext(ctx).Model(&noteRow{}).Where(clause, args...)
 
+	if filter.Id != "" {
+		query = query.Where("notes.note_id = ?", filter.Id)
+	}
 	if filter.Kind != "" {
 		query = query.Where("notes.kind = ?", filter.Kind)
 	}
