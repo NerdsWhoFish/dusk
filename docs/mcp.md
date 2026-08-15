@@ -163,7 +163,8 @@ Proof token `4QK7…`. Pass it to `declare` to write any of the above.
 ```
 
 A token carries the version of everything its read returned, so one `search` authorizes a session's worth of writes, and any of them moving invalidates it.
-Creating needs a token from a **search that did not find it**: only an enumerating read can witness an absence, so an agent cannot duplicate something it never looked for.
+Creating needs a token from **the read that could have found it and did not**, so an agent cannot duplicate something it never looked for.
+For an entity that is `search`, because nothing else enumerates. For the homepage it is `page`, which looks at the one file being created; a search cannot name a file at all.
 
 A refused write is an answer rather than an error, naming the call that fixes it:
 

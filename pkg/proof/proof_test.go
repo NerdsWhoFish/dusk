@@ -151,6 +151,40 @@ func TestEveryRejectionNamesItsFix(t *testing.T) {
 	}
 }
 
+// The rule is the read that could have witnessed the absence, and for a thing
+// at a fixed path that is its own read. Requiring a search made declaring a
+// first homepage impossible rather than merely awkward: search cannot name one.
+func TestADR0009_ASingletonIsWitnessedAbsentByItsOwnRead(t *testing.T) {
+	store := &proof.Store{}
+	home := proof.Portal(".dusk/home.md")
+
+	t.Run("its own read authorizes creating it", func(t *testing.T) {
+		token := store.Issue(proof.FromPage, nil)
+		if err := store.AuthorizeCreate(token.ID, home); err != nil {
+			t.Errorf("AuthorizeCreate: %v", err)
+		}
+	})
+
+	t.Run("a search cannot witness a file", func(t *testing.T) {
+		token := store.Issue(proof.FromSearch, nil)
+		r := rejection(t, store.AuthorizeCreate(token.ID, home))
+		if r.Code != proof.CodeSearchRequired {
+			t.Errorf("code = %s, want %s", r.Code, proof.CodeSearchRequired)
+		}
+		if r.Fix != "page()" {
+			t.Errorf("fix = %q, want page()", r.Fix)
+		}
+	})
+
+	t.Run("a read that found it refuses to create over it", func(t *testing.T) {
+		token := store.Issue(proof.FromPage, map[string]string{home.Ref: "v1"})
+		r := rejection(t, store.AuthorizeCreate(token.ID, home))
+		if r.Code != proof.CodeExists {
+			t.Errorf("code = %s, want %s", r.Code, proof.CodeExists)
+		}
+	})
+}
+
 // The fix has to be a call the surface takes. It cannot be derived from what is
 // being written: a note's ref is a file path, which `get` refuses, and `kinds`
 // and `page` take no ref at all.

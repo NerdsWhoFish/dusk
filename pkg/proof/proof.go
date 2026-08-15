@@ -83,6 +83,16 @@ func Vocabulary(path string) Subject { return Subject{Ref: path, Read: FromKinds
 // fix is the call that recovers from a rejection against this subject.
 func (s Subject) fix() string { return s.Read.Call(s.Ref) }
 
+// witness is the read that can see this subject is absent, which is what a
+// create is authorized by. Nothing but a search enumerates entities, and a
+// thing at a fixed path is witnessed by its own read: search cannot name one.
+func (s Subject) witness() Origin {
+	if s.Read == "" || s.Read == FromGet {
+		return FromSearch
+	}
+	return s.Read
+}
+
 // DefaultTTL is a backstop, not the mechanism. Tokens are invalidated by the
 // data changing; time only stops an abandoned one lingering forever.
 const DefaultTTL = time.Hour
@@ -227,33 +237,41 @@ func (s *Store) authorizeFrom(tokenID string, subject Subject, currentVersion st
 }
 
 // AuthorizeCreate accepts a write creating a subject that does not exist. It
-// needs a token from a search that did not return it, so an agent cannot
-// duplicate something it never looked for.
+// needs a token from a read that did not return it and could have, so an agent
+// cannot duplicate something it never looked for.
 func (s *Store) AuthorizeCreate(tokenID string, subject Subject) error {
+	witness := subject.witness()
+
 	token := s.Lookup(tokenID)
 	if token == nil {
 		return &Rejection{
 			Code:   CodeRequired,
 			Ref:    subject.Ref,
-			Detail: "creating an entity requires having searched for it first",
-			Fix:    FromSearch.Call(subject.Ref),
+			Detail: fmt.Sprintf("creating this requires having looked for it first, with %s", witness),
+			Fix:    witness.Call(subject.Ref),
 		}
 	}
 
-	if token.Origin != FromSearch {
+	if token.Origin != witness {
 		return &Rejection{
 			Code:   CodeSearchRequired,
 			Ref:    subject.Ref,
-			Detail: fmt.Sprintf("the token came from %s, which cannot witness that something is absent", token.Origin),
-			Fix:    FromSearch.Call(subject.Ref),
+			Detail: fmt.Sprintf("the token came from %s, which cannot witness that this is absent", token.Origin),
+			Fix:    witness.Call(subject.Ref),
 		}
 	}
 	if token.Covers(subject.Ref) {
+		// An entity is updated by declaring it again; anything else is read and
+		// written by the one tool that already named it.
+		fix := subject.fix()
+		if witness == FromSearch {
+			fix = fmt.Sprintf(`declare(%q) as an update instead`, subject.Ref)
+		}
 		return &Rejection{
 			Code:   CodeExists,
 			Ref:    subject.Ref,
-			Detail: "the search that issued this token already found it",
-			Fix:    fmt.Sprintf(`declare(%q) as an update instead`, subject.Ref),
+			Detail: "the read that issued this token already found it",
+			Fix:    fix,
 		}
 	}
 	return nil

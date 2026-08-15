@@ -100,3 +100,36 @@ An unactionable error makes the invariant hostile instead of teachable.
 ### Rejected because
 
 - Three independent mechanisms were rejected as more surface for less coverage. They address the symptoms separately while leaving the shared cause unaddressed, and each carries its own configuration, failure modes, and documentation.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-15: creation is gated by the read that could have witnessed the absence
+
+This ADR says creation is gated by "a search that did not find it", and the implementation required exactly `search`.
+
+That is right for an entity and impossible for anything else.
+`search` reads the catalog, and the two things Dusk writes that are not entities live at fixed paths in the config repository: `.dusk/home.md` and `.dusk/kinds.md`.
+No search can name a file, so a repository that had never declared a homepage could not declare one at all: `page` issued its token, `SetHome` took the create path, and the answer told the agent to call `search(".dusk/home.md")`, which cannot answer the question being asked.
+
+The rule generalises rather than loosens.
+**A create is authorized by a read that could have returned the thing and did not.**
+For an entity that is still `search`, because nothing else enumerates.
+For a singleton it is that singleton's own read, which is a stronger witness than a search would be: `page` looks at exactly the file being created, where a search infers absence from a query.
+
+Nothing else changes. An entity create still refuses a `get` token, on this ADR's own reasoning that resolving one name cannot witness an absence.
+
+### 2026-08-15: the fix a rejection names is supplied by the caller
+
+This ADR requires a rejected write to return "the exact call that would fix it", and shows two examples, both of them `get` on an entity ref.
+
+The implementation read that as a rule it could derive, and phrased every rejection as `get(<ref>)`.
+That is true only for entities.
+A note's ref is its file path, which `get` refuses outright; `kinds` and `page` take no ref at all.
+So every rejection outside the entity path named a call that does not work, which is worse than an unactionable error: the agent follows it, fails a second time, and concludes the tool is broken.
+
+The call is now a second fact the write path supplies alongside the ref, because nothing turns one into the other.
+`proof.Subject` carries both, and each rejection renders the read that subject names.
+
+It also made a call exist that did not: `note(id: …)` on its own now reads that one note, since naming a call an agent cannot make would have been the same defect again.

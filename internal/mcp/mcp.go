@@ -882,10 +882,12 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 	body, err := s.opts.Writer.Home(ctx)
 	if errors.Is(err, fs.ErrNotExist) {
 		declared, _ := yaml.Marshal(page.Default())
+		// Nothing seen, because there is nothing there: this read is the one
+		// that witnesses the absence declaring the first page needs.
 		return text(fmt.Sprintf(
 			"No page is declared, so Dusk serves its default. Writing one replaces it entirely.\n\n"+
 				"The default, as it would be written:\n\n```yaml\n---\n%s---\n```\n\n%s",
-			declared, s.issue(proof.FromPage, map[string]string{page.Path: ""}))), nil, nil
+			declared, s.issue(proof.FromPage, nil))), nil, nil
 	}
 	if err != nil {
 		return text(fmt.Sprintf("The page could not be read.\n\n%s", err)), nil, nil

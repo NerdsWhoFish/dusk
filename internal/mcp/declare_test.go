@@ -220,7 +220,11 @@ func (w *recordingWriter) Home(context.Context) ([]byte, error) {
 }
 
 func (w *recordingWriter) SetHome(_ context.Context, token string, body []byte) (*write.Result, error) {
-	if err := w.tokens.AuthorizeUpdate(token, proof.Portal(page.Path), duskmd.ContentHash(string(w.home))); err != nil {
+	if len(w.home) == 0 {
+		if err := w.tokens.AuthorizeCreate(token, proof.Portal(page.Path)); err != nil {
+			return nil, err
+		}
+	} else if err := w.tokens.AuthorizeUpdate(token, proof.Portal(page.Path), duskmd.ContentHash(string(w.home))); err != nil {
 		return nil, err
 	}
 	w.wrote = body
