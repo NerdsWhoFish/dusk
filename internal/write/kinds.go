@@ -62,9 +62,9 @@ func (w *Writer) vocabulary(ctx context.Context, target Target, branch string) (
 	}, nil
 }
 
-// MintKind adds a kind to the config repository's vocabulary. Its proof token
-// has to come from reading that vocabulary, because minting without seeing
-// what is there is how `svc` appears beside `service`.
+// MintKind adds a kind to the config repository's vocabulary, or corrects the
+// one already spelled that way. Its token comes from reading that vocabulary:
+// minting blind is how `svc` lands beside `service` (ADR-0048, ADR-0054).
 func (w *Writer) MintKind(ctx context.Context, token string, kind vocab.Kind) (*Result, error) {
 	if w.ConfigRepository == "" {
 		return nil, ErrNoVocabularyRepository
@@ -91,15 +91,19 @@ func (w *Writer) MintKind(ctx context.Context, token string, kind vocab.Kind) (*
 	if err := w.Proof.AuthorizeUpdateFrom(token, proof.Vocabulary(vocab.Path), minted.Version); err != nil {
 		return nil, err
 	}
-	if _, clash := vocab.Lookup(kind.Namespace, kind.Name, minted.Kinds.Kinds); clash {
-		return nil, fmt.Errorf("write: %q is already minted as a %s kind, or is another spelling of one that is",
-			kind.Name, kind.Namespace)
+	if clash, ok := vocab.Lookup(kind.Namespace, kind.Name, minted.Kinds.Kinds); ok && clash.Name != kind.Name {
+		return nil, fmt.Errorf("write: %q is another spelling of %q, which the %s vocabulary already mints. Add it as an alias of that one instead",
+			kind.Name, clash.Name, kind.Namespace)
 	}
 
-	rendered, err := duskmd.FormatKinds(&duskmd.Kinds{
-		Kinds: append(minted.Kinds.Kinds, kind),
-		Body:  minted.Kinds.Body,
-	})
+	kinds, changed := vocab.Merge(minted.Kinds.Kinds, kind)
+	if !changed {
+		return &Result{
+			Ref: vocab.Path, Repository: w.ConfigRepository, Path: vocab.Path, Existing: true,
+		}, nil
+	}
+
+	rendered, err := duskmd.FormatKinds(&duskmd.Kinds{Kinds: kinds, Body: minted.Kinds.Body})
 	if err != nil {
 		return nil, err
 	}

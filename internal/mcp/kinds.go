@@ -118,18 +118,29 @@ func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResu
 	if err != nil {
 		return nil, nil, err
 	}
-	if clash, ok := vocab.Lookup(kind.Namespace, kind.Name, existing); ok {
-		return text(refuseMint(kind, clash)), nil, nil
+
+	// The one refusal: a second spelling is two rows meaning one thing. The
+	// same spelling is a correction, which is what ADR-0054 exists for.
+	was, known := vocab.Lookup(kind.Namespace, kind.Name, existing)
+	if known && was.Name != kind.Name {
+		return text(refuseMint(kind, was)), nil, nil
 	}
 
 	result, err := s.opts.Writer.MintKind(ctx, in.Proof, kind)
 	if err != nil {
 		return text(fmt.Sprintf("Nothing was minted.\n\n%s", err)), nil, nil
 	}
+	if result.Existing {
+		return text(fmt.Sprintf("The %s kind `%s` is already %s, with nothing to add. Nothing was written.",
+			kind.Namespace, kind.Name, kind.Role)), nil, nil
+	}
 
 	var out strings.Builder
-	fmt.Fprintf(&out, "Minted the %s kind `%s`, for %s.\n\nCommit: %s\n\n%s\n",
-		kind.Namespace, kind.Name, kind.Role, result.URL, effect(kind))
+	fmt.Fprintf(&out, "%s\n\nCommit: %s\n\n%s\n", minted(kind, was, known), result.URL, effect(kind))
+	if len(kind.Aliases) > 0 {
+		fmt.Fprintf(&out, "\nIt is also called %s. An alias does not rewrite any ref: it makes the "+
+			"catalog read them as one kind.\n", strings.Join(kind.Aliases, ", "))
+	}
 	if near := vocab.Nearest(kind.Namespace, kind.Name, existing); len(near) > 0 {
 		fmt.Fprintf(&out, "\nIt is close to %s, which already exists. If they are the same thing, "+
 			"mint an alias on that one instead of keeping both.\n", quoteNames(near))
@@ -138,14 +149,25 @@ func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResu
 	return text(out.String()), nil, nil
 }
 
+// minted says what the mint did, which is not always minting: a kind something
+// already carries has a role whether or not anybody chose it, so naming the one
+// it is being corrected from is what makes the change legible.
+func minted(kind, was vocab.Kind, known bool) string {
+	switch {
+	case !known:
+		return fmt.Sprintf("Minted the %s kind `%s`, for %s.", kind.Namespace, kind.Name, kind.Role)
+	case was.Role != kind.Role:
+		return fmt.Sprintf("The %s kind `%s` was %s and is now %s.",
+			kind.Namespace, kind.Name, was.Role, kind.Role)
+	default:
+		return fmt.Sprintf("The %s kind `%s` stays %s.", kind.Namespace, kind.Name, kind.Role)
+	}
+}
+
 // refuseMint is the one case a mint is refused. Adding a second row meaning
 // the same thing is not extending a vocabulary, so the answer names the alias
 // that would say it properly.
 func refuseMint(wanted, clash vocab.Kind) string {
-	if wanted.Name == clash.Name {
-		return fmt.Sprintf("The %s kind `%s` already exists, for %s. Nothing was minted.",
-			clash.Namespace, clash.Name, clash.Role)
-	}
 	return fmt.Sprintf("`%s` is another spelling of `%s`, which the %s vocabulary already has. Nothing was minted.\n\n"+
 		"If they are the same thing, mint `%s` with `%s` in its aliases. "+
 		"If they are genuinely different, pick a name that is not a spelling of one that exists.",

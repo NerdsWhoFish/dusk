@@ -108,8 +108,8 @@ type Result struct {
 	// Mode is what Dusk was registered to do, which is why a proposal is one.
 	Mode store.AccessMode
 
-	// Existing means a note saying exactly this is already there, so nothing
-	// was written and Path is the note that already says it.
+	// Existing means what was asked for is already written down, so nothing was
+	// committed: the note already says this, or the vocabulary already does.
 	Existing bool
 
 	// Similar names notes that nearly say this already. Notes only: an entity

@@ -98,6 +98,9 @@ The proof token a mint presents is proof of having read the vocabulary being ext
 Kinds are open, so declaring one that is not listed always works and nothing refuses it.
 What minting adds is the two things counting cannot derive: a **role**, which every surface acts on, and **aliases**, which are the only way anything learns that `svc` means `service`.
 
+Minting a kind the vocabulary already has, spelled the same way, **corrects** it: the role most worth fixing is the one nobody chose, because a kind nobody minted carries the default ([ADR-0054](../adr/0054-correcting-a-kinds-role.md)).
+A name that is another *spelling* of one that exists is still the one refusal, and the alias it tells you to add is now a call that works.
+
 Full rules, roles and their consequences: [`docs/kinds.md`](kinds.md).
 
 ## What `dusk_context` spends its budget on
@@ -284,11 +287,9 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 
 ## Not built yet
 
-**The other write tools.** `relate`, `mintKind` and `push` are not built. `push` is meaningful only in proposal mode.
+**The other write tools.** `relate` and `push` are not built. `push` is meaningful only in proposal mode.
 
 **Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
-
-**Note ranking.** Notes come back pinned first and then by id. [ADR-0031](../adr/0031-notes-are-files.md) has kind driving ranking, so a gotcha should outrank a todo without being pinned by hand, and it does not yet.
 
 **Who ran something.** An event records an actor, and over MCP that actor is always `agent`: the surface authenticates with one shared bearer token and has no per-caller identity to record. Two agents holding one token are indistinguishable in the log.
 

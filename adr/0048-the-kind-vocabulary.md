@@ -185,4 +185,16 @@ Recorded as an amendment on [ADR-0010](0010-mcp-surface.md).
 
 ## Amendments
 
-None yet.
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-15: the one refusal is a second spelling, not a name that exists
+
+This ADR says "a mint is refused in exactly one case: when the name is already the vocabulary's after normalization".
+
+That reads as one rule and is two, because the vocabulary it is checked against is the derived one.
+Every kind anything carries is in it already, under the default role, so the refusal caught the case this ADR was written for: `airport`, minted as `reference`, refused because one airport is declared and therefore `airport` "already exists, for infrastructure".
+
+The refusal now applies only to a name that normalizes onto a kind spelled differently, which is what the argument for it was always about.
+The same spelling corrects the kind, keeping its aliases.
+
+[ADR-0054](0054-correcting-a-kinds-role.md) records the reasoning, the options rejected with it, and the second thing this fixed: the refusal's own advice, "mint `service` with `Service` in its aliases", was itself refused.

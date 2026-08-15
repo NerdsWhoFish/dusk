@@ -180,6 +180,88 @@ func TestValidRoleRefusesTheOtherNamespacesRoles(t *testing.T) {
 	}
 }
 
+// A role is a judgement somebody can get wrong, so it has to be correctable.
+// Correcting one must not drop what the kind is also called (ADR-0054).
+func TestADR0054_MergeCorrectsAKindWithoutLosingIt(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		mint        vocab.Kind
+		wantChanged bool
+		wantRole    vocab.Role
+		wantAliases []string
+	}{
+		{
+			name:        "a new kind is added",
+			mint:        vocab.Kind{Namespace: vocab.Entity, Name: "datastore", Role: vocab.Infrastructure},
+			wantChanged: true,
+			wantRole:    vocab.Infrastructure,
+		},
+		{
+			name:        "a role is corrected, keeping the aliases",
+			mint:        vocab.Kind{Namespace: vocab.Entity, Name: "service", Role: vocab.Reference},
+			wantChanged: true,
+			wantRole:    vocab.Reference,
+			wantAliases: []string{"svc"},
+		},
+		{
+			name: "an alias is added, keeping the role",
+			mint: vocab.Kind{Namespace: vocab.Entity, Name: "service", Role: vocab.Infrastructure,
+				Aliases: []string{"Service"}},
+			wantChanged: true,
+			wantRole:    vocab.Infrastructure,
+			wantAliases: []string{"svc", "Service"},
+		},
+		{
+			name: "an alias already said is not said twice",
+			mint: vocab.Kind{Namespace: vocab.Entity, Name: "service", Role: vocab.Infrastructure,
+				Aliases: []string{"SVC"}},
+			wantRole:    vocab.Infrastructure,
+			wantAliases: []string{"svc"},
+		},
+		{
+			name:        "saying what is already said changes nothing",
+			mint:        vocab.Kind{Namespace: vocab.Entity, Name: "airport", Role: vocab.Reference},
+			wantRole:    vocab.Reference,
+			wantAliases: nil,
+		},
+		{
+			// The same word in the other namespace is a different kind.
+			name:        "a note kind does not correct an entity kind",
+			mint:        vocab.Kind{Namespace: vocab.Note, Name: "service", Role: vocab.Knowledge},
+			wantChanged: true,
+			wantRole:    vocab.Knowledge,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			merged, changed := vocab.Merge(minted, tt.mint)
+			if changed != tt.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tt.wantChanged)
+			}
+
+			got, ok := vocab.Lookup(tt.mint.Namespace, tt.mint.Name, merged)
+			if !ok {
+				t.Fatalf("the kind is not in the merged vocabulary: %+v", merged)
+			}
+			if got.Role != tt.wantRole {
+				t.Errorf("role = %q, want %q", got.Role, tt.wantRole)
+			}
+			if !slices.Equal(got.Aliases, tt.wantAliases) {
+				t.Errorf("aliases = %v, want %v", got.Aliases, tt.wantAliases)
+			}
+			if !got.Minted {
+				t.Error("the merged kind does not read as minted")
+			}
+		})
+	}
+
+	t.Run("the vocabulary it was given is not modified", func(t *testing.T) {
+		vocab.Merge(minted, vocab.Kind{Namespace: vocab.Entity, Name: "service", Role: vocab.Reference})
+		if role := minted[0].Role; role != vocab.Infrastructure {
+			t.Errorf("service is now %q in the original vocabulary", role)
+		}
+	})
+}
+
 func TestValidNameRefusesRefSeparators(t *testing.T) {
 	for _, tt := range []struct {
 		name    string

@@ -260,6 +260,50 @@ func Lookup(namespace Namespace, name string, kinds []Kind) (Kind, bool) {
 	return Kind{}, false
 }
 
+// Merge applies a mint over a vocabulary, adding the kind or correcting the one
+// already spelled that way, and reports whether anything changed.
+//
+// Aliases are added rather than replaced, because correcting a role must not
+// silently drop what a kind is also called. Matching is on the exact name: a
+// different spelling is a collision for Lookup to catch, never a correction.
+func Merge(kinds []Kind, mint Kind) ([]Kind, bool) {
+	merged := slices.Clone(kinds)
+
+	for i, kind := range merged {
+		if kind.Namespace != mint.Namespace || kind.Name != mint.Name {
+			continue
+		}
+
+		corrected := kind
+		corrected.Minted = true
+		corrected.Role = mint.Role
+		corrected.Aliases = addAliases(kind.Aliases, mint.Aliases)
+		if corrected.Role == kind.Role && len(corrected.Aliases) == len(kind.Aliases) {
+			return merged, false
+		}
+		merged[i] = corrected
+		return merged, true
+	}
+
+	mint.Minted = true
+	return append(merged, mint), true
+}
+
+// addAliases keeps what is there and appends what is new, comparing the way a
+// collision is judged so `SVC` is not added beside `svc`.
+func addAliases(existing, added []string) []string {
+	aliases := slices.Clone(existing)
+	for _, alias := range added {
+		if slices.ContainsFunc(aliases, func(have string) bool {
+			return Normalize(have) == Normalize(alias)
+		}) {
+			continue
+		}
+		aliases = append(aliases, alias)
+	}
+	return aliases
+}
+
 // Normalize is the collision rule: two names that normalize the same are one
 // kind spelled two ways. It is deliberately conservative, folding only case and
 // separators, because refusing a mint on it has to be right every time.
