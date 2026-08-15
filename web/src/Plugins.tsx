@@ -353,7 +353,8 @@ function ProcessNote({ process }: { process?: PluginProcess }) {
       )}
       {process.phase === "running" && process.restarts > 0 && (
         <p className="quiet">
-          Restarted {process.restarts} times{when(process.since, ", up since ")}.
+          Restarted {process.restarts === 1 ? "once" : `${process.restarts} times`}
+          {when(process.since, ", up since ")}.
           {process.exit ? ` Last exit: ${process.exit}` : ""}
         </p>
       )}

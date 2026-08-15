@@ -220,6 +220,11 @@ func (m *Manager) Invoke(ctx context.Context, request Request) (*Outcome, error)
 
 // permit is every reason a resolved action may still not run.
 func (m *Manager) permit(ctx context.Context, target chosen, request Request) error {
+	// First, so a dead plugin is not answered with a request to confirm
+	// something that was never going to run.
+	if err := target.running.up(); err != nil {
+		return err
+	}
 	if !target.action.Enabled {
 		return notEnabled(target.action)
 	}
