@@ -54,6 +54,10 @@ type standIn struct {
 	// Fail makes every Ingest error, for exercising the never-delete rule and
 	// the failure reporting around it.
 	Fail string `json:"fail"`
+
+	// RefuseWhile names a file whose presence makes the plugin exit before it
+	// binds anything, so a test can decide when it becomes startable again.
+	RefuseWhile string `json:"refuse_while"`
 }
 
 type standInAction struct {
@@ -70,12 +74,20 @@ type standInAction struct {
 	// keep asking however it is answered, for exercising the turn bound.
 	Asks    string `json:"asks"`
 	Insists bool   `json:"insists"`
+
+	// Crash kills the plugin process mid-invocation, which is the action that
+	// tests what happens to a caller when the plugin goes away under it.
+	Crash bool `json:"crash"`
 }
 
 func standInPlugin(encoded string) error {
 	var spec standIn
 	if err := json.Unmarshal([]byte(encoded), &spec); err != nil {
 		return fmt.Errorf("decode the stand-in spec: %w", err)
+	}
+	if _, refusing := os.Stat(spec.RefuseWhile); spec.RefuseWhile != "" && refusing == nil {
+		fmt.Fprintln(os.Stderr, "the widget server is unreachable")
+		os.Exit(3)
 	}
 	return sdk.Run(&standInServer{spec: spec}, sdk.Options{Version: spec.Version})
 }
@@ -185,6 +197,10 @@ func (s *standInServer) Invoke(_ context.Context, request *duskv1alpha1.InvokeRe
 	}
 	if action.Refuse != "" {
 		return &duskv1alpha1.InvokeResponse{Done: true, Ok: false, Message: action.Refuse}, nil
+	}
+	if action.Crash {
+		fmt.Fprintln(os.Stderr, "the widget exploded")
+		os.Exit(9)
 	}
 
 	if ask := s.elicit(action, request); ask != nil {
@@ -336,20 +352,27 @@ func (r *rota) wasDue(name string) bool {
 	return slices.Contains(r.forward, name)
 }
 
-// observed runs one joined ingester and returns what it emitted, which is how
-// a test sees the configuration that actually crossed the socket.
-func (r *rota) observed(ctx context.Context, t *testing.T, name string) *ingest.Observation {
+// ingester is what joined the rotation under a name, for a test that wants to
+// drive it rather than assume it worked.
+func (r *rota) ingester(t *testing.T, name string) ingest.Ingester {
 	t.Helper()
 
 	r.mu.Lock()
-	ingester, ok := r.joined[name]
+	joined, ok := r.joined[name]
 	r.mu.Unlock()
 
 	if !ok {
 		t.Fatalf("nothing named %q joined the rotation, only %v", name, r.names())
 	}
+	return joined
+}
 
-	observation, err := ingester.Observe(ctx)
+// observed runs one joined ingester and returns what it emitted, which is how
+// a test sees the configuration that actually crossed the socket.
+func (r *rota) observed(ctx context.Context, t *testing.T, name string) *ingest.Observation {
+	t.Helper()
+
+	observation, err := r.ingester(t, name).Observe(ctx)
 	if err != nil {
 		t.Fatalf("observe %s: %v", name, err)
 	}
@@ -379,6 +402,18 @@ func shortDir(t *testing.T) string {
 func manager(t *testing.T) (*plugin.Manager, *rota) {
 	t.Helper()
 
+	was := plugin.SocketDir
+	plugin.SocketDir = shortDir(t)
+	t.Cleanup(func() { plugin.SocketDir = was })
+
+	return newManager(t)
+}
+
+// newManager builds a Manager without touching SocketDir, so a test can build
+// two of them sharing one and prove they do not collide there.
+func newManager(t *testing.T) (*plugin.Manager, *rota) {
+	t.Helper()
+
 	master := make([]byte, vault.KeySize)
 	for i := range master {
 		master[i] = byte(i)
@@ -390,13 +425,6 @@ func manager(t *testing.T) (*plugin.Manager, *rota) {
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	t.Cleanup(empty.Close)
-
-	// A socket is named by plugin id under one shared directory, so two tests
-	// starting the same plugin race: one binds the path the other is removing.
-	// Verified pre-existing, and the reason this package was flaky.
-	was := plugin.SocketDir
-	plugin.SocketDir = shortDir(t)
-	t.Cleanup(func() { plugin.SocketDir = was })
 
 	rotation := newRota()
 	return &plugin.Manager{

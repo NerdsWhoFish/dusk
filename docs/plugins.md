@@ -1,9 +1,35 @@
 # What a plugin declares, and what the browser makes of it
 
+## What happens when a plugin dies
+
+A plugin is a subprocess ([ADR-0039](../adr/0039-one-plugin-transport.md)), and Dusk keeps it up ([ADR-0054](../adr/0054-supervising-plugin-processes.md)).
+
+| Phase | What it means | What Dusk is doing |
+| --- | --- | --- |
+| `running` | The process is serving its socket | Asking it to observe on its interval |
+| `restarting` | It exited and a start is waiting out its backoff | Starting it again, longer each time |
+| `failed` | It would not stay up | Nothing. Somebody has to press Start |
+| `stopped` | Dusk stopped it: uninstalled, reconfigured, shut down | Nothing, and correctly so |
+
+Backoff doubles from a second, caps at a minute, and gives up after eight attempts.
+A process that stays up for a minute resets the count, so a plugin that crashes once a week is restarted for ever while one that crashes on start is not.
+
+**A plugin that is not running answers every call with an error naming how it exited.**
+That is not politeness.
+An observation is complete by contract, so an empty one deletes everything that plugin had observed ([ADR-0011](../adr/0011-ingester-scheduling.md)), and a restart must never look like a source that went quiet.
+A run that fails keeps what the catalog had, and the entity goes visibly stale instead.
+
+An action interrupted by its plugin dying is told so, and a **mutating** one is told its outcome is not known: the process that could have said whether the change landed is the one that went away.
+Treat that as "find out", never as "it did not happen".
+
+What the plugin printed before it died survives into the process that replaces it, marked `=` in its output, which is usually where the reason is.
+
+## What a plugin declares
+
 An action declares its parameters as JSON Schema, on `ActionDescriptor.params_schema`.
 One declaration serves every surface: an agent's tool arguments over MCP, a form in the browser, and the schema on `Elicit` when the plugin asks a question mid-action ([ADR-0041](../adr/0041-plugins-reach-agents-as-actions.md), [ADR-0046](../adr/0046-plugins-can-ask.md)).
 
-This page is the browser half of that: which declared shape becomes which control, and what a form refuses before the plugin ever sees it.
+The rest of this page is the browser half of that: which declared shape becomes which control, and what a form refuses before the plugin ever sees it.
 The protocol itself lives in the [SDK](https://github.com/NerdsWhoFish/dusk-plugin-sdk), and a plugin's *configuration* is a typed field list rather than JSON Schema, for the reasons in [ADR-0023](../adr/0023-plugin-configuration.md).
 
 Dusk does not validate a relayed schema, so a shape nothing here can render is a broken form nobody finds until a human sees it.

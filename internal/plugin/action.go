@@ -200,6 +200,11 @@ type Report struct {
 	Running bool     `json:"running"`
 	Health  []Health `json:"health,omitempty"`
 	Actions []Action `json:"actions,omitempty"`
+
+	// Process is why it is not running, when it is not. An agent told only
+	// "not running" cannot tell a plugin nobody installed properly from one
+	// that is thirty seconds into coming back.
+	Process *Process `json:"process,omitempty"`
 }
 
 // Failing reports whether every one of this plugin's configurations errored on
@@ -233,15 +238,17 @@ func (m *Manager) Report() []Report {
 	reports := make([]Report, 0, len(installed))
 	for _, record := range installed {
 		report := Report{ID: record.ID, Version: record.Version}
+
+		m.mu.Lock()
+		report.Process = m.process(record.ID)
 		if live, ok := running[record.ID]; ok {
-			report.Running = true
+			report.Running = serving(report.Process)
 			report.Version = live.Version
 			report.Actions = actionsOf(live, record.Enabled)
-
-			m.mu.Lock()
 			report.Health = m.healthOf(record.ID)
-			m.mu.Unlock()
 		}
+		m.mu.Unlock()
+
 		reports = append(reports, report)
 	}
 
