@@ -149,8 +149,21 @@ export function Output({ id }: { id: string }) {
   return (
     <div className="scroller">
       <pre className="plugin-output">
-        {lines.map((line) => `${line.stream === "stderr" ? "! " : "  "}${line.text}`).join("\n")}
+        {lines.map((line) => `${marker(line.stream)}${line.text}`).join("\n")}
       </pre>
     </div>
   );
+}
+
+// marker separates what the plugin said from what Dusk said about it, which
+// matters most where the two interleave: around a crash and its restart.
+function marker(stream: string): string {
+  switch (stream) {
+    case "stderr":
+      return "! ";
+    case "dusk":
+      return "= ";
+    default:
+      return "  ";
+  }
 }

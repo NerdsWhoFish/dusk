@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -37,9 +38,9 @@ const SocketEnv = "DUSK_PLUGIN_SOCKET"
 // and keeps composition going through Dusk.
 const TokenEnv = "DUSK_PLUGIN_TOKEN"
 
-// SocketDir is short on purpose: a unix socket address is capped near 104
-// bytes. A variable rather than a constant because the path is keyed only by
-// plugin id, so two Dusks on one machine would otherwise fight over it.
+// SocketDir is where a Dusk puts its socket directory. Short on purpose: a
+// unix socket address is capped near 104 bytes. A variable so a test can move
+// it; the directory each Dusk binds in is minted underneath it (ADR-0054).
 var SocketDir = "/tmp/dusk-plugins"
 
 // maxSocketPath is the portable floor for a socket address, below the 108 that
@@ -50,9 +51,30 @@ const maxSocketPath = 104
 // host gives up. A plugin that cannot answer Describe cannot be scheduled.
 const startTimeout = 15 * time.Second
 
+// stopGrace is how long a plugin gets to shut down politely before it is
+// killed.
+const stopGrace = 5 * time.Second
+
 // defaultInterval is used when a plugin is installed with no interval of its
 // own. Hourly matches what the in-tree Kubernetes ingester chose.
 const defaultInterval = time.Hour
+
+// Exec is everything one plugin process needs to be started.
+type Exec struct {
+	ID     string
+	Binary string
+
+	// Dir is where the socket is bound. One directory per Dusk rather than one
+	// per machine, so two of them cannot remove each other's (ADR-0054).
+	Dir string
+
+	Config *structpb.Struct
+	Log    *slog.Logger
+
+	// Kept carries what the previous process printed into the new one, so a
+	// restart does not erase what the crash said on its way out.
+	Kept *output
+}
 
 // Running is one plugin process and the connection to it.
 type Running struct {
@@ -70,6 +92,16 @@ type Running struct {
 	log    *slog.Logger
 	assets map[string]Asset
 	output *output
+
+	// exited is closed once the process has ended, and exitErr is why. One
+	// goroutine owns Wait and everything else reads its result through this,
+	// because a second Wait on one Cmd races the first.
+	exited  chan struct{}
+	exitErr error
+
+	// stopped says Dusk asked for this exit, which is what tells the
+	// supervisor a shutdown from a crash.
+	stopped atomic.Bool
 }
 
 // maxAssetBytes bounds a plugin's JavaScript. A view is tens of kilobytes; a
@@ -79,12 +111,13 @@ const maxAssetBytes = 16 << 20
 // Start execs a plugin and returns it ready to run. It calls Describe first,
 // because a plugin that cannot describe itself cannot be scheduled, and failing
 // here beats failing later in a sweep nobody is watching.
-func Start(ctx context.Context, id, binary string, config *structpb.Struct, log *slog.Logger) (*Running, error) {
+func Start(ctx context.Context, spec Exec) (*Running, error) {
+	log := spec.Log
 	if log == nil {
 		log = slog.Default()
 	}
 
-	socket, err := socketFor(id)
+	socket, err := socketFor(spec.Dir, spec.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,20 +127,32 @@ func Start(ctx context.Context, id, binary string, config *structpb.Struct, log 
 		return nil, err
 	}
 
-	printed := &output{}
+	printed := spec.Kept
+	if printed == nil {
+		printed = &output{}
+	}
 
-	cmd := exec.Command(binary)
+	cmd := exec.Command(spec.Binary)
 	cmd.Env = append(os.Environ(), SocketEnv+"="+socket, TokenEnv+"="+token)
-	cmd.Stdout = logWriter{log: log, id: id, stream: "stdout", kept: printed}
-	cmd.Stderr = logWriter{log: log, id: id, stream: "stderr", kept: printed}
+	cmd.Stdout = logWriter{log: log, id: spec.ID, stream: "stdout", kept: printed}
+	cmd.Stderr = logWriter{log: log, id: spec.ID, stream: "stderr", kept: printed}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("plugin: start %s: %w", id, err)
+		return nil, fmt.Errorf("plugin: start %s: %w", spec.ID, err)
 	}
 
 	running := &Running{
-		ID: id, config: config, interval: defaultInterval,
+		ID: spec.ID, config: spec.Config, interval: defaultInterval,
 		cmd: cmd, socket: socket, log: log, output: printed,
+		exited: make(chan struct{}),
 	}
+
+	// The one Wait. Everything that wants to know whether the process is still
+	// there reads the channel, so nothing has to call Wait a second time and
+	// lose the race for its result.
+	go func() {
+		running.exitErr = cmd.Wait()
+		close(running.exited)
+	}()
 
 	conn, err := grpc.NewClient("unix://"+socket,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -115,7 +160,7 @@ func Start(ctx context.Context, id, binary string, config *structpb.Struct, log 
 		grpc.WithStreamInterceptor(presentTokenStream(token)))
 	if err != nil {
 		running.stop()
-		return nil, fmt.Errorf("plugin: connect to %s: %w", id, err)
+		return nil, fmt.Errorf("plugin: connect to %s: %w", spec.ID, err)
 	}
 	running.conn = conn
 	running.client = duskv1alpha1.NewPluginServiceClient(conn)
@@ -305,11 +350,56 @@ func (r *Running) describe(ctx context.Context) (*duskv1alpha1.DescribeResponse,
 		last = err
 
 		select {
+		case <-r.exited:
+			// Waiting out the whole timeout for a process that has already gone
+			// spends fifteen seconds saying nothing, and buries the reason: a
+			// plugin that exits on start almost always prints why first.
+			return nil, fmt.Errorf("plugin: %s exited before it answered: %s%s", r.ID, r.wentAway(), r.said())
 		case <-deadline.Done():
 			return nil, fmt.Errorf("plugin: %s did not answer within %s: %w", r.ID, startTimeout, last)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// up reports whether the process is there to be asked. Every call that crosses
+// the socket asks first, because a transport error names a path and a syscall
+// where an operator needs to be told the plugin is not running.
+func (r *Running) up() error {
+	select {
+	case <-r.exited:
+		return fmt.Errorf("plugin: %s is not running: %s", r.ID, r.wentAway())
+	default:
+		return nil
+	}
+}
+
+// wentAway says how the process ended, and is safe to read only once exited is
+// closed. Wait reports a non-zero status as an error, so no error here means
+// the plugin left of its own accord and said it was fine.
+func (r *Running) wentAway() string {
+	if r.exitErr != nil {
+		return r.exitErr.Error()
+	}
+	return "its process exited"
+}
+
+// said is the tail of what the plugin printed, for a start failure whose cause
+// is almost always in it.
+func (r *Running) said() string {
+	lines := r.output.recent()
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > 3 {
+		lines = lines[len(lines)-3:]
+	}
+
+	texts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		texts = append(texts, line.Text)
+	}
+	return ". It printed: " + strings.Join(texts, "; ")
 }
 
 // Name is the ingester name, and therefore the scope its observations live
@@ -384,6 +474,13 @@ func (r *Running) Observe(ctx context.Context) (*ingest.Observation, error) {
 }
 
 func (r *Running) observe(ctx context.Context, config *structpb.Struct, name string) (*ingest.Observation, error) {
+	// An observation is complete by contract, so anything it leaves out is
+	// deleted. A dead or restarting process must fail, never answer empty
+	// (ADR-0011, ADR-0054).
+	if err := r.up(); err != nil {
+		return nil, fmt.Errorf("plugin: %s could not be asked to observe: %w", name, err)
+	}
+
 	stream, err := r.client.Ingest(ctx, &duskv1alpha1.IngestRequest{Config: config})
 	if err != nil {
 		return nil, fmt.Errorf("plugin: %s ingest: %w", name, err)
@@ -393,6 +490,12 @@ func (r *Running) observe(ctx context.Context, config *structpb.Struct, name str
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
+			// A process that died just after its last batch is reported as a
+			// failure even though the stream ended cleanly. That is the safe
+			// direction: a failed run keeps what the catalog had.
+			if err := r.up(); err != nil {
+				return nil, fmt.Errorf("plugin: %s stopped part way through observing: %w", name, err)
+			}
 			return observation, nil
 		}
 		if err != nil {
@@ -408,10 +511,14 @@ func (r *Running) observe(ctx context.Context, config *structpb.Struct, name str
 	}
 }
 
-// Stop shuts the plugin down, politely first.
+// Stop shuts the plugin down, politely first. It marks the exit as Dusk's
+// doing, so the supervisor does not read a shutdown as a crash and start it
+// again.
 func (r *Running) Stop() { r.stop() }
 
 func (r *Running) stop() {
+	r.stopped.Store(true)
+
 	if r.conn != nil {
 		_ = r.conn.Close()
 	}
@@ -420,29 +527,26 @@ func (r *Running) stop() {
 	}
 
 	_ = r.cmd.Process.Signal(os.Interrupt)
-	done := make(chan struct{})
-	go func() {
-		_ = r.cmd.Wait()
-		close(done)
-	}()
-
 	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-r.exited:
+	case <-time.After(stopGrace):
 		_ = r.cmd.Process.Kill()
-		<-done
+		<-r.exited
 	}
 	_ = os.Remove(r.socket)
 }
 
 // socketFor names a plugin's socket and refuses one too long to bind, which
 // fails as "invalid argument" and names neither the path nor the limit.
-func socketFor(id string) (string, error) {
-	if err := os.MkdirAll(SocketDir, 0o700); err != nil {
+func socketFor(dir, id string) (string, error) {
+	if dir == "" {
+		dir = SocketDir
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("plugin: make the socket directory: %w", err)
 	}
 
-	socket := filepath.Join(SocketDir, id+".sock")
+	socket := filepath.Join(dir, id+".sock")
 	if len(socket) >= maxSocketPath {
 		return "", fmt.Errorf("plugin: socket path for %s is %d bytes and the limit is %d", id, len(socket), maxSocketPath)
 	}

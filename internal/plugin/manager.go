@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -67,12 +68,22 @@ type Manager struct {
 	Proof   *proof.Store
 	Events  *events.Log
 
+	// Restarts is how hard the supervisor tries to keep a plugin up. Zero
+	// fields take the defaults (ADR-0054).
+	Restarts RestartPolicy
+
 	// Now exists so a test can assert on an event without matching a timestamp
 	// it cannot predict.
 	Now func() time.Time
 
-	mu      sync.Mutex
-	running map[string]*Running
+	mu         sync.Mutex
+	running    map[string]*Running
+	supervised map[string]*supervision
+
+	// sockets is this Dusk's own directory under SocketDir, minted on the first
+	// start and removed on Stop. Unexported because Stop deletes it, and a
+	// deployment pointing it somewhere of its own would lose that directory.
+	sockets string
 }
 
 func (m *Manager) now() time.Time {
@@ -96,6 +107,10 @@ type Offer struct {
 
 	Running bool   `json:"running"`
 	Problem string `json:"problem,omitempty"`
+
+	// Process is what the supervisor knows about the plugin's own process:
+	// whether it is up, how it last died, and whether anything is still trying.
+	Process *Process `json:"process,omitempty"`
 
 	// Health is what each of this plugin's instances last did. A plugin can be
 	// running and failing every run, and the page has to say so.
@@ -168,7 +183,7 @@ func (m *Manager) Restore(ctx context.Context) {
 	}
 
 	for _, record := range installed {
-		if err := m.start(ctx, record); err != nil {
+		if err := m.launch(ctx, record); err != nil {
 			// Not fatal. One broken plugin must not stop the others, and the
 			// catalog serves whatever it last observed regardless.
 			m.log().Error("could not start an installed plugin",
@@ -239,6 +254,10 @@ func (m *Manager) describeInstalled(offer *Offer, record Installed, latest strin
 	offer.Config = record.Config
 	offer.Instances = record.Instances
 	offer.Set = m.setSecrets(record)
+
+	// Set for an installed plugin whether or not it is up, because a plugin
+	// that will not start is exactly the one whose process needs describing.
+	offer.Process = m.process(record.ID)
 }
 
 // setSecrets names which sensitive fields hold a value. Without it a write-only
@@ -275,7 +294,11 @@ func (m *Manager) describeRunning(offer *Offer, id string) {
 	if !ok {
 		return
 	}
-	offer.Running = true
+
+	// The supervisor's word, not the map's: a process being restarted is still
+	// held here, because what it described is still true of the installed
+	// version and its form should not blink out for the length of a backoff.
+	offer.Running = serving(m.process(id))
 	offer.Fields = fieldsOf(running.Describe)
 	offer.Health = m.healthOf(id)
 
@@ -344,7 +367,7 @@ func (m *Manager) Install(ctx context.Context, id string) (*Installed, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := m.start(ctx, *record); err != nil {
+	if err := m.launch(ctx, *record); err != nil {
 		return record, err
 	}
 	return record, nil
@@ -353,6 +376,7 @@ func (m *Manager) Install(ctx context.Context, id string) (*Installed, error) {
 // Uninstall stops a plugin and removes it from disk.
 func (m *Manager) Uninstall(id string) error {
 	m.stop(id)
+	m.forget(id)
 	return m.Store.Remove(id)
 }
 
@@ -425,7 +449,7 @@ func (m *Manager) Configure(ctx context.Context, id, instance string, config map
 	if err := m.Store.Write(*record); err != nil {
 		return err
 	}
-	return m.start(ctx, *record)
+	return m.launch(ctx, *record)
 }
 
 // Describe returns what a running plugin says about itself, which is where the
@@ -503,10 +527,19 @@ func (m *Manager) Stop() {
 		m.Rota.Remove(plugin.Name())
 		delete(m.running, id)
 	}
+	// Every supervision, not only the ones with a process: a plugin waiting out
+	// a restart has no entry in running and would otherwise start after this.
+	for id := range m.supervised {
+		m.halted(id)
+	}
+	sockets := m.sockets
 	m.mu.Unlock()
 
 	for _, plugin := range running {
 		plugin.Stop()
+	}
+	if sockets != "" {
+		_ = os.RemoveAll(sockets)
 	}
 }
 
@@ -521,7 +554,15 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 		return fmt.Errorf("plugin: %s has unusable configuration: %w", record.ID, err)
 	}
 
-	running, err := Start(ctx, record.ID, m.Store.Binary(record.ID), config, m.log())
+	dir, err := m.socketDir()
+	if err != nil {
+		return err
+	}
+
+	running, err := Start(ctx, Exec{
+		ID: record.ID, Binary: m.Store.Binary(record.ID), Dir: dir,
+		Config: config, Log: m.log(), Kept: m.printed(record.ID),
+	})
 	if err != nil {
 		return err
 	}
@@ -548,6 +589,45 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 		m.Rota.Add(instance)
 		m.log().Info("plugin started",
 			"plugin", record.ID, "version", running.Version, "scope", instance.Name())
+	}
+
+	// Last, so nothing reads the plugin as up before what it observes is in the
+	// rotation. Supervised for as long as Dusk runs rather than for as long as
+	// the request that installed it, which ends when the browser is answered.
+	go m.supervise(context.WithoutCancel(ctx), record.ID, running, m.up(record.ID))
+	return nil
+}
+
+// socketDir is the directory this Dusk binds in, minted on first use. One per
+// Dusk rather than one per machine: sockets are named by plugin id, so two
+// sharing a directory each remove the other's on start and on stop (ADR-0054).
+func (m *Manager) socketDir() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.sockets != "" {
+		return m.sockets, nil
+	}
+	if err := os.MkdirAll(SocketDir, 0o700); err != nil {
+		return "", fmt.Errorf("plugin: make the socket directory: %w", err)
+	}
+
+	dir, err := os.MkdirTemp(SocketDir, "")
+	if err != nil {
+		return "", fmt.Errorf("plugin: make this Dusk's socket directory: %w", err)
+	}
+	m.sockets = dir
+	return dir, nil
+}
+
+// printed is what this plugin's last process said, handed to the next one so a
+// restart does not erase the output that explains why it happened.
+func (m *Manager) printed(id string) *output {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if running, ok := m.running[id]; ok {
+		return running.output
 	}
 	return nil
 }
@@ -635,6 +715,9 @@ func (m *Manager) stop(id string) {
 	if ok {
 		delete(m.running, id)
 	}
+	// Ended before the process is signalled, so a supervisor that wakes on the
+	// exit already knows this was asked for.
+	m.halted(id)
 	m.mu.Unlock()
 
 	if !ok {

@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/NerdsWhoFish/dusk/internal/events"
@@ -156,6 +159,10 @@ func (m *Manager) Preview(ctx context.Context, request Request) (*Outcome, error
 }
 
 func (m *Manager) preview(ctx context.Context, target chosen, request Request) (*Outcome, error) {
+	if err := target.running.up(); err != nil {
+		return nil, err
+	}
+
 	config, err := m.config(target.running.ID, target.instance)
 	if err != nil {
 		return nil, err
@@ -213,6 +220,11 @@ func (m *Manager) Invoke(ctx context.Context, request Request) (*Outcome, error)
 
 // permit is every reason a resolved action may still not run.
 func (m *Manager) permit(ctx context.Context, target chosen, request Request) error {
+	// First, so a dead plugin is not answered with a request to confirm
+	// something that was never going to run.
+	if err := target.running.up(); err != nil {
+		return err
+	}
 	if !target.action.Enabled {
 		return notEnabled(target.action)
 	}
@@ -283,6 +295,9 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 	if request.Preview {
 		return m.preview(ctx, target, request)
 	}
+	if err := target.running.up(); err != nil {
+		return nil, err
+	}
 
 	config, err := m.config(target.running.ID, target.instance)
 	if err != nil {
@@ -304,6 +319,7 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 		Config:     config,
 	})
 	if err != nil {
+		err = interrupted(target, err)
 		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_FAILED, err.Error(), nil, m.now()))
 		return nil, fmt.Errorf("plugin: %s could not run %s: %w", target.running.ID, target.action.Name, err)
 	}
@@ -362,6 +378,36 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 
 	outcome.Steps = m.compose(ctx, target, request, answer.GetThen(), chain, depth)
 	return outcome, nil
+}
+
+// exitGrace is how long an unavailable call waits for the process to be reaped
+// before deciding it is merely unreachable. gRPC sees the socket close well
+// before Wait returns, and the difference decides which error the caller gets.
+const exitGrace = 500 * time.Millisecond
+
+// interrupted replaces a transport error with what actually happened when the
+// cause was the plugin's process going away. A mutating action cut off this
+// way may or may not have landed, and there is nobody left to ask (ADR-0054).
+func interrupted(target chosen, err error) error {
+	if status.Code(err) != codes.Unavailable {
+		return err
+	}
+
+	select {
+	case <-target.running.exited:
+	case <-time.After(exitGrace):
+	}
+
+	gone := target.running.up()
+	switch {
+	case gone == nil:
+		return err
+	case !mutates(target.action.Class):
+		return gone
+	default:
+		return fmt.Errorf("%w, so whether %s took effect is not known: nothing survived to say",
+			gone, target.action.Name)
+	}
 }
 
 // aboutOf decides what a chained step is about. An action applying to no kind
@@ -519,6 +565,9 @@ func (m *Manager) Status(ctx context.Context, id, handle string) (*Outcome, erro
 
 	if !ok {
 		return nil, fmt.Errorf("plugin: %s is not running, so %s cannot be polled", id, handle)
+	}
+	if err := running.up(); err != nil {
+		return nil, fmt.Errorf("%w, so %s cannot be polled and its outcome is not recoverable", err, handle)
 	}
 
 	answer, err := running.client.Status(ctx, &duskv1alpha1.StatusRequest{Handle: handle})

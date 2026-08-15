@@ -78,15 +78,24 @@ func TestAPIWritesAreNotRedirectedToLogin(t *testing.T) {
 		env:     map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
 	})
 
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/plugins/kubernetes/install", nil))
+	// Every write route, so one added and not mounted fails here rather than in
+	// a browser reporting a JSON parse error.
+	for _, target := range []string{
+		"/api/plugins/kubernetes/install",
+		"/api/plugins/kubernetes/uninstall",
+		"/api/plugins/kubernetes/restart",
+		"/api/plugins/refresh",
+	} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, target, nil))
 
-	if rec.Code == http.StatusSeeOther {
-		t.Fatalf("POST to the API was redirected to %q, so it never reached a handler",
-			rec.Header().Get("Location"))
-	}
-	if body := rec.Body.String(); strings.HasPrefix(strings.TrimSpace(body), "<") {
-		t.Errorf("the API answered with markup rather than JSON: %.60s", body)
+		if rec.Code == http.StatusSeeOther {
+			t.Errorf("POST %s was redirected to %q, so it never reached a handler",
+				target, rec.Header().Get("Location"))
+		}
+		if body := rec.Body.String(); strings.HasPrefix(strings.TrimSpace(body), "<") {
+			t.Errorf("POST %s answered with markup rather than JSON: %.60s", target, body)
+		}
 	}
 }
 
