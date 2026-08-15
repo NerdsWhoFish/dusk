@@ -131,6 +131,54 @@ func Match(pattern, candidate string) (bool, error) {
 	return path.Match(after, path.Base(candidate))
 }
 
+// Place returns the path a new file for name takes under pattern, and false
+// when the pattern cannot name one.
+//
+// It lives beside Match and every candidate is checked against it, because a
+// pattern that matches a file on read has to produce that file on a create.
+// A malformed pattern places nothing, as it matches nothing; Glob reports it.
+func Place(pattern, name string) (string, bool) {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`+wildcards) {
+		return "", false
+	}
+
+	for _, candidate := range placements(pattern, name) {
+		if candidate == "" || strings.ContainsAny(candidate, wildcards) {
+			continue
+		}
+		if ok, err := Match(pattern, candidate); err == nil && ok {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+const wildcards = "*?["
+
+// placements are the paths worth trying, flattest first, because `a/**/b.md` is
+// written by somebody whose files are at `a/b.md`. The second is for a pattern
+// whose only wildcard is the `**`, where the name is a directory.
+func placements(pattern, name string) []string {
+	before, after, recursive := splitRecursive(pattern)
+	if !recursive {
+		return []string{substitute(pattern, name)}
+	}
+	return []string{
+		substitute(path.Join(before, after), name),
+		path.Join(before, name, after),
+	}
+}
+
+// substitute fills the first wildcard with name, and answers empty when there
+// is none: a pattern with nothing to fill in names one exact file, and treating
+// that as a destination puts every new entity into that one file.
+func substitute(pattern, name string) string {
+	if !strings.Contains(pattern, "*") {
+		return ""
+	}
+	return strings.Replace(pattern, "*", name, 1)
+}
+
 func splitRecursive(pattern string) (before, after string, ok bool) {
 	for i := range len(pattern) - 2 {
 		if pattern[i:i+2] == "**" {

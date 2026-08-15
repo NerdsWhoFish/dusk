@@ -68,6 +68,55 @@ func TestGlob(t *testing.T) {
 	})
 }
 
+// A pattern that reads a file has to be able to name one, or an entity can be
+// declared into a repository only by hand. The two rules lived in two packages
+// and disagreed about `**`, which is what this pins.
+func TestPlace(t *testing.T) {
+	tests := []struct {
+		pattern string
+		want    string
+	}{
+		{"services/*/dusk.md", "services/navidrome/dusk.md"},
+		{"entities/*.md", "entities/navidrome.md"},
+		{"entities/**/*.md", "entities/navidrome.md"},
+		{"**/*.md", "navidrome.md"},
+		{"*.md", "navidrome.md"},
+		{".dusk/**/*.md", ".dusk/navidrome.md"},
+
+		// The name is the only thing a `**` can be filled with here.
+		{"**/dusk.md", "navidrome/dusk.md"},
+
+		// Nothing to fill in, so it names one file rather than a destination.
+		{"entities/nas.md", ""},
+		{"[unclosed/*.md", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			got, ok := catalogfs.Place(tt.pattern, "navidrome")
+			if got != tt.want || ok != (tt.want != "") {
+				t.Fatalf("Place(%q) = %q, %v, want %q", tt.pattern, got, ok, tt.want)
+			}
+			if !ok {
+				return
+			}
+			if matched, err := catalogfs.Match(tt.pattern, got); err != nil || !matched {
+				t.Errorf("Place put a file at %q that %q does not match", got, tt.pattern)
+			}
+		})
+	}
+}
+
+// The name reaches this from a ref an agent supplied, so it is the same trust
+// level as a request body.
+func TestPlaceRefusesANameThatIsNotOne(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "a/b", "../escape", "*"} {
+		if got, ok := catalogfs.Place("entities/*.md", name); ok {
+			t.Errorf("Place(%q) = %q, want it refused", name, got)
+		}
+	}
+}
+
 func TestReadReportsAMissAsNotExisting(t *testing.T) {
 	tree := treeOf("dusk.md")
 

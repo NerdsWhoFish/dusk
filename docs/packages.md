@@ -36,6 +36,7 @@ graph TD
   REC --> MD["pkg/duskmd"]
   WRI --> GH["pkg/githubapp"]
   WRI --> PRF["pkg/proof"]
+  WRI --> CFS
   GH --> CFS
   MD --> VOC["pkg/vocab"]
   IDX --> VOC
@@ -46,7 +47,7 @@ graph TD
 
 | Package | Its job | Not its job |
 | --- | --- | --- |
-| `catalogfs` | The file semantics of a catalog repository: what counts as a catalog file, which paths are Dusk's own configuration rather than content, how `include` patterns match, and the in-memory tree a reconcile reads from | Fetching anything. It has no network, no disk, and no idea where the files came from |
+| `catalogfs` | The file semantics of a catalog repository: what counts as a catalog file, which paths are Dusk's own configuration rather than content, how `include` patterns match **and where they place a new file**, and the in-memory tree a reconcile reads from | Fetching anything. It has no network, no disk, and no idea where the files came from |
 | `duskmd` | Parsing and formatting every catalog file: `dusk.md`, notes, and the kind vocabulary, with errors that name file, line, field and expectation | Deciding *which* files to parse, or what a graph means. It sees one file at a time |
 | `githubapp` | Everything that talks to GitHub: the App manifest flow, installation tokens, tarball downloads, commits, and the API rate-limit budget | Interpreting what it fetched. It returns a `catalogfs.Tree`, never a parsed entity |
 | `proof` | The read-before-write gate: issuing tokens for what a read returned, and refusing a write whose token is missing, stale, or never saw the thing | Performing the write, or knowing what an entity is |
@@ -86,7 +87,7 @@ These are the calls that have actually been got wrong.
 
 | You are writing | It goes in |
 | --- | --- |
-| A path or glob rule | `catalogfs`. Never in a reader |
+| A path or glob rule | `catalogfs`. Never in a reader, and never in a writer: `Place` is there so a pattern that matches on read produces a path on create |
 | "Is this file worth reading" | `catalogfs.IsCatalogFile`. There is exactly one answer to this |
 | "Is this file Dusk's own configuration" | `catalogfs.IsReserved`, which is also where the path constant lives |
 | Anything that parses frontmatter | `duskmd` |

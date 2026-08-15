@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path"
 	"strings"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
@@ -352,21 +352,17 @@ func apply(file *duskmd.File, declaration Declaration) {
 	}
 }
 
-// placeIn picks a new file's path from the root's includes. A file they do not
-// reach is committed and never read, which is the quietest failure available:
-// the write succeeds and the catalog never changes.
+// placeIn picks a new file's path from the root's includes, through the matcher
+// that reads them. A file they do not reach is committed and never read: the
+// write succeeds and the catalog never changes.
 func placeIn(root *duskmd.File, name string) (string, error) {
 	if len(root.Include) == 0 {
 		return "", fmt.Errorf("its %s has no include, so a new file would be committed and never read. Add one, such as `services/*/dusk.md`", RootFile)
 	}
 
 	for _, pattern := range root.Include {
-		candidate := strings.Replace(pattern, "*", name, 1)
-		if strings.Contains(candidate, "*") {
-			continue
-		}
-		if ok, err := path.Match(pattern, candidate); err == nil && ok {
-			return candidate, nil
+		if placed, ok := catalogfs.Place(pattern, name); ok {
+			return placed, nil
 		}
 	}
 	return "", fmt.Errorf("none of its include patterns %v can name a file for %q", root.Include, name)
