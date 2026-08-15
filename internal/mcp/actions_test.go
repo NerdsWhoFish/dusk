@@ -178,6 +178,57 @@ func TestChangesReportsPluginHealth(t *testing.T) {
 	}
 }
 
+// ADR-0054: "not running" is not one answer. An agent has to be able to tell a
+// plugin on its way back from one nothing is bringing back, because only the
+// second is worth telling somebody about.
+func TestChangesTellsARestartFromAPluginNobodyIsRestarting(t *testing.T) {
+	tests := []struct {
+		name    string
+		process *plugin.Process
+		says    []string
+	}{
+		{
+			name:    "coming back",
+			process: &plugin.Process{Phase: plugin.PhaseRestarting, Exit: "signal: killed", Restarts: 2},
+			says:    []string{"being started again", "signal: killed"},
+		},
+		{
+			name:    "given up on",
+			process: &plugin.Process{Phase: plugin.PhaseFailed, Exit: "exit status 3", Attempts: 8},
+			says:    []string{"no longer being restarted", "8 attempts", "exit status 3"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plugins := &offering{reports: []plugin.Report{
+				{ID: "kubernetes", Version: "v0.2.0", Running: false, Process: test.process},
+			}}
+
+			body := call(t, acting(t, plugins).session, "changes", nil)
+			for _, want := range test.says {
+				if !strings.Contains(body, want) {
+					t.Errorf("changes did not report %q:\n%s", want, body)
+				}
+			}
+		})
+	}
+}
+
+// A plugin that has been restarted is serving observations that are younger
+// than the plugin, which is exactly what `changes` exists to disclose.
+func TestChangesSaysWhenARunningPluginHasBeenRestarted(t *testing.T) {
+	plugins := &offering{reports: []plugin.Report{{
+		ID: "airtrail", Version: "v1.0.0", Running: true,
+		Process: &plugin.Process{Phase: plugin.PhaseRunning, Restarts: 3, Since: time.Now()},
+	}}}
+
+	body := call(t, acting(t, plugins).session, "changes", nil)
+	if !strings.Contains(body, "restarted 3 times") {
+		t.Errorf("changes did not say the plugin had been restarted:\n%s", body)
+	}
+}
+
 // ADR-0041: a secret passed as a tool argument is a secret written into the
 // transcript, so it is refused rather than accepted and quietly dropped.
 func TestConfigureRefusesASensitiveField(t *testing.T) {
@@ -351,6 +402,24 @@ func TestAPluginCanBeReadToFindWhatItOffers(t *testing.T) {
 	// action takes no ref. Saying both leaves the reader told twice.
 	if n := strings.Count(body, "Run one with `invoke`"); n != 1 {
 		t.Errorf("the invoke hint appears %d times, want once:\n%s", n, body)
+	}
+}
+
+// Reading a plugin is where an agent finds out what it can be asked to do, so
+// it is also where it has to find out that nothing can be asked of it at all.
+func TestReadingAPluginSaysWhyItIsNotAnswering(t *testing.T) {
+	acts := acting(t, &offering{
+		reports: []plugin.Report{{
+			ID: "adr", Version: "0.1.0", Running: false,
+			Process: &plugin.Process{Phase: plugin.PhaseFailed, Attempts: 8, Exit: "exit status 3"},
+		}},
+	})
+
+	body := call(t, acts.session, "get", map[string]any{"ref": "plugin:adr"})
+	for _, want := range []string{"no longer being restarted", "exit status 3"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reading the plugin did not say %q:\n%s", want, body)
+		}
 	}
 }
 

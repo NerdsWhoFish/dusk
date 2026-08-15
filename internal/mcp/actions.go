@@ -267,7 +267,8 @@ func renderPlugins(reports []plugin.Report) string {
 	for _, report := range reports {
 		switch {
 		case !report.Running:
-			fmt.Fprintf(&out, "- **%s** %s is installed and not running.\n", report.ID, report.Version)
+			fmt.Fprintf(&out, "- **%s** %s is installed and %s.\n",
+				report.ID, report.Version, downWord(report.Process))
 			continue
 		case report.Failing():
 			fmt.Fprintf(&out, "- **%s** %s is failing on every configuration: %s\n",
@@ -275,7 +276,7 @@ func renderPlugins(reports []plugin.Report) string {
 			continue
 		}
 
-		fmt.Fprintf(&out, "- **%s** %s is running", report.ID, report.Version)
+		fmt.Fprintf(&out, "- **%s** %s is running%s", report.ID, report.Version, cameBack(report.Process))
 		for _, health := range report.Health {
 			if health.Problem == "" {
 				continue
@@ -289,6 +290,17 @@ func renderPlugins(reports []plugin.Report) string {
 		out.WriteString(".\n")
 	}
 	return out.String()
+}
+
+// cameBack notes a plugin that is up now and has not been all along, because
+// `changes` answers "how much should I trust this" and an observation from
+// before a crash is older than the timestamp on it suggests.
+func cameBack(process *plugin.Process) string {
+	if process == nil || process.Restarts == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (restarted %d times, last at %s)",
+		process.Restarts, process.Since.Format(time.RFC3339))
 }
 
 type configureInput struct {

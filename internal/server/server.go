@@ -277,6 +277,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("POST /plugins/refresh", s.handleAPIRefresh)
 	api.HandleFunc("POST /plugins/{id}/install", s.handleAPIInstall)
 	api.HandleFunc("POST /plugins/{id}/uninstall", s.handleAPIUninstall)
+	api.HandleFunc("POST /plugins/{id}/restart", s.handleAPIRestart)
 	api.HandleFunc("POST /plugins/{id}/config", s.handleAPIConfigure)
 	api.HandleFunc("POST /plugins/{id}/config/{instance}", s.handleAPIConfigure)
 	api.HandleFunc("GET /plugins/{id}/output", s.handleAPIOutput)

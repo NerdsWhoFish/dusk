@@ -292,6 +292,21 @@ export type PluginHealth = {
   problem?: string;
 };
 
+// PluginProcess is what the supervisor knows about the plugin's own process,
+// as against health, which is what its observations did.
+export type PluginProcess = {
+  phase: "running" | "restarting" | "failed" | "stopped";
+  restarts: number;
+  attempts?: number;
+  exit?: string;
+
+  // Zero when there is nothing to time: no process is running, none has died,
+  // or none is due to start.
+  since: string;
+  exit_at: string;
+  next: string;
+};
+
 export type PluginOffer = {
   id: string;
   org: string;
@@ -304,6 +319,7 @@ export type PluginOffer = {
   update_available: boolean;
   running: boolean;
   problem?: string;
+  process?: PluginProcess;
   fields?: PluginField[];
   actions?: Action[];
   views?: PluginView[];
@@ -348,6 +364,8 @@ export const api = {
     ),
   uninstall: (id: string) =>
     post<{ uninstalled: string }>(`/plugins/${encodeURIComponent(id)}/uninstall`),
+  restartPlugin: (id: string) =>
+    post<{ restarted: string }>(`/plugins/${encodeURIComponent(id)}/restart`),
   forget: (scope: string) =>
     post<{ forgot: string }>("/observations/forget", { scope }),
   configure: (id: string, config: PluginConfig, instance?: string) =>

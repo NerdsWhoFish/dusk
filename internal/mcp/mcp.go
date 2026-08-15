@@ -349,15 +349,31 @@ func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
 }
 
 // runningWord says whether a plugin is up, which decides whether an action on
-// it can be run at all.
+// it can be run at all. A plugin that is down says which kind of down, because
+// "wait" and "somebody has to look at this" are different answers.
 func runningWord(report plugin.Report) string {
 	if !report.Running {
-		return "not running"
+		return downWord(report.Process)
 	}
 	if report.Failing() {
 		return "running but failing"
 	}
 	return "running"
+}
+
+// downWord describes a plugin that is not answering.
+func downWord(process *plugin.Process) string {
+	switch {
+	case process == nil:
+		return "not running"
+	case process.Phase == plugin.PhaseRestarting:
+		return fmt.Sprintf("not running, being started again after it exited (%s)", process.Exit)
+	case process.Phase == plugin.PhaseFailed:
+		return fmt.Sprintf("not running, and no longer being restarted after %d attempts (%s)",
+			process.Attempts, process.Exit)
+	default:
+		return "not running"
+	}
 }
 
 func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (*sdk.CallToolResult, any, error) {

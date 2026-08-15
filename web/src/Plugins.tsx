@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, type PluginHealth, type PluginOffer } from "./api";
+import {
+  api,
+  type PluginHealth,
+  type PluginOffer,
+  type PluginProcess,
+} from "./api";
 import { Capabilities, Contributions, Output } from "./Capabilities";
 import { Events } from "./Events";
 import { ConfigForm } from "./PluginConfig";
+
+const doing = {
+  install: api.install,
+  uninstall: api.uninstall,
+  restart: api.restartPlugin,
+};
+
+type Doing = keyof typeof doing;
 
 // Plugins is the marketplace: what the trusted orgs publish, what is installed
 // here, and what has an update waiting. Installing runs somebody else's binary
@@ -51,11 +64,11 @@ export function Plugins() {
     }
   };
 
-  const act = async (id: string, what: "install" | "uninstall") => {
+  const act = async (id: string, what: Doing) => {
     setBusy((current) => ({ ...current, [id]: what }));
     setProblem(undefined);
     try {
-      await (what === "install" ? api.install(id) : api.uninstall(id));
+      await doing[what](id);
       await load();
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -124,7 +137,7 @@ function Offer({
 }: {
   offer: PluginOffer;
   busy?: string;
-  onAct: (id: string, what: "install" | "uninstall") => void;
+  onAct: (id: string, what: Doing) => void;
   onCheck: (id: string) => void;
   onSaved: () => void;
 }) {
@@ -144,11 +157,16 @@ function Offer({
                 {offer.installed_version} installed
               </span>
               {!offer.running ? (
-                <span className="tag gone">not running</span>
+                <span className="tag gone">{phaseWord(offer.process)}</span>
               ) : failing(offer.health) ? (
                 <span className="tag gone">failing</span>
               ) : (
                 <span className="tag">running</span>
+              )}
+              {(offer.process?.restarts ?? 0) > 0 && (
+                <span className="tag unknown">
+                  restarted {offer.process?.restarts}&times;
+                </span>
               )}
               {offer.update_available && (
                 <span className="tag unknown">{offer.version} available</span>
@@ -159,6 +177,8 @@ function Offer({
           )}
         </span>
       </div>
+
+      <ProcessNote process={offer.process} />
 
       {(offer.health ?? []).some((h) => h.problem) && (
         <div className="plugin-health">
@@ -181,6 +201,16 @@ function Offer({
             onClick={() => setOpen((was) => !was)}
           >
             {open ? "Close" : "Configure"}
+          </button>
+        )}
+        {offer.installed && !offer.running && (
+          <button
+            type="button"
+            className="btn"
+            disabled={Boolean(busy)}
+            onClick={() => onAct(offer.id, "restart")}
+          >
+            {busy === "restart" ? "Starting" : "Start"}
           </button>
         )}
         {offer.installed && (
@@ -276,4 +306,58 @@ function Offer({
 // only in the pod log.
 function failing(health?: PluginHealth[]): boolean {
   return (health ?? []).some((entry) => Boolean(entry.problem));
+}
+
+// phaseWord distinguishes a plugin on its way back from one nothing is trying
+// to bring back, which decide different things for whoever is reading.
+function phaseWord(process?: PluginProcess): string {
+  switch (process?.phase) {
+    case "restarting":
+      return "restarting";
+    case "failed":
+      return "will not start";
+    default:
+      return "not running";
+  }
+}
+
+// when renders a timestamp, or nothing at all for the zero time Go sends when
+// there is nothing to time. Rendering that gives the year 1.
+function when(value: string, prefix: string): string {
+  const at = new Date(value);
+  if (!value || Number.isNaN(at.getTime()) || at.getUTCFullYear() < 2000) {
+    return "";
+  }
+  return prefix + at.toLocaleString();
+}
+
+// ProcessNote says how a plugin's process is doing when that is not simply
+// "it has been up the whole time".
+function ProcessNote({ process }: { process?: PluginProcess }) {
+  if (!process || (process.phase === "running" && process.restarts === 0)) {
+    return null;
+  }
+
+  return (
+    <div className="plugin-health">
+      {process.phase === "failed" && (
+        <p className="hint err" role="alert">
+          It would not stay up after {process.attempts} attempts, so nothing is
+          restarting it. {process.exit}
+        </p>
+      )}
+      {process.phase === "restarting" && (
+        <p className="hint err" role="alert">
+          Its process went away and Dusk is starting it again. {process.exit}
+        </p>
+      )}
+      {process.phase === "running" && process.restarts > 0 && (
+        <p className="quiet">
+          Restarted {process.restarts} times{when(process.since, ", up since ")}.
+          {process.exit ? ` Last exit: ${process.exit}` : ""}
+        </p>
+      )}
+      {process.phase === "stopped" && <p className="quiet">Dusk stopped it.</p>}
+    </div>
+  );
 }

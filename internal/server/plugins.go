@@ -20,6 +20,10 @@ type Plugins interface {
 	Uninstall(id string) error
 	Configure(ctx context.Context, id, instance string, config map[string]any) error
 
+	// Restart is the way back from a plugin the supervisor gave up on, and the
+	// only one: configuring a plugin needs it running (ADR-0054).
+	Restart(ctx context.Context, id string) error
+
 	// Views and Asset are how a plugin renders itself: Dusk mounts the element
 	// and serves its JavaScript from its own origin (ADR-0020).
 	Views(kind string) []plugin.View
@@ -131,6 +135,23 @@ func (s *Server) handleAPIUninstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"uninstalled": r.PathValue("id")})
+}
+
+// handleAPIRestart answers POST /api/plugins/{id}/restart. The supervisor gives
+// up on a plugin that will not stay up, and this is how somebody who has fixed
+// whatever it was tells it to try again.
+func (s *Server) handleAPIRestart(w http.ResponseWriter, r *http.Request) {
+	if s.plugins == nil {
+		http.Error(w, `{"error":"plugins are not enabled"}`, http.StatusNotImplemented)
+		return
+	}
+
+	id := r.PathValue("id")
+	if err := s.plugins.Restart(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"restarted": id})
 }
 
 // handleAPIConfigure answers the config routes, for a plugin's own
