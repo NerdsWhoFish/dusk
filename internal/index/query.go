@@ -29,7 +29,8 @@ type SearchResult struct {
 	Snippet string
 
 	// Version is what a proof token records, so a search authorizes writing
-	// everything it returned rather than only naming it. Empty for a note.
+	// everything it returned rather than only naming it. It is whatever the
+	// write path compares against: an entity's version, a note's content hash.
 	Version string
 }
 
@@ -121,6 +122,10 @@ func (db *DB) RecentNotes(ctx context.Context, gitRef string, limit int) ([]*dus
 // NoteFilter narrows what Notes answers with. An empty filter is every note,
 // newest first.
 type NoteFilter struct {
+	// Id is one note by its path. It is what a refused write against a note
+	// names, so without it nothing could re-read exactly the note it refused.
+	Id string
+
 	// Kind is a note kind such as idea or gotcha.
 	Kind string
 
@@ -153,6 +158,9 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	clause, args := scopeClause("notes", gitRef)
 	query := db.gorm.WithContext(ctx).Model(&noteRow{}).Where(clause, args...)
 
+	if filter.Id != "" {
+		query = query.Where("notes.note_id = ?", filter.Id)
+	}
 	if filter.Kind != "" {
 		query = query.Where("notes.kind = ?", filter.Kind)
 	}
@@ -359,10 +367,15 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		       -- Column 7 is body. snippet() takes a positional index, so
 		       -- adding a column to catalog_fts silently moves this.
 		       snippet(catalog_fts, 7, '', '', '...', 12) AS snippet,
-		       COALESCE(e.version, '') AS version
+		       -- Whichever half of the catalog the hit came from. A note joined
+		       -- against entities alone has no version, and a token recording
+		       -- an empty one can never authorize writing it.
+		       COALESCE(e.version, n.content_hash, '') AS version
 		  FROM catalog_fts f
 		  LEFT JOIN entities e
 		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
+		  LEFT JOIN notes n
+		    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
 		 WHERE catalog_fts MATCH ? AND `+scope+`
 		 ORDER BY CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
 		               THEN 1 ELSE 0 END, rank

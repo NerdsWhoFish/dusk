@@ -29,6 +29,10 @@ type recordingWriter struct {
 	kinds  []byte
 	minted []vocab.Kind
 
+	// noteBodies is what each note says today, which is what a replacement is
+	// authorized against, the same as the real writer reads from the file.
+	noteBodies map[string]string
+
 	// notesGo is where notes land, and empty means the tool is not offered.
 	notesGo string
 }
@@ -38,10 +42,9 @@ func (w *recordingWriter) NoteDestination() string { return w.notesGo }
 func (w *recordingWriter) Record(_ context.Context, token string, n write.Note) (*write.Result, error) {
 	// Replacing a note is a write over something the agent should have read.
 	// Creating one is not, so only the first needs a token.
-	if n.Id != "" && w.tokens.Lookup(token) == nil {
-		return nil, &proof.Rejection{
-			Code: proof.CodeRequired, Ref: n.Id,
-			Detail: "no valid proof token was presented", Fix: `get("` + n.Id + `")`,
+	if n.Id != "" {
+		if err := w.tokens.AuthorizeUpdate(token, proof.Note(n.Id), duskmd.ContentHash(w.noteBodies[n.Id])); err != nil {
+			return nil, err
 		}
 	}
 	w.notes = append(w.notes, n)
@@ -217,7 +220,11 @@ func (w *recordingWriter) Home(context.Context) ([]byte, error) {
 }
 
 func (w *recordingWriter) SetHome(_ context.Context, token string, body []byte) (*write.Result, error) {
-	if err := w.tokens.AuthorizeUpdate(token, page.Path, duskmd.ContentHash(string(w.home))); err != nil {
+	if len(w.home) == 0 {
+		if err := w.tokens.AuthorizeCreate(token, proof.Portal(page.Path)); err != nil {
+			return nil, err
+		}
+	} else if err := w.tokens.AuthorizeUpdate(token, proof.Portal(page.Path), duskmd.ContentHash(string(w.home))); err != nil {
 		return nil, err
 	}
 	w.wrote = body

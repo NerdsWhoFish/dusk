@@ -12,6 +12,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
@@ -227,6 +228,66 @@ func TestDeclareCreates(t *testing.T) {
 	}
 	if !strings.Contains(string(target.commits[0].Content), "Music streaming.") {
 		t.Errorf("description missing:\n%s", target.commits[0].Content)
+	}
+}
+
+// A create places the file under an include, and the pattern that reaches every
+// existing entity has to reach the new one too. A repository whose entities can
+// be read and not written is one an agent can only declare into by hand.
+func TestDeclareCreatesUnderAnyIncludeThatCanBeRead(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		include string
+		want    string
+	}{
+		{"a directory per entity", "services/*/dusk.md", "services/navidrome/dusk.md"},
+		{"a file per entity", "entities/*.md", "entities/navidrome.md"},
+		{"at any depth", "entities/**/*.md", "entities/navidrome.md"},
+		{"anywhere at all", `"**/*.md"`, "navidrome.md"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := strings.Replace(rootFile, "services/*/dusk.md", tt.include, 1)
+			writer, target, tokens := newWriter(t, nil, map[string]string{RootPath: root})
+
+			token := tokens.Issue(proof.FromSearch, nil)
+			result, err := writer.Declare(t.Context(), token.ID, write.Declaration{
+				Ref: "service:home/navidrome", Repository: repo,
+			})
+			if err != nil {
+				t.Fatalf("Declare under %q: %v", tt.include, err)
+			}
+			if result.Path != tt.want {
+				t.Errorf("path = %q, want %q", result.Path, tt.want)
+			}
+
+			// The pattern reads the file back, or the write is a commit the
+			// catalog never sees.
+			if len(target.commits) != 1 {
+				t.Fatalf("commits = %d, want 1", len(target.commits))
+			}
+			ok, err := catalogfs.Match(strings.Trim(tt.include, `"`), target.commits[0].Path)
+			if err != nil || !ok {
+				t.Errorf("%q does not match the include %q it was placed under", target.commits[0].Path, tt.include)
+			}
+		})
+	}
+}
+
+// An include naming one file exactly cannot name a file for anything, and
+// treating it as a destination puts every new entity in that one file.
+func TestDeclareRefusesAnIncludeThatNamesOneFile(t *testing.T) {
+	root := strings.Replace(rootFile, "services/*/dusk.md", "entities/nas.md", 1)
+	writer, target, tokens := newWriter(t, nil, map[string]string{RootPath: root})
+
+	token := tokens.Issue(proof.FromSearch, nil)
+	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{
+		Ref: "service:home/navidrome", Repository: repo,
+	})
+	if err == nil {
+		t.Fatal("Declare placed an entity in a file declared for another one")
+	}
+	if len(target.commits) != 0 {
+		t.Errorf("it wrote anyway: %+v", target.commits)
 	}
 }
 

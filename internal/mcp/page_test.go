@@ -60,6 +60,22 @@ func TestPageRefusesAWriteWithoutAProofToken(t *testing.T) {
 	}
 }
 
+// A repository with no page has to be able to get one, and the only read that
+// can witness there is none is `page` itself: a search cannot name a file.
+func TestPageCanBeDeclaredForTheFirstTime(t *testing.T) {
+	session, writer := pageSession(t, "")
+
+	token := tokenFrom(t, call(t, session, "page", map[string]any{}))
+	answer := call(t, session, "page", map[string]any{"body": declared, "proof": token})
+
+	if !strings.Contains(answer, "Rewrote") {
+		t.Fatalf("the first page could not be declared:\n%s", answer)
+	}
+	if string(writer.wrote) != declared {
+		t.Errorf("wrote %q, want exactly what was sent", writer.wrote)
+	}
+}
+
 // Reading issues the token, and that token authorizes the rewrite.
 func TestPageWritesAfterReading(t *testing.T) {
 	session, writer := pageSession(t, declared)

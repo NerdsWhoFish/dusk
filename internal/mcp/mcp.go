@@ -222,7 +222,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	// can still answer "what ideas do I have".
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "note",
-		Description: "Read or record something worth keeping that is not a description of any one thing: a gotcha, a runbook, an idea, the reason something is the way it is. Pass a body to write one, attaching it to the entities it concerns, or nothing to read what is there, narrowed by kind, status and what it is about. An idea about nothing in particular needs no refs. Close one with status done or dropped.",
+		Description: "Read or record something worth keeping that is not a description of any one thing: a gotcha, a runbook, an idea, the reason something is the way it is. Pass a body to write one, attaching it to the entities it concerns, or nothing to read what is there, narrowed by kind, status and what it is about. An id on its own reads that one note and returns the token to replace it. An idea about nothing in particular needs no refs. Close one with status done or dropped.",
 	}, s.note)
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
@@ -518,6 +518,17 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 		verb, result.Ref, result.Repository, result.Path, result.URL, warning)), nil, nil
 }
 
+// nothingToWrite reports that a call asked for notes rather than changing one.
+// With no id, kind and status are read filters. With one they are changes, so
+// an id alone is a read: the call a refused write against a note names.
+func nothingToWrite(in noteInput) bool {
+	if in.Id == "" {
+		return strings.TrimSpace(in.Body) == ""
+	}
+	return strings.TrimSpace(in.Body) == "" && strings.TrimSpace(in.Kind) == "" &&
+		strings.TrimSpace(in.Status) == "" && in.Refs == nil && !in.Pinned
+}
+
 // noteInput leaves kind and body optional because an update merges over what
 // the file says, so restating them would be a chance to get one wrong. A new
 // note needs both, enforced by the write path rather than the schema.
@@ -525,7 +536,7 @@ type noteInput struct {
 	Kind   string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, todo, or idea. Required for a new note, and a filter when reading"`
 	Body   string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
 	Refs   []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name. An idea about nothing in particular needs none"`
-	Id     string   `json:"id,omitempty" jsonschema:"the path of an existing note to replace; omit to write a new one"`
+	Id     string   `json:"id,omitempty" jsonschema:"the path of an existing note. Alone it reads that note and returns the token to replace it; with something to change it replaces it. Omit to write a new one"`
 	Proof  string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
 	Pinned bool     `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to"`
 
@@ -539,7 +550,7 @@ type noteInput struct {
 // asking "my open ideas" and then finishing one is two calls, not four.
 func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResult, any, error) {
 	notes, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{
-		Kind: in.Kind, Status: in.Status, Ref: in.Ref, Limit: in.Limit,
+		Id: in.Id, Kind: in.Kind, Status: in.Status, Ref: in.Ref, Limit: in.Limit,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -551,12 +562,16 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 	}
 
 	if len(notes) == 0 {
-		return text(describeNothing(in) + s.issue(proof.FromGet, seen)), nil, nil
+		return text(describeNothing(in) + s.issue(proof.FromNote, seen)), nil, nil
 	}
-	return text(renderNotes(notes) + s.issue(proof.FromGet, seen)), nil, nil
+	return text(renderNotes(notes) + s.issue(proof.FromNote, seen)), nil, nil
 }
 
 func describeNothing(in noteInput) string {
+	if in.Id != "" {
+		return fmt.Sprintf("No note at `%s`. `search` finds one by what it says, and a note's id is its path.\n", in.Id)
+	}
+
 	said := "No notes"
 	if in.Status != "" {
 		said += " that are " + in.Status
@@ -571,10 +586,10 @@ func describeNothing(in noteInput) string {
 }
 
 // note reads and writes, for the same reason page does: the read is what yields
-// the proof token the write needs, so a separate read tool would look optional.
-// Passing nothing to write with is how a caller asks what is there.
+// the proof token the write needs. Passing nothing to write with asks what is
+// there, with an id or without.
 func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput) (*sdk.CallToolResult, any, error) {
-	if in.Id == "" && strings.TrimSpace(in.Body) == "" {
+	if nothingToWrite(in) {
 		return s.readNotes(ctx, in)
 	}
 
@@ -867,10 +882,12 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 	body, err := s.opts.Writer.Home(ctx)
 	if errors.Is(err, fs.ErrNotExist) {
 		declared, _ := yaml.Marshal(page.Default())
+		// Nothing seen, because there is nothing there: this read is the one
+		// that witnesses the absence declaring the first page needs.
 		return text(fmt.Sprintf(
 			"No page is declared, so Dusk serves its default. Writing one replaces it entirely.\n\n"+
 				"The default, as it would be written:\n\n```yaml\n---\n%s---\n```\n\n%s",
-			declared, s.issue(proof.FromPage, map[string]string{page.Path: ""}))), nil, nil
+			declared, s.issue(proof.FromPage, nil))), nil, nil
 	}
 	if err != nil {
 		return text(fmt.Sprintf("The page could not be read.\n\n%s", err)), nil, nil

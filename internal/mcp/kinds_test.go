@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,15 +36,18 @@ func (w *recordingWriter) vocabulary() *duskmd.Kinds {
 }
 
 func (w *recordingWriter) MintKind(_ context.Context, token string, kind vocab.Kind) (*write.Result, error) {
-	err := w.tokens.AuthorizeUpdateFrom(token, vocab.Path, duskmd.ContentHash(string(w.kinds)), proof.FromKinds)
+	err := w.tokens.AuthorizeUpdateFrom(token, proof.Vocabulary(vocab.Path), duskmd.ContentHash(string(w.kinds)))
 	if err != nil {
 		return nil, err
 	}
 
 	existing := w.vocabulary()
-	rendered, err := duskmd.FormatKinds(&duskmd.Kinds{
-		Kinds: append(existing.Kinds, kind), Body: existing.Body,
-	})
+	kinds, changed := vocab.Merge(existing.Kinds, kind)
+	if !changed {
+		return &write.Result{Ref: vocab.Path, Path: vocab.Path, Existing: true}, nil
+	}
+
+	rendered, err := duskmd.FormatKinds(&duskmd.Kinds{Kinds: kinds, Body: existing.Body})
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +58,22 @@ func (w *recordingWriter) MintKind(_ context.Context, token string, kind vocab.K
 		Ref: vocab.Path, Repository: w.notesGo, Path: vocab.Path,
 		Commit: "c0ffee", URL: "https://github.com/example/config/commit/c0ffee",
 	}, nil
+}
+
+// seedAirports puts a kind in the catalog that nobody minted, which is where
+// the default role comes from.
+func seedAirports(t *testing.T, idx *index.DB) {
+	t.Helper()
+
+	err := idx.Put(t.Context(), "example/travel", mainRef, []index.Declaration{
+		{Path: "airports/bos.md", Entity: entity("airport:world/bos", "airport", "Boston Logan", "")},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/travel", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
 }
 
 func kindsSession(t *testing.T) (*sdk.ClientSession, *recordingWriter, *index.DB) {
@@ -142,13 +162,98 @@ func TestAMintSaysWhatItChanged(t *testing.T) {
 	}
 }
 
+// A kind nobody minted carries the default role, so a reference kind is
+// reported by drift as infrastructure until somebody says otherwise. Refusing a
+// mint of a name that exists left editing the file by hand as the only way.
+func TestADR0054_ARoleCanBeCorrected(t *testing.T) {
+	session, writer, idx := kindsSession(t)
+	seedAirports(t, idx)
+
+	read := call(t, session, "kinds", nil)
+	if !strings.Contains(read, "airport") {
+		t.Fatalf("the vocabulary does not carry the derived kind:\n%s", read)
+	}
+
+	body := call(t, session, "kinds", map[string]any{
+		"namespace": "entity", "mint": "airport", "role": "reference", "proof": tokenFrom(t, read),
+	})
+	if strings.Contains(body, "Nothing was minted") {
+		t.Fatalf("correcting a derived kind's role was refused:\n%s", body)
+	}
+
+	// The answer says what it changed, because a role is what drift acts on.
+	for _, want := range []string{"infrastructure", "reference", "Drift will stop listing"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the answer does not say %q:\n%s", want, body)
+		}
+	}
+	if len(writer.minted) != 1 || writer.minted[0].Role != vocab.Reference {
+		t.Fatalf("minted = %+v, want airport as reference", writer.minted)
+	}
+
+	t.Run("and reading it back says so", func(t *testing.T) {
+		again := call(t, session, "kinds", nil)
+		if !strings.Contains(again, "airport") {
+			t.Errorf("the corrected kind is not in the vocabulary:\n%s", again)
+		}
+	})
+}
+
+// The one refusal names an alias as the way to say it, so that call has to
+// work.
+func TestADR0054_TheAliasARefusalNamesCanBeAdded(t *testing.T) {
+	session, writer, _ := kindsSession(t)
+
+	refused := call(t, session, "kinds", map[string]any{
+		"namespace": "entity", "mint": "Service", "role": "infrastructure",
+		"proof": tokenFrom(t, call(t, session, "kinds", nil)),
+	})
+	if !strings.Contains(refused, "in its aliases") {
+		t.Fatalf("the refusal does not name the alias:\n%s", refused)
+	}
+
+	body := call(t, session, "kinds", map[string]any{
+		"namespace": "entity", "mint": "service", "role": "infrastructure",
+		"aliases": []any{"Service"},
+		"proof":   tokenFrom(t, call(t, session, "kinds", nil)),
+	})
+	if strings.Contains(body, "Nothing was minted") {
+		t.Fatalf("the alias the refusal named could not be added:\n%s", body)
+	}
+	if len(writer.minted) != 1 || !slices.Contains(writer.minted[0].Aliases, "Service") {
+		t.Errorf("minted = %+v, want the alias", writer.minted)
+	}
+}
+
+// A mint that would change nothing writes nothing, rather than committing a
+// file identical to the one that is there.
+func TestMintingWhatIsAlreadySaidWritesNothing(t *testing.T) {
+	session, writer, _ := kindsSession(t)
+
+	mint := func() string {
+		return call(t, session, "kinds", map[string]any{
+			"namespace": "note", "mint": "postmortem", "role": "warning",
+			"proof": tokenFrom(t, call(t, session, "kinds", nil)),
+		})
+	}
+
+	if first := mint(); strings.Contains(first, "Nothing was minted") {
+		t.Fatalf("the first mint was refused:\n%s", first)
+	}
+	if again := mint(); !strings.Contains(again, "already warning") {
+		t.Errorf("the answer does not say it was already so:\n%s", again)
+	}
+	if len(writer.minted) != 1 {
+		t.Errorf("minted = %+v, want the second to have written nothing", writer.minted)
+	}
+}
+
 func TestMintingRefusesWhatIsAlreadyTheVocabularys(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		mint string
 		want string
 	}{
-		{name: "the same name", mint: "service", want: "already exists"},
 		{name: "another spelling", mint: "Service", want: "another spelling"},
 		{name: "punctuated", mint: "ser-vice", want: "another spelling"},
 	} {

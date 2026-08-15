@@ -121,9 +121,38 @@ It cannot reach `svc`, which is four edits from `service`.
 Nothing can, without being told, and that is what aliases are for.
 The two halves of this are the same mechanism seen from both ends.
 
-**A mint is refused in exactly one case**: the name is already the vocabulary's after folding case and separators.
+**A mint is refused in exactly one case**: the name is *another spelling* of one the vocabulary has, after folding case and separators.
 Minting `Service` where `service` exists is not extending a vocabulary, it is putting two rows in it that mean the same thing, and the answer says to add it as an alias instead.
 Declaring `Service:home/thing` still works, because a declaration is never refused.
+
+## Correcting a kind
+
+Minting a kind the vocabulary already has, **spelled the same way**, corrects it ([ADR-0054](../adr/0054-correcting-a-kinds-role.md)).
+
+```text
+kinds()
+kinds(namespace: "entity", mint: "airport", role: "reference", proof: "…")
+```
+
+That is the same call whether or not `airport` has ever been minted, which matters because a kind nobody minted is in the vocabulary already, carrying the default role.
+The role most worth correcting is the one nobody chose: an estate with a hundred airports has them under `infrastructure` without anybody having said so, and one call moves them.
+
+The answer says what changed, because a role is what drift acts on:
+
+```text
+The entity kind `airport` was infrastructure and is now reference.
+```
+
+Two rules make a correction safe rather than surprising.
+
+**The token has to come from reading the vocabulary**, and that read prints every kind with its current role, so nothing is corrected by a caller that has not been shown what it is changing.
+
+**Aliases are added, never replaced.**
+Correcting a role keeps what the kind is also called, and adding an alias keeps the role.
+Saying what the file already says writes nothing at all.
+
+The role is required either way.
+A mint that carries no role is a kind that means nothing, which is what [ADR-0048](../adr/0048-the-kind-vocabulary.md) refused, and the role you are restating was printed in the answer that gave you the token.
 
 ## Aliases do not rewrite anything
 

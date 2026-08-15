@@ -78,6 +78,9 @@ The cost is real and worth stating: an agent that never calls `get` never discov
 Passing no body asks what is there, narrowed by `kind`, `status` and `ref`.
 Passing a body writes one.
 
+**An `id` on its own reads that one note** and returns the token to replace it, because that is the call a refused write against a note names and an instruction that does not work is worse than none.
+An `id` with something to change is a replacement, as it always was.
+
 An **idea** is a note of kind `idea`: something worth keeping that is not a description of anything.
 It may attach to nothing at all, because an idea is often not about anything in the catalog yet.
 It carries a status, and `status: done` or `status: dropped` closes it.
@@ -94,6 +97,9 @@ The proof token a mint presents is proof of having read the vocabulary being ext
 
 Kinds are open, so declaring one that is not listed always works and nothing refuses it.
 What minting adds is the two things counting cannot derive: a **role**, which every surface acts on, and **aliases**, which are the only way anything learns that `svc` means `service`.
+
+Minting a kind the vocabulary already has, spelled the same way, **corrects** it: the role most worth fixing is the one nobody chose, because a kind nobody minted carries the default ([ADR-0054](../adr/0054-correcting-a-kinds-role.md)).
+A name that is another *spelling* of one that exists is still the one refusal, and the alias it tells you to add is now a call that works.
 
 Full rules, roles and their consequences: [`docs/kinds.md`](kinds.md).
 
@@ -160,7 +166,9 @@ Proof token `4QK7…`. Pass it to `declare` to write any of the above.
 ```
 
 A token carries the version of everything its read returned, so one `search` authorizes a session's worth of writes, and any of them moving invalidates it.
-Creating needs a token from a **search that did not find it**: only an enumerating read can witness an absence, so an agent cannot duplicate something it never looked for.
+Creating needs a token from **the read that could have found it and did not**, so an agent cannot duplicate something it never looked for.
+For an entity that is `search`, because nothing else enumerates.
+For the homepage it is `page`, which looks at the one file being created, since a search cannot name a file at all.
 
 A refused write is an answer rather than an error, naming the call that fixes it:
 
@@ -170,6 +178,10 @@ The write was not made.
 E_PROOF_STALE: service:home/jellyfin: it changed after the read that
 issued this token; call get("service:home/jellyfin")
 ```
+
+**The call it names is the read of whatever was being written**, which is a separate fact from the ref rather than something derived from it.
+`get` takes an entity ref, `note` takes the path that is a note's id, and `kinds` and `page` take nothing at all, so a rejection against a note names `note(id: "…")` and one against the vocabulary names `kinds()`.
+An error naming a call that does not work is worse than no error: an agent follows it, fails again, and concludes the tool is broken.
 
 ### Where a write can reach
 
@@ -223,7 +235,7 @@ The config repository is not exempt from consent: it needs its own root `dusk.md
 Without it a note would be committed and then never read back, so `note` refuses up front instead of succeeding into a hole.
 
 **A note's id is its path.**
-The answer hands it back, and passing it as `id` replaces that note rather than writing a second one.
+The answer hands it back, and passing it as `id` reads that note, or replaces it when something is passed to change.
 Replacing needs a proof token, exactly as an entity update does; writing a new note does not, because a create cannot overwrite anything.
 
 An update merges over what the file already says, so changing a body leaves the refs and kind alone.
@@ -276,11 +288,9 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 
 ## Not built yet
 
-**The other write tools.** `relate`, `mintKind` and `push` are not built. `push` is meaningful only in proposal mode.
+**The other write tools.** `relate` and `push` are not built. `push` is meaningful only in proposal mode.
 
 **Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
-
-**Note ranking.** Notes come back pinned first and then by id. [ADR-0031](../adr/0031-notes-are-files.md) has kind driving ranking, so a gotcha should outrank a todo without being pinned by hand, and it does not yet.
 
 **Who ran something.** An event records an actor, and over MCP that actor is always `agent`: the surface authenticates with one shared bearer token and has no per-caller identity to record. Two agents holding one token are indistinguishable in the log.
 

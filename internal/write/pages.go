@@ -9,6 +9,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/page"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // Home returns the portal page the config repository declares, or
@@ -64,10 +65,10 @@ func (w *Writer) SetHome(ctx context.Context, token string, body []byte) (*Resul
 	var before []byte
 	if contents, err := target.ReadFileContents(ctx, branch, page.Path); err == nil {
 		replacing, before = contents.SHA, contents.Data
-		if err := w.Proof.AuthorizeUpdate(token, page.Path, duskmd.ContentHash(string(contents.Data))); err != nil {
+		if err := w.Proof.AuthorizeUpdate(token, proof.Portal(page.Path), duskmd.ContentHash(string(contents.Data))); err != nil {
 			return nil, err
 		}
-	} else if err := w.Proof.AuthorizeCreate(token, page.Path); err != nil {
+	} else if err := w.Proof.AuthorizeCreate(token, proof.Portal(page.Path)); err != nil {
 		return nil, err
 	}
 
