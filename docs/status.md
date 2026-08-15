@@ -52,7 +52,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Write path
 
-- [x] **Proof tokens**: `pkg/proof`, issued by a read, invalidated by change with a TTL backstop, rejections naming the call that fixes them ([0009](../adr/0009-proof-tokens.md))
+- [x] **Proof tokens**: `pkg/proof`, issued by a read, invalidated by change with a TTL backstop, rejections naming the call that fixes them ([0009](../adr/0009-proof-tokens.md)). A token records **what the write path compares against**, which is a version for an entity and a content hash for a note: search joined a hit against entities alone, so every note it returned came back with an empty version and the token that advertised "pass it to `note`" could never satisfy one. Not a race, and repeating the search reproduced it exactly
 - [x] **Rendering `dusk.md`**: `pkg/duskmd`, frontmatter rewritten and prose left byte-identical, so a write cannot disturb what somebody wrote ([0026](../adr/0026-dusk-md-schema.md))
 - [x] **Committing over the API**: `githubapp.CommitFile`, one file per commit, presenting the blob sha so a raced write collides instead of overwriting ([0010](../adr/0010-mcp-surface.md), [0029](../adr/0029-reading-repositories.md))
 - [x] **`declare`**: `internal/write`, routing to the file that declares an entity, rewriting only its frontmatter, and committing to the default branch. Creating places the file under an `include` glob and refuses when none would reach it ([0010](../adr/0010-mcp-surface.md))
@@ -173,7 +173,7 @@ The three that shipped all act as well as observe, which is what "observe only, 
 1. A plugin that dies stays dead. Nothing restarts one, so a crash is an outage until somebody notices, and it is now an outage of something that could be acting rather than only observing.
 2. The vocabulary in the browser and in `dusk_context`. `kinds` answers over MCP and nothing else reads it, so the UI still shows kind counts with no role and no aliases, and an agent learns the vocabulary only by asking for it.
 3. Curating what the context injects. [0014](../adr/0014-agent-context-injection.md) wanted the injected page to be a page: an operator edits markdown in the config repository and pinning is a block with a query. [0050](../adr/0050-what-the-context-budget-buys-first.md) ships the ranking with no way to override it, so an operator who wants the whole inventory and none of the notes has nowhere to say so.
-4. The write path's own papercuts, listed under Known gaps: a `search` proof token that can never be used, an error naming a recovery that does not exist, no way to correct a kind's role, and `declare` unable to place a new entity under the include pattern every existing one already matches.
+4. The write path's own papercuts, listed under Known gaps: an error naming a recovery that does not exist, no way to correct a kind's role, and `declare` unable to place a new entity under the include pattern every existing one already matches.
 
 ## Declined
 
@@ -228,6 +228,5 @@ Not deferred, and not forgotten. The operator has decided against these, and the
 - A preview's drift and integrity are filtered for a restricted viewer like the default view's, but both are always asked at the default view rather than at the preview's ref, so a preview does not have drift or integrity of its own at all.
 
 - **There is no way to correct a kind's role.** `kinds` refuses to mint one that already exists, answering "already exists, for infrastructure. Nothing was minted", and a kind that was derived rather than minted defaults to `infrastructure`. The only fix is declaring it in the config repository's `.dusk/kinds.md` by hand, which worked for `airport` and `flight` but is not what the tool tells you to do.
-- **A proof token from `search` can never satisfy a note update.** It is issued and advertised as usable, and `note` rejects it with `E_PROOF_STALE` even when the same search is repeated immediately, so it is not a race. Reading through `note` issues a token that works. The likely cause is that `search` reads the index while the write path compares against the file.
 - **`E_PROOF_STALE` names a recovery that does not exist**, telling the caller to `get(".dusk/<note>.md")` when `get` takes entity refs only and answers "refs are of the form kind:namespace/name".
 - **`declare` cannot create an entity under an `entities/**/*.md` include pattern**, failing with "none of its include patterns can name a file", although every existing entity sits at `entities/<name>.md` and reads back correctly. The pattern appears to require a subdirectory when synthesising a path while matching flat files when reading. Writing the file by hand and committing it works.

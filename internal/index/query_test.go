@@ -116,6 +116,42 @@ func TestNotesAboutARepository(t *testing.T) {
 	}
 }
 
+// A search issues the token that authorizes writing what it returned, and the
+// write path compares an entity against its provenance version and a note
+// against its content hash. A hit carrying neither authorizes nothing.
+func TestSearchCarriesTheVersionAWriteIsCheckedAgainst(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", "refs/heads/main",
+		[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "Transcoding is off.")}, nil)
+
+	notes := []*duskv1alpha1.Note{{
+		Id: ".dusk/transcoding.md", Kind: "gotcha", ContentHash: "hash-transcoding",
+		Refs: []string{"service:home/jellyfin"}, Body: "Transcoding is off on purpose.",
+		Provenance: testProvenance(),
+	}}
+	if err := db.Put(t.Context(), "example/config", "refs/heads/main", nil, nil, notes); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	results, err := db.Search(t.Context(), "refs/heads/main", "transcoding", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	want := map[string]string{
+		"service:home/jellyfin": "abc123",
+		".dusk/transcoding.md":  "hash-transcoding",
+	}
+	if len(results) != len(want) {
+		t.Fatalf("Search returned %d hits, want %d", len(results), len(want))
+	}
+	for _, hit := range results {
+		if got := hit.Version; got != want[hit.Ref] {
+			t.Errorf("version of %s = %q, want %q", hit.Ref, got, want[hit.Ref])
+		}
+	}
+}
+
 func note(id string, pinned bool, refs ...string) *duskv1alpha1.Note {
 	return &duskv1alpha1.Note{
 		Id: ".dusk/" + id + ".md", Kind: "gotcha", Body: "Something worth knowing.",

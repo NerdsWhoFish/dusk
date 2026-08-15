@@ -12,10 +12,18 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 const configRepo = "example/config"
+
+// The note these tests replace. It is in the index and in the writer, because
+// a replacement is authorized against what the note says today.
+const (
+	transcodingNote = ".dusk/transcoding.md"
+	transcodingBody = "Transcoding is off on purpose."
+)
 
 func notingSession(t *testing.T, destination string) (*sdk.ClientSession, *recordingWriter) {
 	session, writer, _ := noting(t, destination)
@@ -28,12 +36,32 @@ func noting(t *testing.T, destination string) (*sdk.ClientSession, *recordingWri
 
 	idx := newIndex(t)
 	seed(t, idx)
+	seedNote(t, idx)
 
 	tokens := &proof.Store{}
-	writer := &recordingWriter{tokens: tokens, notesGo: destination}
+	writer := &recordingWriter{
+		tokens: tokens, notesGo: destination,
+		noteBodies: map[string]string{transcodingNote: transcodingBody},
+	}
 
 	server := mcp.New(mcp.Options{Catalog: idx, Tokens: tokens, Writer: writer, Version: "test"})
 	return serve(t, server), writer, idx
+}
+
+func seedNote(t *testing.T, idx *index.DB) {
+	t.Helper()
+
+	err := idx.Put(t.Context(), configRepo, mainRef, nil, nil, []*duskv1alpha1.Note{{
+		Id: transcodingNote, Kind: "gotcha", Body: transcodingBody,
+		Refs:        []string{"service:home/jellyfin"},
+		ContentHash: duskmd.ContentHash(transcodingBody),
+	}})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), configRepo, mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
 }
 
 // Notes are the half of the catalog an agent writes most, so the tool has to be
@@ -156,7 +184,7 @@ func TestReplacingANoteThroughTheSurfaceNeedsProof(t *testing.T) {
 	session, writer := notingSession(t, configRepo)
 
 	body := call(t, session, "note", map[string]any{
-		"id":   ".dusk/transcoding.md",
+		"id":   transcodingNote,
 		"body": "rewritten without having read it",
 	})
 	if !strings.Contains(body, "not written") {
@@ -169,10 +197,32 @@ func TestReplacingANoteThroughTheSurfaceNeedsProof(t *testing.T) {
 	t.Run("and lands with one", func(t *testing.T) {
 		token := tokenFrom(t, call(t, session, "get", map[string]any{"ref": "service:home/jellyfin"}))
 		body := call(t, session, "note", map[string]any{
-			"id": ".dusk/transcoding.md", "proof": token, "body": "rewritten",
+			"id": transcodingNote, "proof": token, "body": "rewritten",
 		})
 		if strings.Contains(body, "not written") {
 			t.Errorf("a proven replacement was refused:\n%s", body)
 		}
 	})
+}
+
+// ADR-0009 makes a token cover everything its read returned, so one search
+// authorizes a session's worth of writes, and every search says so in the line
+// that hands the token over.
+func TestADR0009_ASearchTokenWritesTheNotesItReturned(t *testing.T) {
+	session, writer := notingSession(t, configRepo)
+
+	found := call(t, session, "search", map[string]any{"query": "transcoding"})
+	if !strings.Contains(found, transcodingNote) {
+		t.Fatalf("the search did not return the note:\n%s", found)
+	}
+
+	body := call(t, session, "note", map[string]any{
+		"id": transcodingNote, "proof": tokenFrom(t, found), "body": "rewritten",
+	})
+	if strings.Contains(body, "not written") {
+		t.Fatalf("a search token could not write a note that search returned:\n%s", body)
+	}
+	if len(writer.notes) != 1 || writer.notes[0].Body != "rewritten" {
+		t.Errorf("notes = %+v, want the rewritten body", writer.notes)
+	}
 }
