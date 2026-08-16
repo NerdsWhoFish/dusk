@@ -165,6 +165,37 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 		filter.Limit = 10
 	}
 
+	var rows []noteRow
+	err := db.notesQuery(ctx, gitRef, filter).
+		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
+		Limit(filter.Limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
+	}
+
+	notes := make([]*duskv1alpha1.Note, 0, len(rows))
+	for _, row := range rows {
+		notes = append(notes, row.note())
+	}
+	return notes, nil
+}
+
+// CountNotes is how many notes a filter matches, ignoring its limit, which is
+// what lets a surface say how many it is not showing (ADR-0059). A second query
+// rather than a total from Notes, whose other callers ask for a fixed number.
+func (db *DB) CountNotes(ctx context.Context, gitRef string, filter NoteFilter) (int, error) {
+	var total int64
+	if err := db.notesQuery(ctx, gitRef, filter).Count(&total).Error; err != nil {
+		return 0, fmt.Errorf("index: count notes at %q: %w", gitRef, err)
+	}
+	return int(total), nil
+}
+
+// notesQuery builds the predicates a note filter means, without an order or a
+// limit. One builder, so a count and the page it describes cannot disagree
+// about what the filter matched.
+func (db *DB) notesQuery(ctx context.Context, gitRef string, filter NoteFilter) *gorm.DB {
 	clause, args := scopeClause("notes", gitRef)
 	query := db.gorm.WithContext(ctx).Model(&noteRow{}).Where(clause, args...)
 
@@ -194,21 +225,7 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 			" AND entities.repository = ? AND " + scope + ")")
 		query = query.Where(where, append([]any{filter.AboutRepository}, scopeArgs...)...)
 	}
-
-	var rows []noteRow
-	err := query.
-		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
-		Limit(filter.Limit).
-		Find(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
-	}
-
-	notes := make([]*duskv1alpha1.Note, 0, len(rows))
-	for _, row := range rows {
-		notes = append(notes, row.note())
-	}
-	return notes, nil
+	return query
 }
 
 // attachedTo correlates a note_refs predicate to the note. A join would

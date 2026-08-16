@@ -46,6 +46,7 @@ type Catalog interface {
 	Declared(ctx context.Context, gitRef, repository string) ([]string, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
+	CountNotes(ctx context.Context, gitRef string, filter index.NoteFilter) (int, error)
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
@@ -319,18 +320,19 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		return text(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
 			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil))), nil, nil
 	}
-	return text(fmt.Sprintf("%s for %q%s. Pass a ref to `get` for the full picture.\n\n%s%s",
-		showing(len(results), total), in.Query, ofKind(in.Kind),
+	return text(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
+		searchHeadline(len(results), total, in.Query, in.Kind),
 		out.String(), s.issue(proof.FromSearch, seen))), nil, nil
 }
 
-// showing says how many a list holds and how many matched, which ADR-0059
-// makes the difference between a short answer and a wrong one.
-func showing(shown, total int) string {
+// searchHeadline says how many matched as well as how many are shown, which
+// ADR-0059 makes the difference between a short answer and a wrong one.
+func searchHeadline(shown, total int, query, kind string) string {
 	if shown >= total {
-		return fmt.Sprintf("%d result(s)", shown)
+		return fmt.Sprintf("%d result(s) for %q%s.", shown, query, ofKind(kind))
 	}
-	return fmt.Sprintf("%d of %d result(s), the highest ranked. Raise `limit` for more", shown, total)
+	return fmt.Sprintf("%d of %d result(s) for %q%s, the highest ranked. Raise `limit` for the rest.",
+		shown, total, query, ofKind(kind))
 }
 
 // ofKind names the kind a search was narrowed to, so an empty answer says what
@@ -353,7 +355,8 @@ func noteMark(hit index.SearchResult) string {
 }
 
 type getInput struct {
-	Ref string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
+	Ref    string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
+	Titles bool   `json:"titles,omitempty" jsonschema:"list the notes attached to it by kind, id and opening line instead of printing any of them whole, for finding out what is attached without reading it"`
 }
 
 // getPlugin answers for a plugin, listing what it can be asked to do.
@@ -457,23 +460,68 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		actions = renderActions(s.opts.Plugins.Actions(entity.GetKind()))
 	}
 
-	return text(renderEntity(entity, relations) + renderNotes(notes) + actions + s.issue(proof.FromGet, seen)), nil, nil
+	// Attached notes are never limited, so every one of them matched. What
+	// varies is how much of each arrives, and no budget names them all.
+	budget := notesBudget
+	if in.Titles {
+		budget = 0
+	}
+
+	return text(renderEntity(entity, relations) +
+		renderNotes(notes, len(notes), budget) + actions + s.issue(proof.FromGet, seen)), nil, nil
 }
 
-// renderNotes lists what is attached to an entity. Notes are the half of the
-// catalog a human wrote deliberately, so they come out whole rather than as
-// links an agent would have to spend another call on.
-func renderNotes(notes []*duskv1alpha1.Note) string {
+// notesBudget is how many bytes of notes one answer prints whole before the
+// rest arrive named. ADR-0059 bounds in bytes rather than in notes, because the
+// cost is bytes: ten runbooks printed whole were 67,836 characters.
+const notesBudget = 12000
+
+// renderNotes lists notes under a line saying how many matched and how many
+// arrived whole, printing them whole while they fit budget and naming the rest.
+// A note an agent knows exists is one it can ask for (ADR-0059).
+func renderNotes(notes []*duskv1alpha1.Note, total, budget int) string {
 	if len(notes) == 0 {
 		return ""
 	}
 
-	var out strings.Builder
-	out.WriteString("## Notes\n\n")
+	var body strings.Builder
+	whole := 0
 	for _, note := range notes {
-		out.WriteString(renderNote(note))
+		if body.Len() < budget {
+			body.WriteString(renderNote(note))
+			whole++
+			continue
+		}
+		body.WriteString(nameNote(note))
 	}
-	return out.String()
+
+	return "\n## Notes\n\n" + notesHeading(len(notes), total, whole) + body.String()
+}
+
+// notesHeading says how many matched, how many arrived and how many of those
+// arrived whole. The advice to raise the limit is only reachable from a read
+// that has one: attached notes are never limited, so shown always equals total.
+func notesHeading(shown, total, whole int) string {
+	said := fmt.Sprintf("%d note(s).", total)
+	if shown < total {
+		said = fmt.Sprintf("%d of %d note(s), newest first. Raise `limit`, or narrow by `kind`, `status` or `ref`, for the rest.", shown, total)
+	}
+
+	switch {
+	case whole == 0:
+		said += " Each is named by kind, id and opening line; pass an `id` to `note` for one whole."
+	case whole < shown:
+		said += fmt.Sprintf(" %d printed whole; the rest are named by kind, id and opening line, and pass an `id` to `note` for one of those whole.", whole)
+	}
+	return said + "\n\n"
+}
+
+// nameNote stands a note in for itself when the whole of it will not fit: its
+// kind, its id, and the opening line ADR-0031 leaves as the closest thing a
+// note has to a title.
+func nameNote(note *duskv1alpha1.Note) string {
+	return fmt.Sprintf("**%s** · `%s`: %s (not shown)\n\n",
+		note.GetKind(), note.GetId(), firstLine(note.GetBody()))
 }
 
 // renderNote is one note whole. A closed one is still shown, because "I already
@@ -600,13 +648,27 @@ type noteInput struct {
 	Limit  int    `json:"limit,omitempty" jsonschema:"when reading, how many to return"`
 }
 
+// defaultNoteLimit bounds the query above what notesBudget could ever name, so
+// the budget decides what is shown rather than a row limit nobody sees hit. The
+// same reasoning as contextNotes: a cut at ten notes read as "there are ten".
+const defaultNoteLimit = 100
+
 // readNotes answers what has been written down, narrowed by kind, status and
 // what it is about. The token it issues is what closing one of them needs, so
 // asking "my open ideas" and then finishing one is two calls, not four.
 func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResult, any, error) {
-	notes, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{
+	filter := index.NoteFilter{
 		Id: in.Id, Kind: in.Kind, Status: in.Status, Ref: in.Ref, Limit: in.Limit,
-	})
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = defaultNoteLimit
+	}
+
+	notes, err := s.opts.Catalog.Notes(ctx, "", filter)
+	if err != nil {
+		return nil, nil, err
+	}
+	total, err := s.opts.Catalog.CountNotes(ctx, "", filter)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -619,7 +681,7 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 	if len(notes) == 0 {
 		return text(describeNothing(in) + s.issue(proof.FromNote, seen)), nil, nil
 	}
-	return text(renderNotes(notes) + s.issue(proof.FromNote, seen)), nil, nil
+	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen)), nil, nil
 }
 
 func describeNothing(in noteInput) string {
