@@ -24,9 +24,14 @@ type Plugins interface {
 	// only one: configuring a plugin needs it running (ADR-0054).
 	Restart(ctx context.Context, id string) error
 
-	// Views and Asset are how a plugin renders itself: Dusk mounts the element
-	// and serves its JavaScript from its own origin (ADR-0020).
+	// Views is what every running plugin contributes to an entity page of one
+	// kind, and Contributions is everything one plugin contributes, in both
+	// slots, for a surface that narrows differently (ADR-0064).
 	Views(kind string) []plugin.View
+	Contributions(id string) []plugin.View
+
+	// Asset is a plugin's JavaScript, which Dusk serves from its own origin so
+	// nothing on the page is fetched from anywhere else (ADR-0020).
 	Asset(id, sha string) (plugin.Asset, bool)
 
 	// Actions and PluginActions are the same declaration the UI turns into a

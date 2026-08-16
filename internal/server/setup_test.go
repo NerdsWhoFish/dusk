@@ -73,6 +73,11 @@ type setup struct {
 	// catalog is nil unless a test needs the routes that only exist once there
 	// is something to serve, which includes the SPA and its assets.
 	catalog server.Catalog
+
+	// pages and plugins are what the homepage is declared as and what can be
+	// mounted on it. Both nil is the default page with nothing to mount.
+	pages   server.Pages
+	plugins server.Plugins
 }
 
 func newServer(t *testing.T, cs *fakeStore, gh *fakeGitHub) http.Handler {
@@ -119,6 +124,8 @@ func build(t *testing.T, s setup) http.Handler {
 		Credentials: s.store,
 		GitHub:      s.github,
 		Catalog:     s.catalog,
+		Pages:       s.pages,
+		Plugins:     s.plugins,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

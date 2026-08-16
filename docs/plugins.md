@@ -24,6 +24,26 @@ Treat that as "find out", never as "it did not happen".
 
 What the plugin printed before it died survives into the process that replaces it, marked `=` in its output, which is usually where the reason is.
 
+## Where a view mounts
+
+A UI contribution is either **declared**, which is a description Dusk renders with its own React, or **drawn**, which is a custom element the plugin ships and Dusk serves from its own origin ([ADR-0020](../adr/0020-plugin-ui.md)).
+Declared is the default, because it runs no JavaScript from the plugin and so asks nobody to decide whether to trust it.
+
+A contribution also names a slot, and the two facts together decide whether it can render at all.
+A declared view draws a result set, so it mounts only where something supplies one:
+
+| Slot | What supplies the result set | Declared | Drawn |
+| --- | --- | --- | --- |
+| `UI_SLOT_ENTITY` | The entity whose page it is on, and `applies_to_kinds` says which pages those are | Yes | Yes |
+| `UI_SLOT_ENTITY`, in a page's `view` block | The block's `ref` or `query`, resolved server side ([ADR-0035](../adr/0035-blocks-resolve-server-side.md)) | Yes | Yes |
+| `UI_SLOT_PLUGIN` | Nothing. It is the plugin's own page, which is about no entity | **No** | Yes |
+
+**A declared view in the plugin slot is refused**, by `conformance.ValidateDescribe` in the plugin's own tests and again by Dusk when it reads the description, which shows the reason where the view would have been.
+It was silently rendering its own `empty` text, which reads as an answer with nothing in it rather than as a view that was never going to work ([ADR-0064](../adr/0064-a-declared-view-mounts-where-a-result-set-comes-from.md)).
+
+The plugin slot is for what has no entity yet, which in practice means creating something, which is interactive: ship an element.
+A view over data the plugin already observed belongs on a page, as a `view` block with a query, where the operator asks the question and the plugin decides only how the answer looks.
+
 ## What a plugin declares
 
 An action declares its parameters as JSON Schema, on `ActionDescriptor.params_schema`.

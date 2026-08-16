@@ -16,6 +16,7 @@ import (
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 	sdk "github.com/NerdsWhoFish/dusk-plugin-sdk/plugin"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/NerdsWhoFish/dusk/internal/ingest"
@@ -50,6 +51,7 @@ type standIn struct {
 	Sensitive []string `json:"sensitive"`
 
 	Actions []standInAction `json:"actions"`
+	Views   []standInView   `json:"views"`
 
 	// Fail makes every Ingest error, for exercising the never-delete rule and
 	// the failure reporting around it.
@@ -58,6 +60,16 @@ type standIn struct {
 	// RefuseWhile names a file whose presence makes the plugin exit before it
 	// binds anything, so a test can decide when it becomes startable again.
 	RefuseWhile string `json:"refuse_while"`
+}
+
+// standInView is one UI contribution. Declared means a spec Dusk renders;
+// naming an element instead makes it one the plugin draws.
+type standInView struct {
+	Title    string   `json:"title"`
+	Element  string   `json:"element"`
+	Kinds    []string `json:"kinds"`
+	Slot     int32    `json:"slot"`
+	Declared bool     `json:"declared"`
 }
 
 type standInAction struct {
@@ -137,7 +149,38 @@ func (s *standInServer) Describe(context.Context, *duskv1alpha1.DescribeRequest)
 		EmitsKinds:    s.spec.Kinds,
 		ConfigFields:  fields,
 		Actions:       actions,
+		Ui:            s.contributions(),
 	}, nil
+}
+
+func (s *standInServer) contributions() []*duskv1alpha1.UIContribution {
+	ui := make([]*duskv1alpha1.UIContribution, 0, len(s.spec.Views))
+	for _, view := range s.spec.Views {
+		contribution := &duskv1alpha1.UIContribution{
+			Title:          view.Title,
+			AppliesToKinds: view.Kinds,
+			Slot:           duskv1alpha1.UISlot(view.Slot),
+		}
+		if view.Declared {
+			contribution.Spec = &duskv1alpha1.ViewSpec{
+				Layout: duskv1alpha1.ViewLayout_VIEW_LAYOUT_TABLE,
+				Empty:  "Nothing to show.",
+				Fields: []*duskv1alpha1.ViewField{{Source: "name", Label: "Name"}},
+			}
+		} else {
+			contribution.Element, contribution.Asset = view.Element, view.Element+".js"
+		}
+		ui = append(ui, contribution)
+	}
+	return ui
+}
+
+// GetAsset serves any name asked for: what matters to these tests is that an
+// element resolves to a URL, not what the JavaScript says.
+func (s *standInServer) GetAsset(request *duskv1alpha1.GetAssetRequest, stream grpc.ServerStreamingServer[duskv1alpha1.GetAssetResponse]) error {
+	return stream.Send(&duskv1alpha1.GetAssetResponse{
+		Chunk: []byte("// " + request.GetName() + "\n"),
+	})
 }
 
 func (s *standInServer) ValidateConfig(context.Context, *duskv1alpha1.ValidateConfigRequest) (*duskv1alpha1.ValidateConfigResponse, error) {

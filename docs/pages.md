@@ -61,7 +61,7 @@ The order is not accidental: it pairs a tall block with a short one, because two
 | `integrity` | What is wrong with the catalog itself |
 | `kinds` | How many entities of each kind, which is the estate's shape |
 | `reads` | What Dusk last read, per repository |
-| `view` | A plugin's own custom element ([ADR-0020](../adr/0020-plugin-ui.md)) |
+| `view` | A plugin's own view, declared or drawn ([ADR-0020](../adr/0020-plugin-ui.md)) |
 
 Every block takes `title` and `wide`. `wide` is a hint asking for the full width, not a layout: blocks stay queries.
 
@@ -131,7 +131,9 @@ Two blocks answering the questions this was built for:
 
 ## Showing a plugin's own view
 
-A plugin may ship a custom element ([ADR-0020](../adr/0020-plugin-ui.md)). On an entity page Dusk mounts it automatically. On the homepage there is no entity to mount it against, so the block says which:
+A plugin contributes views two ways ([ADR-0020](../adr/0020-plugin-ui.md)): a **declared** one, which is a description Dusk renders itself with no JavaScript from the plugin, and a **drawn** one, which is a custom element the plugin ships.
+A `view` block mounts either.
+On an entity page Dusk mounts them automatically; on a portal page there is no entity, so the block says what to render over:
 
 ```yaml
   - type: view
@@ -142,13 +144,20 @@ A plugin may ship a custom element ([ADR-0020](../adr/0020-plugin-ui.md)). On an
 ```
 
 A plugin may contribute several views, so `element` names which one.
-With a single view it is inferred; with more than one and no `element`, the block says so and lists them rather than picking one, because rendering a view the page did not ask for looks like the block being wrong instead of incomplete.
+It matches a drawn view by its element tag, and a declared view by its title, because a declared view has no tag and its title is the only name it has.
+With a single view it is inferred; with more than one and no `element`, the block says so and lists them by whichever name selects them, rather than picking one, because rendering a view the page did not ask for looks like the block being wrong instead of incomplete.
+
+What a contribution declares it applies to is ignored here.
+Those kinds say which entity pages it mounts on, and this block supplies its own `ref` or `query` instead.
+
+A view about the plugin rather than about one entity mounts on the plugin's own page and is never offered to a portal page.
+That slot supplies no result set, so only a drawn view works there ([ADR-0064](../adr/0064-a-declared-view-mounts-where-a-result-set-comes-from.md)).
 
 Nothing renders if that plugin is not installed and running, because only a live plugin can say what it contributes.
 
-### Rendering your own query through a plugin's component
+### Rendering your own query through a plugin's view
 
-A view may take a `query` instead of a `ref`. Dusk resolves it exactly as an `entities` block would and hands the results to the element, so the page asks the question and the plugin decides only how the answer looks:
+A view may take a `query` instead of a `ref`. Dusk resolves it exactly as an `entities` block would and hands the results to the view, so the page asks the question and the plugin decides only how the answer looks:
 
 ```yaml
   - type: view
@@ -159,7 +168,9 @@ A view may take a `query` instead of a `ref`. Dusk resolves it exactly as an `en
     limit: 5
 ```
 
-The results arrive as a **property** rather than an attribute, because stringifying a result set into markup would be absurd. An element that wants them implements a setter:
+A declared view draws those results directly, one row or chip per entity, following the fields the plugin named.
+
+A drawn one is handed them as a **property** rather than an attribute, because stringifying a result set into markup would be absurd. An element that wants them implements a setter:
 
 ```js
 set entities(value) {

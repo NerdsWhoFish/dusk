@@ -14,6 +14,7 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
 )
 
 // Type is a block's kind. Adding one is adding a query, not a widget: the
@@ -102,10 +103,12 @@ type Resolved struct {
 	Kinds    []index.KindCount      `json:"kinds,omitempty"`
 	Reads    []Read                 `json:"reads,omitempty"`
 
-	// Source is where a view block's JavaScript is served from, filled in by
-	// whatever knows which plugins are running.
-	Source    string `json:"source,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
+	// Source is where a view block's JavaScript is served from, and Spec is the
+	// declared view to draw instead. One or the other, filled in by whatever
+	// knows which plugins are running (ADR-0020).
+	Source    string           `json:"source,omitempty"`
+	Spec      *plugin.ViewSpec `json:"spec,omitempty"`
+	Truncated bool             `json:"truncated,omitempty"`
 
 	// Err is why a block is empty. A block that fails renders empty rather
 	// than breaking the page (ADR-0013), so the reason has to travel with it.

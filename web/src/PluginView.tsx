@@ -30,7 +30,13 @@ export function PluginBlock({
         <h2>{view.title || view.plugin}</h2>
       </header>
 
-      {view.spec ? (
+      {/* A contribution that cannot render here says so in its own panel: the
+          plugin's "nothing to show" text would read as an empty answer. */}
+      {view.problem ? (
+        <p className="hint err" role="alert">
+          {view.problem}
+        </p>
+      ) : view.spec ? (
         <DeclaredView spec={view.spec} entities={entities ?? []} onOpen={onOpen} />
       ) : (
         <Drawn view={view} entityRef={entityRef} entities={entities} proof={proof} />

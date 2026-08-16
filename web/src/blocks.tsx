@@ -67,9 +67,9 @@ export function renderBlock(
       );
 
     case "view":
-      // A plugin renders itself here, the same element an entity page mounts,
-      // pointed at whatever ref the block named.
-      return block.source && block.element ? (
+      // A plugin renders itself here: either the element an entity page mounts,
+      // or a declared view drawn from the block's own results (ADR-0064).
+      return block.spec || (block.source && block.element) ? (
         <PluginBlock
           key={block.title}
           view={{
@@ -77,9 +77,11 @@ export function renderBlock(
             element: block.element,
             title: block.title,
             source: block.source,
+            spec: block.spec,
           }}
           entityRef={block.ref ?? ""}
           entities={block.entities}
+          onOpen={onOpen}
         />
       ) : (
         <Block title={block.title} wide={block.wide} key={block.title}>

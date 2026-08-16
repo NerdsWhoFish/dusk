@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
@@ -113,9 +114,9 @@ func (s *Server) homePage(ctx context.Context) (page.Page, string, string) {
 	return declared, prose, ""
 }
 
-// mountViews resolves a view block to the element and asset URL of a running
-// plugin. Only the plugin manager knows what is running, which is why this
-// happens here rather than in the page package.
+// mountViews resolves a view block to a contribution of a running plugin: an
+// element and its asset URL, or a declared spec Dusk draws itself. Only the
+// plugin manager knows what is running, hence here rather than in `page`.
 func (s *Server) mountViews(blocks []page.Resolved) {
 	for i := range blocks {
 		block := &blocks[i]
@@ -127,18 +128,7 @@ func (s *Server) mountViews(blocks []page.Resolved) {
 			continue
 		}
 
-		// Any kind: a homepage block names its own ref, so what the plugin
-		// declared it applies to does not narrow anything here.
-		var matching []plugin.View
-		for _, view := range s.plugins.Views("") {
-			if view.Plugin != block.Plugin {
-				continue
-			}
-			if block.Element == "" || view.Element == block.Element {
-				matching = append(matching, view)
-			}
-		}
-
+		matching := candidateViews(s.plugins.Contributions(block.Plugin), block.Element)
 		switch {
 		case len(matching) == 0:
 			block.Err = block.Plugin + " is not running, or contributes no such view"
@@ -147,18 +137,41 @@ func (s *Server) mountViews(blocks []page.Resolved) {
 		// for, and look like the block was wrong rather than incomplete.
 		case len(matching) > 1:
 			block.Err = fmt.Sprintf("%s contributes %d views, so name one with `element:`: %s",
-				block.Plugin, len(matching), strings.Join(elementsOf(matching), ", "))
+				block.Plugin, len(matching), strings.Join(namesOf(matching), ", "))
 
 		default:
-			block.Element, block.Source = matching[0].Element, matching[0].Source
+			block.Element, block.Source, block.Spec = matching[0].Element, matching[0].Source, matching[0].Spec
 		}
 	}
 }
 
-func elementsOf(views []plugin.View) []string {
+// candidateViews narrows a plugin's contributions to the ones a page may mount.
+// The kinds a contribution declares are ignored on purpose: they say where it
+// mounts on an entity page, and a block supplies its own ref or query.
+func candidateViews(views []plugin.View, named string) []plugin.View {
+	var matching []plugin.View
+	for _, view := range views {
+		if view.Slot != plugin.SlotEntity {
+			continue
+		}
+		if named == "" || view.Element == named || view.Title == named {
+			matching = append(matching, view)
+		}
+	}
+	return matching
+}
+
+// namesOf is what `element:` accepts for each candidate. A declared view has no
+// tag, so its title is the only name it has, and an ambiguity that lists a name
+// nothing selects is worse than one that lists none.
+func namesOf(views []plugin.View) []string {
 	names := make([]string, 0, len(views))
 	for _, view := range views {
-		names = append(names, view.Element)
+		if view.Element != "" {
+			names = append(names, view.Element)
+			continue
+		}
+		names = append(names, strconv.Quote(view.Title))
 	}
 	return names
 }

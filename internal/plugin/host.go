@@ -205,7 +205,19 @@ type View struct {
 	// Spec makes this a declared view, needing no JavaScript from the plugin
 	// and therefore no trust decision.
 	Spec *ViewSpec `json:"spec,omitempty"`
+
+	// Problem is why this contribution cannot render where it mounts. It is
+	// shown in place of the view, because a contribution that silently draws
+	// nothing is indistinguishable from one whose answer is empty.
+	Problem string `json:"problem,omitempty"`
 }
+
+// declaredInPluginSlot is why a declared view cannot render on a plugin's own
+// page. Without it the view falls through to the plugin's own "nothing to
+// show" text, which reads as an empty answer rather than a broken contribution.
+const declaredInPluginSlot = "a declared view draws a result set and this page has none, " +
+	"so it cannot be shown here. Declare it on a home page as a `view` block with a query, " +
+	"or ship it as an element the plugin draws itself"
 
 // ViewSpec is a declared view. The vocabulary is closed on purpose: Dusk
 // renders it, so an unknown layout has no rendering, and this is deliberately
@@ -248,6 +260,12 @@ func (r *Running) Views() []View {
 				continue
 			}
 			view.Source = "/plugin-assets/" + r.ID + "/" + asset.SHA + ".js"
+		}
+
+		// Refused rather than mounted: the spec goes, so nothing downstream
+		// can draw it, and the reason takes its place (ADR-0064).
+		if view.Spec != nil && view.Slot == SlotPlugin {
+			view.Spec, view.Problem = nil, declaredInPluginSlot
 		}
 		views = append(views, view)
 	}
