@@ -204,14 +204,15 @@ Full reasoning: [ADR-0009](adr/0009-proof-tokens.md).
 ### The MCP surface is a few fat tools
 
 `search`, `get`, `neighbors`, `changes` to read.
-`declare`, `note`, `relate`, `mintKind`, `push` to write.
+`declare` and `relate` to write, and `note`, `page` and `kinds` to do both, because the read is what issues the proof token the write needs.
 
 Reads return markdown rather than nested JSON, and every read returns refs that feed back into `get`.
 Writes report where they landed, so an agent hands a human a link rather than asserting success.
 
-Writes queue as one commit per call on a **per-session branch**, which makes direct mode a fast-forward and proposal mode a pull request from the same mechanism.
+**One commit per call, straight to the repository's default branch.**
+The per-session branch this originally described was given up along with the queue lifecycle that made it safe, and where Dusk was granted no commit a write comes back as the diff it would have made.
 
-Full reasoning: [ADR-0010](adr/0010-mcp-surface.md).
+Full reasoning: [ADR-0010](adr/0010-mcp-surface.md), [ADR-0052](adr/0052-a-write-that-cannot-land.md) and [ADR-0063](adr/0063-push-is-retired.md).
 
 ### Pages are markdown, blocks are queries
 

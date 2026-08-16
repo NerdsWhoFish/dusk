@@ -40,7 +40,7 @@ Chosen: **option 3**.
 - `note(refs[], body, kind)`: attach knowledge to entities.
 - `relate(from, to, type)`: typed edges.
 - `mintKind(namespace, name, aliases?)`: extend the vocabulary.
-- `push()`: flush the session's queued commits.
+- `push()`: flush the session's queued commits. **Retired, see [ADR-0063](0063-push-is-retired.md).**
 
 Every write requires a proof token per [ADR-0009](0009-proof-tokens.md).
 
@@ -177,3 +177,15 @@ A `pinned` string enum of `on`, `off` and `unchanged` reads worse in a JSON sche
 
 The bad consequence to accept is that `null` and absent mean the same thing, so a caller that serialises every field of its struct and sends explicit nulls cannot unpin with a null and must send `false`.
 That is the right way round: the ambiguous input is the one that changes nothing.
+
+### 2026-08-16: `push` is retired, and `relate` is built
+
+The write tools listed above are now four rather than five.
+
+`push` is retired in [ADR-0063](0063-push-is-retired.md).
+The 2026-08-11 amendment above already removed the queue it flushed, leaving it two jobs: opening the pull request in proposal mode, and reporting what already landed in write mode.
+Proposal mode has since been declined, and reporting what landed needs a session identity this surface does not have and a record of writes nothing keeps, while every write already returns its own commit URL.
+The list above keeps the entry with a pointer, because a reader reaches it long before these amendments.
+
+`relate` is built, in the shape [ADR-0062](0062-relate-declares-an-outbound-edge.md) settles: one outbound edge, written into the file of the entity it points from, with the target's syntax checked and its resolution deliberately not.
+That record also says why it is a tool of its own rather than a `relations` argument on `declare`, which is the option this ADR's own constraint on the tool count argues for.

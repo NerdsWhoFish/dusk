@@ -430,9 +430,11 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 
 ## Not built yet
 
-**The other write tools.** `relate` and `push` are not built. `push` is meaningful only in proposal mode.
+**Withdrawing a relation.** `relate` declares an edge and nothing removes one, so a relation to something decommissioned is fixed by hand in the repository that declares it ([ADR-0062](../adr/0062-relate-declares-an-outbound-edge.md)).
 
 **Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
+
+`push` is **not on this list**. [ADR-0010](../adr/0010-mcp-surface.md) named it and it is retired rather than pending: the queue it flushed was removed when write mode started committing straight to the default branch, proposal mode is declined, and every write already returns its own commit URL ([ADR-0063](../adr/0063-push-is-retired.md)).
 
 **Who ran something.** An event records an actor, and over MCP that actor is always `agent`: the surface authenticates with one shared bearer token and has no per-caller identity to record. Two agents holding one token are indistinguishable in the log.
 
