@@ -43,8 +43,8 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 
 | Tool | What it answers |
 | --- | --- |
-| `search(query, kind?, limit?)` | "Where is the thing called X" |
-| `get(ref)` | Everything about one entity, including its connections |
+| `search(query, kind?, limit?)` | "Where is the thing called X", by any word in it or any part of its name |
+| `get(ref, titles?)` | Everything about one entity, including its connections |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
@@ -56,9 +56,12 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
-`get` is deliberately fat.
+`get` is deliberately fat, and bounded.
 An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations, provenance, the notes attached to it, **and what can be done to it**, in one call rather than five.
 Notes come back whole rather than as ids to fetch, because a gotcha an agent has to spend another call on is a gotcha it will not read.
+
+Fat is about what arrives, not about how much of it: the notes past the byte budget arrive named rather than whole, and `titles` names all of them ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
+A relation carries the title of what it points at, so choosing which of twenty-two related things to open does not cost twenty-two calls.
 
 ## Installing a plugin adds no tools
 
@@ -70,6 +73,20 @@ The surface is therefore constant: a tenth plugin costs nothing, and an agent th
 An action declares a class. Read-only needs nothing; mutating needs the proof token from the read it names; **destructive needs `confirm`**, and the refusal carries the preview, or says there is none. `preview` says what would happen without doing it.
 
 The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
+
+## What `search` matches
+
+Words, and one thing that is not a word.
+
+Text is matched as words, with the last one as a prefix so a query narrows as it is typed.
+That is a full-text index and it does what full-text indexes do.
+
+An entity's **own name is additionally matched by substring**, because infrastructure names are compounds an operator ran together and a word index cannot reach inside one ([ADR-0060](../adr/0060-finding-an-entity-by-part-of-its-name.md)).
+`nas` finds a host called `backupnas`, which the prefix match never could.
+Prose keeps word semantics, because a substring over prose finds "cat" in "concatenate".
+
+A hit found that way ranks below every word hit and above a work note, so [ADR-0049](../adr/0049-a-notes-kind-is-its-rank.md)'s ordering is unchanged.
+Words shorter than three characters are left to the prefix match, since a two-letter substring is inside most of a catalog.
 
 ## Reading and writing notes
 
@@ -145,6 +162,36 @@ Agents reason better over prose than over deeply nested objects.
 **Absence is explained, never silent.**
 Searching for something nobody has declared says so, and points at `changes`.
 An agent that cannot tell "not in the catalog" from "the catalog is empty" will invent the difference.
+
+That last rule is why **a filter narrows the query and never the answer** ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
+`search(query, kind)` asks the index for that kind, rather than taking a page of hits and dropping the ones that do not match it.
+Applied afterwards, a kind reports "nothing matches" whenever the page it was handed happens to hold none of it, which is the one answer this surface must never invent.
+
+It is also why **a list says how many matched, not only how many it is showing**.
+
+```text
+3 of 12 result(s), the highest ranked. Raise `limit` for more.
+```
+
+A limit is how much an agent asked for, and a total is how much there is.
+Reporting only the first teaches an agent that it has seen everything, which is the same lie as a silent absence with the volume turned down.
+The count is exact: SQLite computes it in the same statement as the search, over every row the match produced and before the limit applies.
+
+`note` says the same thing about notes, at the cost of a second query.
+
+**And a list too large to print whole names its tail rather than cutting it.**
+Notes arrive whole while they fit a byte budget; past it they arrive as their kind, their id and their opening line, which is what to pass back as `id`:
+
+```text
+## Notes
+
+35 note(s). 13 printed whole; the rest are named by kind, id and opening line,
+and pass an `id` to `note` for one of those whole.
+```
+
+That is the same degradation `dusk_context` uses, and it is what bounds `get`: one `get` on a heavily annotated entity was 78,720 characters before it.
+Nothing is lost to the bound, because a note an agent knows exists is one call away and a note that silently vanished is not.
+`get(ref, titles: true)` names every attached note instead of printing any of them, for an agent that wants to know what is there without reading it.
 
 ## What `changes` is for
 

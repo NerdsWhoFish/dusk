@@ -121,7 +121,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("search works over the reconciled graph", func(t *testing.T) {
-		results, err := idx.Search(ctx, mainRef, "streaming", 5)
+		results, _, err := idx.Search(ctx, mainRef, index.SearchFilter{Query: "streaming", Limit: 5})
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}

@@ -165,6 +165,37 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 		filter.Limit = 10
 	}
 
+	var rows []noteRow
+	err := db.notesQuery(ctx, gitRef, filter).
+		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
+		Limit(filter.Limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
+	}
+
+	notes := make([]*duskv1alpha1.Note, 0, len(rows))
+	for _, row := range rows {
+		notes = append(notes, row.note())
+	}
+	return notes, nil
+}
+
+// CountNotes is how many notes a filter matches, ignoring its limit, which is
+// what lets a surface say how many it is not showing (ADR-0059). A second query
+// rather than a total from Notes, whose other callers ask for a fixed number.
+func (db *DB) CountNotes(ctx context.Context, gitRef string, filter NoteFilter) (int, error) {
+	var total int64
+	if err := db.notesQuery(ctx, gitRef, filter).Count(&total).Error; err != nil {
+		return 0, fmt.Errorf("index: count notes at %q: %w", gitRef, err)
+	}
+	return int(total), nil
+}
+
+// notesQuery builds the predicates a note filter means, without an order or a
+// limit. One builder, so a count and the page it describes cannot disagree
+// about what the filter matched.
+func (db *DB) notesQuery(ctx context.Context, gitRef string, filter NoteFilter) *gorm.DB {
 	clause, args := scopeClause("notes", gitRef)
 	query := db.gorm.WithContext(ctx).Model(&noteRow{}).Where(clause, args...)
 
@@ -194,21 +225,7 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 			" AND entities.repository = ? AND " + scope + ")")
 		query = query.Where(where, append([]any{filter.AboutRepository}, scopeArgs...)...)
 	}
-
-	var rows []noteRow
-	err := query.
-		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
-		Limit(filter.Limit).
-		Find(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
-	}
-
-	notes := make([]*duskv1alpha1.Note, 0, len(rows))
-	for _, row := range rows {
-		notes = append(notes, row.note())
-	}
-	return notes, nil
+	return query
 }
 
 // attachedTo correlates a note_refs predicate to the note. A join would
@@ -326,6 +343,38 @@ func (db *DB) List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.En
 	return entities(rows)
 }
 
+// Titles names entities by ref, so a list of refs can be chosen from without a
+// call per candidate (ADR-0059). A ref nothing declares is simply absent, which
+// is drift rather than an error (ADR-0033).
+func (db *DB) Titles(ctx context.Context, gitRef string, refs []string) (map[string]string, error) {
+	titles := make(map[string]string, len(refs))
+	if len(refs) == 0 {
+		return titles, nil
+	}
+
+	var rows []struct {
+		Ref   string
+		Title string
+	}
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Model(&entityRow{}).
+		Where("ref IN ?", refs).
+		// The same order Get resolves by, so a ref names what Get would return.
+		Order("observed, repository").
+		Select("ref, title").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: titles at %q: %w", gitRef, err)
+	}
+
+	for _, row := range rows {
+		if _, taken := titles[row.Ref]; !taken {
+			titles[row.Ref] = row.Title
+		}
+	}
+	return titles, nil
+}
+
 // Neighbors returns every relation with entityRef at either end.
 func (db *DB) Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error) {
 	var rows []relationRow
@@ -348,54 +397,150 @@ func (db *DB) Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv
 	return relations, nil
 }
 
-// Search runs a full-text query against entity text at gitRef. A note whose
-// kind is work ranks below every other hit and by relevance within that group,
-// so a todo never outranks a gotcha or an entity (ADR-0049).
-func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]SearchResult, error) {
-	match := matchExpression(query)
+// SearchFilter narrows a search.
+type SearchFilter struct {
+	// Query is the free text to match. Required.
+	Query string
+
+	// Kind restricts hits to one entity or note kind, without regard to case.
+	// It narrows the query rather than the answer, because a kind applied to a
+	// page a limit already cut reports nothing while matches sit past it.
+	Kind string
+
+	// Limit caps the page. Zero takes the default.
+	Limit int
+}
+
+// Search runs a full-text query at gitRef, answering one page of hits and how
+// many matched before Limit cut it. A note whose kind is work ranks below every
+// other hit and by relevance within that group (ADR-0049).
+func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([]SearchResult, int, error) {
+	match := matchExpression(filter.Query)
 	if match == "" {
-		return nil, errors.New("index: search: query is required")
+		return nil, 0, errors.New("index: search: query is required")
 	}
-	if limit <= 0 {
-		limit = defaultSearchLimit
+	if filter.Limit <= 0 {
+		filter.Limit = defaultSearchLimit
 	}
 
 	minted, err := db.Minted(ctx, gitRef)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	work := namesWithRole(minted, vocab.Note, vocab.Work)
 
 	// Qualified, because the join makes a bare git_ref ambiguous.
 	scope, scopeArgs := scopeClause("f", gitRef)
-	args := append([]any{match}, scopeArgs...)
-	args = append(args, asAny(work)...)
-	args = append(args, limit)
+	kind, kindArgs := kindClause("f", filter.Kind)
 
-	var results []SearchResult
-	err = db.gorm.WithContext(ctx).Raw(`
-		SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
-		       -- Column 7 is body. snippet() takes a positional index, so
-		       -- adding a column to catalog_fts silently moves this.
-		       snippet(catalog_fts, 7, '', '', '...', 12) AS snippet,
-		       -- Whichever half of the catalog the hit came from. A note joined
-		       -- against entities alone has no version, and a token recording
-		       -- an empty one can never authorize writing it.
-		       COALESCE(e.version, n.content_hash, '') AS version
-		  FROM catalog_fts f
-		  LEFT JOIN entities e
-		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
-		  LEFT JOIN notes n
-		    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
-		 WHERE catalog_fts MATCH ? AND `+scope+`
-		 ORDER BY CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
-		               THEN 1 ELSE 0 END, rank
-		 LIMIT ?`, args...,
-	).Scan(&results).Error
-	if err != nil {
-		return nil, fmt.Errorf("index: search %q at %q: %w", query, gitRef, err)
+	entityScope, entityScopeArgs := scopeClause("e", gitRef)
+	entityKind, entityKindArgs := kindClause("e", filter.Kind)
+	contains, containsArgs := nameContains("e", filter.Query)
+
+	// In statement order: the demotion list sits in the select list, ahead of
+	// the match, the predicates narrowing it, and then the named branch.
+	args := asAny(work)
+	args = append(args, match)
+	args = append(args, scopeArgs...)
+	args = append(args, kindArgs...)
+	if contains != "" {
+		args = append(args, entityScopeArgs...)
+		args = append(args, entityKindArgs...)
+		args = append(args, containsArgs...)
 	}
-	return results, nil
+	args = append(args, filter.Limit)
+
+	// An entity whose own name holds the query, and that the match did not
+	// already find. Below every match and above a work note, because it is a
+	// weaker signal than a word hit and a stronger one than a todo (ADR-0060).
+	named, namedBranch := "", ""
+	if contains != "" {
+		// One row per ref, from the copy Get would answer with, so a ref
+		// declared in one repository and observed in another is one hit.
+		named = `,
+		named AS (
+			SELECT 'entity' AS type, e.ref AS ref, e.kind AS kind, e.title AS title,
+			       '' AS snippet, e.version AS version, 1 AS demoted, 0.0 AS relevance,
+			       ROW_NUMBER() OVER (PARTITION BY e.ref ORDER BY e.observed, e.repository) AS copy
+			  FROM entities e
+			 WHERE ` + entityScope + entityKind + ` AND ` + contains + `
+			   AND e.ref NOT IN (SELECT ref FROM matched)
+		)`
+		namedBranch = `
+			UNION ALL
+			SELECT type, ref, kind, title, snippet, version, demoted, relevance
+			  FROM named WHERE copy = 1`
+	}
+
+	// The match is a common table expression so the window function outside it
+	// never sees FTS5's rank column, which is only valid in a plain query on
+	// the virtual table and errors with "row value misused" anywhere else.
+	var rows []searchRow
+	err = db.gorm.WithContext(ctx).Raw(`
+		WITH matched AS (
+			SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
+			       -- Column 7 is body. snippet() takes a positional index, so
+			       -- adding a column to catalog_fts silently moves this.
+			       snippet(catalog_fts, 7, '', '', '...', 12) AS snippet,
+			       -- Whichever half of the catalog the hit came from. A note
+			       -- joined against entities alone has no version, and a token
+			       -- recording an empty one can never authorize writing it.
+			       COALESCE(e.version, n.content_hash, '') AS version,
+			       CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
+			            THEN 2 ELSE 0 END AS demoted,
+			       rank AS relevance
+			  FROM catalog_fts f
+			  LEFT JOIN entities e
+			    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
+			  LEFT JOIN notes n
+			    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
+			 WHERE catalog_fts MATCH ? AND `+scope+kind+`
+		)`+named+`,
+		hits AS (
+			SELECT type, ref, kind, title, snippet, version, demoted, relevance
+			  FROM matched`+namedBranch+`
+		)
+		SELECT type, ref, kind, title, snippet, version,
+		       -- Over every row the query produced, before LIMIT. Free here
+		       -- because ranking has already enumerated them all (ADR-0059).
+		       COUNT(*) OVER () AS total
+		  FROM hits
+		 ORDER BY demoted, relevance, ref
+		 LIMIT ?`, args...,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("index: search %q at %q: %w", filter.Query, gitRef, err)
+	}
+
+	results := make([]SearchResult, 0, len(rows))
+	total := 0
+	for _, row := range rows {
+		results = append(results, row.SearchResult)
+		total = row.Total
+	}
+	return results, total, nil
+}
+
+// searchRow is a hit plus the size of the result set it came from, which the
+// window function repeats on every row.
+type searchRow struct {
+	SearchResult
+	Total int
+}
+
+// kindClause restricts a query to one kind, and is empty for every kind. It
+// returns the conjunction rather than the bare predicate so a caller can
+// concatenate it onto a WHERE that always has something in it.
+func kindClause(alias, kind string) (string, []any) {
+	if kind == "" {
+		return "", nil
+	}
+
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return " AND " + prefix + "kind = ? COLLATE NOCASE", []any{kind}
 }
 
 const defaultSearchLimit = 25
@@ -436,6 +581,37 @@ func (db *DB) Dependents(ctx context.Context, gitRef, entityRef string, maxDepth
 		return nil, fmt.Errorf("index: dependents of %q at %q: %w", entityRef, gitRef, err)
 	}
 	return dependents, nil
+}
+
+// minSubstring is the shortest word worth looking for inside a name. Below it
+// a substring matches most of a catalog and carries no signal, where the prefix
+// match a full-text query already does at least narrows.
+const minSubstring = 3
+
+// nameContains matches an entity whose own name holds every word of the query,
+// which a word-or-prefix match cannot reach into for a compound name
+// (ADR-0060). Empty when no word is long enough to mean anything.
+func nameContains(alias, query string) (string, []any) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+
+	var clauses []string
+	var args []any
+	for _, field := range strings.Fields(query) {
+		if len([]rune(field)) < minSubstring {
+			continue
+		}
+		// lower on both sides, so folding is SQLite's either way rather than
+		// two implementations that agree until they do not.
+		clauses = append(clauses, "instr(lower("+prefix+"name), lower(?)) > 0")
+		args = append(args, field)
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return "(" + strings.Join(clauses, " AND ") + ")", args
 }
 
 // matchExpression turns free text into an FTS5 query that cannot be a syntax

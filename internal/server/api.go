@@ -21,7 +21,7 @@ import (
 // client of this and has no privileged path to the index, so anything the UI
 // can show is something a script can fetch.
 type Catalog interface {
-	Search(ctx context.Context, gitRef, query string, limit int) ([]index.SearchResult, error)
+	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
@@ -140,7 +140,9 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := s.catalog.Search(r.Context(), refOf(r), query, limit)
+	results, total, err := s.catalog.Search(r.Context(), refOf(r), index.SearchFilter{
+		Query: query, Kind: r.URL.Query().Get("kind"), Limit: limit,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -151,22 +153,23 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := narrow(results, r.URL.Query().Get("kind"), visible)
+	out := narrow(results, visible)
 
-	answer := map[string]any{"results": out, "query": query}
+	// What matched, not what survived the limit, so a caller can tell a short
+	// answer from a complete one (ADR-0059).
+	answer := map[string]any{"results": out, "query": query, "total": total}
 	if token := s.searched(out); token != "" {
 		answer["proof"] = token
 	}
 	writeJSON(w, http.StatusOK, answer)
 }
 
-// narrow drops what the query asked to exclude and what the viewer may not see.
-func narrow(results []index.SearchResult, kind string, visible func(string) bool) []index.SearchResult {
+// narrow drops what the viewer may not see. The kind a query asked to exclude
+// is narrowed in the query, because a filter over an answer a limit already cut
+// can report nothing while matches sit past it.
+func narrow(results []index.SearchResult, visible func(string) bool) []index.SearchResult {
 	out := make([]index.SearchResult, 0, len(results))
 	for _, result := range results {
-		if kind != "" && !strings.EqualFold(result.Kind, kind) {
-			continue
-		}
 		// A note is visible with the entity it is about; an entity by itself.
 		if result.Type == "entity" && !visible(result.Ref) {
 			continue

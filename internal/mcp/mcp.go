@@ -38,14 +38,16 @@ import (
 // Catalog is the slice of the index the tools need, declared here so the tools
 // do not depend on how the graph is stored.
 type Catalog interface {
-	Search(ctx context.Context, gitRef, query string, limit int) ([]index.SearchResult, error)
+	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
+	Titles(ctx context.Context, gitRef string, refs []string) (map[string]string, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
 	Declared(ctx context.Context, gitRef, repository string) ([]string, error)
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
+	CountNotes(ctx context.Context, gitRef string, filter index.NoteFilter) (int, error)
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
@@ -296,19 +298,16 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		return text("A query is required. Try a service name, a hostname, or a word from a description."), nil, nil
 	}
 
-	results, err := s.opts.Catalog.Search(ctx, "", in.Query, in.Limit)
+	results, total, err := s.opts.Catalog.Search(ctx, "", index.SearchFilter{
+		Query: in.Query, Kind: in.Kind, Limit: in.Limit,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var out strings.Builder
-	shown := 0
 	seen := map[string]string{}
 	for _, hit := range results {
-		if in.Kind != "" && !strings.EqualFold(hit.Kind, in.Kind) {
-			continue
-		}
-		shown++
 		seen[hit.Ref] = hit.Version
 		fmt.Fprintf(&out, "- %s**%s** `%s`\n", noteMark(hit), displayName(hit.Title, hit.Ref), hit.Ref)
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
@@ -316,14 +315,34 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		}
 	}
 
-	if shown == 0 {
+	if len(results) == 0 {
 		// A search that found nothing is exactly what authorizes creating, so
 		// it still issues a token: the absence is the evidence.
-		return text(fmt.Sprintf("Nothing in the catalog matches %q.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
-			in.Query, s.issue(proof.FromSearch, nil))), nil, nil
+		return text(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
+			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil))), nil, nil
 	}
-	return text(fmt.Sprintf("%d result(s) for %q. Pass a ref to `get` for the full picture.\n\n%s%s",
-		shown, in.Query, out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+	return text(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
+		searchHeadline(len(results), total, in.Query, in.Kind),
+		out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+}
+
+// searchHeadline says how many matched as well as how many are shown, which
+// ADR-0059 makes the difference between a short answer and a wrong one.
+func searchHeadline(shown, total int, query, kind string) string {
+	if shown >= total {
+		return fmt.Sprintf("%d result(s) for %q%s.", shown, query, ofKind(kind))
+	}
+	return fmt.Sprintf("%d of %d result(s) for %q%s, the highest ranked. Raise `limit` for the rest.",
+		shown, total, query, ofKind(kind))
+}
+
+// ofKind names the kind a search was narrowed to, so an empty answer says what
+// it looked for rather than only that it found nothing.
+func ofKind(kind string) string {
+	if kind == "" {
+		return ""
+	}
+	return " of kind " + kind
 }
 
 // noteMark labels a note hit with its kind. A note's ref is a file path, so
@@ -337,7 +356,8 @@ func noteMark(hit index.SearchResult) string {
 }
 
 type getInput struct {
-	Ref string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
+	Ref    string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
+	Titles bool   `json:"titles,omitempty" jsonschema:"list the notes attached to it by kind, id and opening line instead of printing any of them whole, for finding out what is attached without reading it"`
 }
 
 // getPlugin answers for a plugin, listing what it can be asked to do.
@@ -427,6 +447,11 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		return nil, nil, err
 	}
 
+	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(in.Ref, relations))
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// The notes go in the token too, so replacing one needs proof of the read
 	// that surfaced it, the same as changing the entity does.
 	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
@@ -441,23 +466,68 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		actions = renderActions(s.opts.Plugins.Actions(entity.GetKind()))
 	}
 
-	return text(renderEntity(entity, relations) + renderNotes(notes) + actions + s.issue(proof.FromGet, seen)), nil, nil
+	// Attached notes are never limited, so every one of them matched. What
+	// varies is how much of each arrives, and no budget names them all.
+	budget := notesBudget
+	if in.Titles {
+		budget = 0
+	}
+
+	return text(renderEntity(entity, relations, titles) +
+		renderNotes(notes, len(notes), budget) + actions + s.issue(proof.FromGet, seen)), nil, nil
 }
 
-// renderNotes lists what is attached to an entity. Notes are the half of the
-// catalog a human wrote deliberately, so they come out whole rather than as
-// links an agent would have to spend another call on.
-func renderNotes(notes []*duskv1alpha1.Note) string {
+// notesBudget is how many bytes of notes one answer prints whole before the
+// rest arrive named. ADR-0059 bounds in bytes rather than in notes, because the
+// cost is bytes: ten runbooks printed whole were 67,836 characters.
+const notesBudget = 12000
+
+// renderNotes lists notes under a line saying how many matched and how many
+// arrived whole, printing them whole while they fit budget and naming the rest.
+// A note an agent knows exists is one it can ask for (ADR-0059).
+func renderNotes(notes []*duskv1alpha1.Note, total, budget int) string {
 	if len(notes) == 0 {
 		return ""
 	}
 
-	var out strings.Builder
-	out.WriteString("## Notes\n\n")
+	var body strings.Builder
+	whole := 0
 	for _, note := range notes {
-		out.WriteString(renderNote(note))
+		if body.Len() < budget {
+			body.WriteString(renderNote(note))
+			whole++
+			continue
+		}
+		body.WriteString(nameNote(note))
 	}
-	return out.String()
+
+	return "\n## Notes\n\n" + notesHeading(len(notes), total, whole) + body.String()
+}
+
+// notesHeading says how many matched, how many arrived and how many of those
+// arrived whole. The advice to raise the limit is only reachable from a read
+// that has one: attached notes are never limited, so shown always equals total.
+func notesHeading(shown, total, whole int) string {
+	said := fmt.Sprintf("%d note(s).", total)
+	if shown < total {
+		said = fmt.Sprintf("%d of %d note(s), newest first. Raise `limit`, or narrow by `kind`, `status` or `ref`, for the rest.", shown, total)
+	}
+
+	switch {
+	case whole == 0:
+		said += " Each is named by kind, id and opening line; pass an `id` to `note` for one whole."
+	case whole < shown:
+		said += fmt.Sprintf(" %d printed whole; the rest are named by kind, id and opening line, and pass an `id` to `note` for one of those whole.", whole)
+	}
+	return said + "\n\n"
+}
+
+// nameNote stands a note in for itself when the whole of it will not fit: its
+// kind, its id, and the opening line ADR-0031 leaves as the closest thing a
+// note has to a title.
+func nameNote(note *duskv1alpha1.Note) string {
+	return fmt.Sprintf("**%s** · `%s`: %s (not shown)\n\n",
+		note.GetKind(), note.GetId(), firstLine(note.GetBody()))
 }
 
 // renderNote is one note whole. A closed one is still shown, because "I already
@@ -495,14 +565,23 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 		return nil, nil, err
 	}
 
+	named := relatedRefs(in.Ref, relations)
+	for _, d := range dependents {
+		named = append(named, d.Ref)
+	}
+	titles, err := s.opts.Catalog.Titles(ctx, "", named)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	var out strings.Builder
 	fmt.Fprintf(&out, "# Around `%s`\n\n", in.Ref)
-	out.WriteString(renderRelations(in.Ref, relations))
+	out.WriteString(renderRelations(in.Ref, relations, titles))
 
 	if len(dependents) > 0 {
 		fmt.Fprintf(&out, "\n## Reaches it within %d hop(s)\n\n", depth)
 		for _, d := range dependents {
-			fmt.Fprintf(&out, "- `%s` (%d hop(s) away)\n", d.Ref, d.Depth)
+			fmt.Fprintf(&out, "- %s`%s` (%d hop(s) away)\n", nameOf(titles, d.Ref), d.Ref, d.Depth)
 		}
 		out.WriteString("\nThese break, or need checking, if it goes away.\n")
 	}
@@ -584,13 +663,27 @@ type noteInput struct {
 	Limit  int    `json:"limit,omitempty" jsonschema:"when reading, how many to return"`
 }
 
+// defaultNoteLimit bounds the query above what notesBudget could ever name, so
+// the budget decides what is shown rather than a row limit nobody sees hit. The
+// same reasoning as contextNotes: a cut at ten notes read as "there are ten".
+const defaultNoteLimit = 100
+
 // readNotes answers what has been written down, narrowed by kind, status and
 // what it is about. The token it issues is what closing one of them needs, so
 // asking "my open ideas" and then finishing one is two calls, not four.
 func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResult, any, error) {
-	notes, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{
+	filter := index.NoteFilter{
 		Id: in.Id, Kind: in.Kind, Status: in.Status, Ref: in.Ref, Limit: in.Limit,
-	})
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = defaultNoteLimit
+	}
+
+	notes, err := s.opts.Catalog.Notes(ctx, "", filter)
+	if err != nil {
+		return nil, nil, err
+	}
+	total, err := s.opts.Catalog.CountNotes(ctx, "", filter)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -603,7 +696,7 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 	if len(notes) == 0 {
 		return text(describeNothing(in) + s.issue(proof.FromNote, seen)), nil, nil
 	}
-	return text(renderNotes(notes) + s.issue(proof.FromNote, seen)), nil, nil
+	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen)), nil, nil
 }
 
 func describeNothing(in noteInput) string {
@@ -744,7 +837,7 @@ func (s *Server) freshness(out *strings.Builder) []SyncStatus {
 	return statuses
 }
 
-func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) string {
+func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation, titles map[string]string) string {
 	var out strings.Builder
 
 	fmt.Fprintf(&out, "# %s\n\n", displayName(entity.GetTitle(), entity.GetRef()))
@@ -763,7 +856,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 		out.WriteString("\n")
 	}
 
-	out.WriteString(renderRelations(entity.GetRef(), relations))
+	out.WriteString(renderRelations(entity.GetRef(), relations, titles))
 
 	if provenance := entity.GetProvenance(); provenance.GetVersion() != "" {
 		fmt.Fprintf(&out, "\nDeclared in %s at `%s`.\n", provenance.GetSource(), short(provenance.GetVersion()))
@@ -771,7 +864,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 	return out.String()
 }
 
-func renderRelations(ref string, relations []*duskv1alpha1.Relation) string {
+func renderRelations(ref string, relations []*duskv1alpha1.Relation, titles map[string]string) string {
 	if len(relations) == 0 {
 		return "No relations are declared for it.\n"
 	}
@@ -780,12 +873,38 @@ func renderRelations(ref string, relations []*duskv1alpha1.Relation) string {
 	out.WriteString("## Connections\n\n")
 	for _, relation := range relations {
 		if relation.GetFrom() == ref {
-			fmt.Fprintf(&out, "- %s → `%s`\n", relation.GetType(), relation.GetTo())
+			fmt.Fprintf(&out, "- %s → %s`%s`\n",
+				relation.GetType(), nameOf(titles, relation.GetTo()), relation.GetTo())
 			continue
 		}
-		fmt.Fprintf(&out, "- `%s` %s this\n", relation.GetFrom(), relation.GetType())
+		fmt.Fprintf(&out, "- %s`%s` %s this\n",
+			nameOf(titles, relation.GetFrom()), relation.GetFrom(), relation.GetType())
 	}
 	return out.String()
+}
+
+// nameOf prefixes a ref with the title of what it points at. A ref nothing
+// declares has none, and neither does an entity that never carried one.
+func nameOf(titles map[string]string, ref string) string {
+	if title := strings.TrimSpace(titles[ref]); title != "" {
+		return "**" + title + "** "
+	}
+	return ""
+}
+
+// relatedRefs is every ref a relation names other than the one being read,
+// which is what one Titles call has to cover.
+func relatedRefs(ref string, relations []*duskv1alpha1.Relation) []string {
+	refs := make([]string, 0, len(relations))
+	for _, relation := range relations {
+		if other := relation.GetFrom(); other != ref {
+			refs = append(refs, other)
+		}
+		if other := relation.GetTo(); other != ref {
+			refs = append(refs, other)
+		}
+	}
+	return refs
 }
 
 func text(body string) *sdk.CallToolResult {

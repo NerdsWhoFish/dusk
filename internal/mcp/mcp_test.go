@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
@@ -67,7 +68,6 @@ func newIndex(t *testing.T) *index.DB {
 
 func seed(t *testing.T, idx *index.DB) {
 	t.Helper()
-	ctx := t.Context()
 
 	entities := []*duskv1alpha1.Entity{
 		entity("host:home/nas", "host", "The NAS", "Four bays, holds the media library."),
@@ -78,14 +78,23 @@ func seed(t *testing.T, idx *index.DB) {
 		Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
 	}}
 
+	put(t, idx, "example/homelab", entities, relations...)
+}
+
+// put declares entities into one repository and makes that the default view,
+// which is the ref every MCP read runs against.
+func put(t *testing.T, idx *index.DB, repository string, entities []*duskv1alpha1.Entity, relations ...*duskv1alpha1.Relation) {
+	t.Helper()
+	ctx := t.Context()
+
 	declarations := make([]index.Declaration, 0, len(entities))
 	for _, e := range entities {
 		declarations = append(declarations, index.Declaration{Path: e.GetName() + "/dusk.md", Entity: e})
 	}
-	if err := idx.Put(ctx, "example/homelab", mainRef, declarations, relations, nil); err != nil {
+	if err := idx.Put(ctx, repository, mainRef, declarations, relations, nil); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	if err := idx.SetDefaultView(ctx, "example/homelab", mainRef); err != nil {
+	if err := idx.SetDefaultView(ctx, repository, mainRef); err != nil {
 		t.Fatalf("SetDefaultView: %v", err)
 	}
 }
@@ -196,6 +205,77 @@ func TestSearch(t *testing.T) {
 	})
 }
 
+// ADR-0059: a filter narrows the query. Applied to a page a limit already cut,
+// a kind invents the one answer the surface must never invent, because the
+// product teaches agents that absence means undocumented.
+func TestADR0059_AKindFilterNarrowsTheQuery(t *testing.T) {
+	session, idx := connect(t, nil)
+
+	// Thirty short services outrank one long host on the same word, so the host
+	// falls past any limit smaller than the number of services.
+	entities := make([]*duskv1alpha1.Entity, 0, 31)
+	for i := range 30 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), "service",
+			fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	entities = append(entities, entity("host:home/rack", "host", "The Rack",
+		"Four bays. "+strings.Repeat("It holds the media library. ", 40)+" shelf"))
+	put(t, idx, "example/homelab", entities)
+
+	body := call(t, session, "search", map[string]any{"query": "shelf", "kind": "host"})
+
+	if !strings.Contains(body, "host:home/rack") {
+		t.Errorf("a host that matches was not returned:\n%s", body)
+	}
+	if strings.Contains(body, "Nothing in the catalog matches") {
+		t.Errorf("a match past the raw limit was reported as an absence:\n%s", body)
+	}
+	if strings.Contains(body, "service:home/svc") {
+		t.Errorf("the kind did not exclude the services:\n%s", body)
+	}
+}
+
+// ADR-0059: a list says how many matched, not only how many it is showing. An
+// agent shown three of forty and told "3 result(s)" believes it has seen them.
+func TestADR0059_ASearchSaysHowManyItIsNotShowing(t *testing.T) {
+	session, idx := connect(t, nil)
+
+	entities := make([]*duskv1alpha1.Entity, 0, 12)
+	for i := range 12 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), "service",
+			fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	put(t, idx, "example/homelab", entities)
+
+	t.Run("a cut page says what it matched", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 3})
+		if !strings.Contains(body, "3 of 12 result(s)") {
+			t.Errorf("search body does not say how many matched:\n%s", body)
+		}
+		if !strings.Contains(body, "limit") {
+			t.Errorf("search body does not say how to see the rest:\n%s", body)
+		}
+	})
+
+	t.Run("a whole page does not pretend to be cut", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 50})
+		if !strings.Contains(body, "12 result(s)") || strings.Contains(body, " of 12") {
+			t.Errorf("search body should not say it cut anything:\n%s", body)
+		}
+	})
+
+	// An empty answer that does not repeat the kind reads as "nothing called
+	// that exists", which is a stronger claim than the one that was checked.
+	t.Run("an empty answer names the kind it looked for", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "kind": "datastore"})
+		if !strings.Contains(body, "datastore") {
+			t.Errorf("empty answer does not say what it looked for:\n%s", body)
+		}
+	})
+}
+
 func TestGet(t *testing.T) {
 	session, idx := connect(t, nil)
 	seed(t, idx)
@@ -207,6 +287,39 @@ func TestGet(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("get body missing %q:\n%s", want, body)
 		}
+	}
+}
+
+// ADR-0059: a ref in a list carries the name of what it points at. Twenty-two
+// bare refs make "which of these is worth opening" cost twenty-two calls, which
+// is what ADR-0010's "refs feed back into get" was meant to avoid.
+func TestADR0059_ARefInAListCarriesItsName(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+
+	// A relation whose target nothing declares still renders, because ADR-0033
+	// treats an unresolvable ref as drift rather than as an error.
+	put(t, idx, "example/board",
+		[]*duskv1alpha1.Entity{entity("card:board/rewire", "card", "Rewire the rack", "")},
+		&duskv1alpha1.Relation{
+			From: "host:home/nas", To: "card:board/rewire", Type: "tracked_by",
+			Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+		},
+		&duskv1alpha1.Relation{
+			From: "host:home/nas", To: "card:board/gone", Type: "tracked_by",
+			Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+		})
+
+	for _, tool := range []string{"get", "neighbors"} {
+		t.Run(tool, func(t *testing.T) {
+			body := call(t, session, tool, map[string]any{"ref": "host:home/nas"})
+			if !strings.Contains(body, "**Rewire the rack** `card:board/rewire`") {
+				t.Errorf("%s does not name what the ref points at:\n%s", tool, body)
+			}
+			if !strings.Contains(body, "`card:board/gone`") {
+				t.Errorf("%s dropped a ref nothing declares:\n%s", tool, body)
+			}
+		})
 	}
 }
 

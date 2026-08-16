@@ -1,7 +1,9 @@
 package index_test
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
@@ -133,7 +135,7 @@ func TestSearchCarriesTheVersionAWriteIsCheckedAgainst(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	results, err := db.Search(t.Context(), "refs/heads/main", "transcoding", 10)
+	results, _, err := db.Search(t.Context(), "refs/heads/main", index.SearchFilter{Query: "transcoding", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -149,6 +151,212 @@ func TestSearchCarriesTheVersionAWriteIsCheckedAgainst(t *testing.T) {
 		if got := hit.Version; got != want[hit.Ref] {
 			t.Errorf("version of %s = %q, want %q", hit.Ref, got, want[hit.Ref])
 		}
+	}
+}
+
+// ADR-0059: the kind is part of the query, so a hit past the limit is still
+// found. Filtering the page afterwards answers "nothing matches" whenever that
+// page happens to hold none of the kind asked for.
+func TestADR0059_AKindNarrowsTheQueryNotTheAnswer(t *testing.T) {
+	db := newDB(t)
+
+	entities := make([]*duskv1alpha1.Entity, 0, 21)
+	for i := range 20 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	entities = append(entities, entity("host:home/rack", "The Rack",
+		"Four bays. "+strings.Repeat("It holds the media library. ", 40)+" shelf"))
+	mustPut(t, db, "example/homelab", mainRef, entities, nil)
+
+	tests := []struct {
+		name  string
+		kind  string
+		limit int
+		want  []string
+	}{
+		{"a kind past the limit is still found", "host", 5, []string{"host:home/rack"}},
+		{"the kind is matched without regard to case", "HOST", 5, []string{"host:home/rack"}},
+		{"a kind nothing carries finds nothing", "datastore", 5, nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, _, err := db.Search(t.Context(), mainRef,
+				index.SearchFilter{Query: "shelf", Kind: test.kind, Limit: test.limit})
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+
+			refs := make([]string, 0, len(results))
+			for _, hit := range results {
+				refs = append(refs, hit.Ref)
+			}
+			if !slices.Equal(refs, test.want) {
+				t.Errorf("Search(kind=%q) = %v, want %v", test.kind, refs, test.want)
+			}
+		})
+	}
+}
+
+// ADR-0059: a page carries how many matched, so a caller can tell a short
+// answer from a complete one. The kind narrows the count with the query.
+func TestADR0059_ASearchCountsWhatMatchedNotWhatFits(t *testing.T) {
+	db := newDB(t)
+
+	entities := make([]*duskv1alpha1.Entity, 0, 13)
+	for i := range 12 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	entities = append(entities, entity("host:home/rack", "The Rack", "shelf"))
+	mustPut(t, db, "example/homelab", mainRef, entities, nil)
+
+	tests := []struct {
+		name      string
+		filter    index.SearchFilter
+		wantShown int
+		wantTotal int
+	}{
+		{"the limit cuts the page, not the count", index.SearchFilter{Query: "shelf", Limit: 3}, 3, 13},
+		{"a page that holds everything counts everything", index.SearchFilter{Query: "shelf", Limit: 50}, 13, 13},
+		{"a kind narrows the count with the query", index.SearchFilter{Query: "shelf", Kind: "host", Limit: 3}, 1, 1},
+		{"nothing matched counts nothing", index.SearchFilter{Query: "absent", Limit: 3}, 0, 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, total, err := db.Search(t.Context(), mainRef, test.filter)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if len(results) != test.wantShown || total != test.wantTotal {
+				t.Errorf("Search = %d of %d, want %d of %d",
+					len(results), total, test.wantShown, test.wantTotal)
+			}
+		})
+	}
+}
+
+// ADR-0059: one call names a list of refs. Titles resolves the way Get does, so
+// a ref is named by whichever declaration Get would answer with.
+func TestADR0059_TitlesNamesRefsTheWayGetResolvesThem(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/nas", "The NAS", ""),
+		entity("service:home/untitled", "", ""),
+	}, nil)
+	mustPut(t, db, index.ObservedScope("kubernetes"), mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/nas", "nas-01.observed", ""),
+	}, nil)
+
+	titles, err := db.Titles(t.Context(), mainRef,
+		[]string{"host:home/nas", "service:home/untitled", "service:home/absent"})
+	if err != nil {
+		t.Fatalf("Titles: %v", err)
+	}
+
+	want := map[string]string{"host:home/nas": "The NAS", "service:home/untitled": ""}
+	if len(titles) != len(want) {
+		t.Fatalf("Titles = %v, want %v", titles, want)
+	}
+	for ref, title := range want {
+		if got, ok := titles[ref]; !ok || got != title {
+			t.Errorf("Titles[%q] = %q (present %v), want %q", ref, got, ok, title)
+		}
+	}
+}
+
+// ADR-0060: an entity is findable by part of the name somebody gave it.
+// Infrastructure names are compounds, and a full-text index matches whole words
+// with a prefix on the last, so "nas" found the surname and not the host.
+func TestADR0060_AnEntityIsFoundByPartOfItsName(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/backupnas", "backupnas", "Four bays."),
+		entity("host:home/mediabox", "mediabox", "Plays things."),
+		entity("card:board/nasty-leak", "Nasty leak in the basement", "Under the stairs."),
+	}, nil)
+	notes := []*duskv1alpha1.Note{{
+		Id: ".dusk/todo-1.md", Kind: "todo", ContentHash: "hash-todo",
+		Body: "Rebuild the nas array.", Provenance: testProvenance(),
+	}}
+	if err := db.Put(t.Context(), "example/config", mainRef, nil, nil, notes); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			// The word hit and the work note both come from the full-text
+			// index, and the name hit sits between them.
+			name:  "a part of a name is found, below a word hit and above a todo",
+			query: "nas",
+			want:  []string{"card:board/nasty-leak", "host:home/backupnas", ".dusk/todo-1.md"},
+		},
+		{
+			name:  "every word has to be in the name",
+			query: "media box",
+			want:  []string{"host:home/mediabox"},
+		},
+		{
+			// Two letters would be inside most of a catalog, so only the
+			// prefix match answers and the compound name stays out.
+			name:  "a word too short to mean anything is left to the full-text index",
+			query: "na",
+			want:  []string{"card:board/nasty-leak", ".dusk/todo-1.md"},
+		},
+		{
+			name:  "a name nothing holds still finds nothing",
+			query: "zzz",
+			want:  nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, total, err := db.Search(t.Context(), mainRef,
+				index.SearchFilter{Query: test.query, Limit: 25})
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+
+			refs := make([]string, 0, len(results))
+			for _, hit := range results {
+				refs = append(refs, hit.Ref)
+			}
+			if !slices.Equal(refs, test.want) {
+				t.Errorf("Search(%q) = %v, want %v", test.query, refs, test.want)
+			}
+			if total != len(test.want) {
+				t.Errorf("Search(%q) total = %d, want %d", test.query, total, len(test.want))
+			}
+		})
+	}
+}
+
+// A name hit carries the version a write is checked against, or a search would
+// hand back a ref it cannot authorize writing (ADR-0009). One ref is one hit,
+// however many scopes hold it, so the count ADR-0059 prints is of things.
+func TestADR0060_ANameHitIsOneHitCarryingItsVersion(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", mainRef,
+		[]*duskv1alpha1.Entity{entity("host:home/backupnas", "backupnas", "Four bays.")}, nil)
+	mustPut(t, db, index.ObservedScope("kubernetes"), mainRef,
+		[]*duskv1alpha1.Entity{entity("host:home/backupnas", "backupnas", "Four bays.")}, nil)
+
+	results, total, err := db.Search(t.Context(), mainRef, index.SearchFilter{Query: "nas", Limit: 25})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 || total != 1 {
+		t.Fatalf("Search = %d of %d, want the one entity once", len(results), total)
+	}
+	if results[0].Version != "abc123" {
+		t.Errorf("version = %q, want the entity's, or the hit authorizes nothing", results[0].Version)
 	}
 }
 

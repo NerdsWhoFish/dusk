@@ -245,7 +245,7 @@ func TestDefaultViewSpansEachRepositorysOwnBranch(t *testing.T) {
 	})
 
 	t.Run("search spans them too", func(t *testing.T) {
-		results, err := db.Search(ctx, "", "media", 10)
+		results, _, err := db.Search(ctx, "", index.SearchFilter{Query: "media", Limit: 10})
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestSearch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := db.Search(ctx, mainRef, tt.query, 10)
+			results, _, err := db.Search(ctx, mainRef, index.SearchFilter{Query: tt.query, Limit: 10})
 			if err != nil {
 				t.Fatalf("Search(%q): %v", tt.query, err)
 			}
@@ -353,7 +353,7 @@ func TestSearch(t *testing.T) {
 	}
 
 	t.Run("a hit carries a snippet of the match", func(t *testing.T) {
-		results, err := db.Search(ctx, mainRef, "transcoding", 10)
+		results, _, err := db.Search(ctx, mainRef, index.SearchFilter{Query: "transcoding", Limit: 10})
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}
@@ -364,14 +364,14 @@ func TestSearch(t *testing.T) {
 
 	t.Run("punctuation cannot produce a query syntax error", func(t *testing.T) {
 		for _, query := range []string{`"unbalanced`, "kind:service", "a AND (b", "*", `foo"bar`} {
-			if _, err := db.Search(ctx, mainRef, query, 10); err != nil {
+			if _, _, err := db.Search(ctx, mainRef, index.SearchFilter{Query: query, Limit: 10}); err != nil {
 				t.Errorf("Search(%q): %v", query, err)
 			}
 		}
 	})
 
 	t.Run("an empty query is rejected", func(t *testing.T) {
-		if _, err := db.Search(ctx, mainRef, "   ", 10); err == nil {
+		if _, _, err := db.Search(ctx, mainRef, index.SearchFilter{Query: "   ", Limit: 10}); err == nil {
 			t.Error("Search succeeded with an empty query, want an error")
 		}
 	})
@@ -385,7 +385,7 @@ func TestSearchIsScopedToOneGitRef(t *testing.T) {
 		entity("service:home/navidrome", "Navidrome", "Music streaming."),
 	}, nil)
 
-	results, err := db.Search(ctx, mainRef, "navidrome", 10)
+	results, _, err := db.Search(ctx, mainRef, index.SearchFilter{Query: "navidrome", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

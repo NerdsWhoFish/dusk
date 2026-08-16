@@ -140,4 +140,10 @@ func TestQuerySplitsKindFromWords(t *testing.T) {
 	if strings.Contains(recorded.searched, "kind:") {
 		t.Errorf("search saw %q, want kind: stripped out", recorded.searched)
 	}
+
+	// ADR-0059: the kind goes to the query. Kept back and applied to the page a
+	// limit already cut, a block renders empty whenever that page holds none.
+	if recorded.searchedKind != "service" {
+		t.Errorf("search saw kind %q, want it narrowing the query", recorded.searchedKind)
+	}
 }

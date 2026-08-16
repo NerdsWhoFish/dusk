@@ -2,7 +2,7 @@
 
 ## What happens when a plugin dies
 
-A plugin is a subprocess ([ADR-0039](../adr/0039-one-plugin-transport.md)), and Dusk keeps it up ([ADR-0054](../adr/0054-supervising-plugin-processes.md)).
+A plugin is a subprocess ([ADR-0039](../adr/0039-one-plugin-transport.md)), and Dusk keeps it up ([ADR-0055](../adr/0055-supervising-plugin-processes.md)).
 
 | Phase | What it means | What Dusk is doing |
 | --- | --- | --- |
