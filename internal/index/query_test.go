@@ -1,7 +1,9 @@
 package index_test
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
@@ -133,7 +135,7 @@ func TestSearchCarriesTheVersionAWriteIsCheckedAgainst(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	results, err := db.Search(t.Context(), "refs/heads/main", "transcoding", 10)
+	results, err := db.Search(t.Context(), "refs/heads/main", index.SearchFilter{Query: "transcoding", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -149,6 +151,51 @@ func TestSearchCarriesTheVersionAWriteIsCheckedAgainst(t *testing.T) {
 		if got := hit.Version; got != want[hit.Ref] {
 			t.Errorf("version of %s = %q, want %q", hit.Ref, got, want[hit.Ref])
 		}
+	}
+}
+
+// ADR-0059: the kind is part of the query, so a hit past the limit is still
+// found. Filtering the page afterwards answers "nothing matches" whenever that
+// page happens to hold none of the kind asked for.
+func TestADR0059_AKindNarrowsTheQueryNotTheAnswer(t *testing.T) {
+	db := newDB(t)
+
+	entities := make([]*duskv1alpha1.Entity, 0, 21)
+	for i := range 20 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	entities = append(entities, entity("host:home/rack", "The Rack",
+		"Four bays. "+strings.Repeat("It holds the media library. ", 40)+" shelf"))
+	mustPut(t, db, "example/homelab", mainRef, entities, nil)
+
+	tests := []struct {
+		name  string
+		kind  string
+		limit int
+		want  []string
+	}{
+		{"a kind past the limit is still found", "host", 5, []string{"host:home/rack"}},
+		{"the kind is matched without regard to case", "HOST", 5, []string{"host:home/rack"}},
+		{"a kind nothing carries finds nothing", "datastore", 5, nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, err := db.Search(t.Context(), mainRef,
+				index.SearchFilter{Query: "shelf", Kind: test.kind, Limit: test.limit})
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+
+			refs := make([]string, 0, len(results))
+			for _, hit := range results {
+				refs = append(refs, hit.Ref)
+			}
+			if !slices.Equal(refs, test.want) {
+				t.Errorf("Search(kind=%q) = %v, want %v", test.kind, refs, test.want)
+			}
+		})
 	}
 }
 

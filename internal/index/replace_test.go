@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
+
+	"github.com/NerdsWhoFish/dusk/internal/index"
 )
 
 // A reconcile replaces everything a repository contributes. Anything left
@@ -54,7 +56,7 @@ func TestPutRemovesEverythingTheScopeHeld(t *testing.T) {
 	})
 
 	t.Run("and it is no longer searchable", func(t *testing.T) {
-		results, err := db.Search(ctx, mainRef, "deleted", 10)
+		results, err := db.Search(ctx, mainRef, index.SearchFilter{Query: "deleted", Limit: 10})
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}

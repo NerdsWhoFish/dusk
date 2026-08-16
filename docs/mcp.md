@@ -146,6 +146,10 @@ Agents reason better over prose than over deeply nested objects.
 Searching for something nobody has declared says so, and points at `changes`.
 An agent that cannot tell "not in the catalog" from "the catalog is empty" will invent the difference.
 
+That last rule is why **a filter narrows the query and never the answer** ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
+`search(query, kind)` asks the index for that kind, rather than taking a page of hits and dropping the ones that do not match it.
+Applied afterwards, a kind reports "nothing matches" whenever the page it was handed happens to hold none of it, which is the one answer this surface must never invent.
+
 ## What `changes` is for
 
 Reconcile status is the difference between a stale answer and a missing one.

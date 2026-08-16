@@ -137,3 +137,18 @@ The tool count is also a product constraint this ADR set itself, and one tool is
 A mint additionally carries a **role**, which this ADR did not have.
 It is what makes "kind affects ranking and rendering, not just labelling" true of a minted kind rather than only of the six seeded ones.
 [ADR-0048](0048-the-kind-vocabulary.md) records where the vocabulary lives and why a near match warns rather than refuses, and [ADR-0049](0049-a-notes-kind-is-its-rank.md) records what a role does to ranking.
+
+### 2026-08-15: `get` is fat, and bounded
+
+This ADR says `get` is "deliberately fat", and that was implemented as unbounded.
+One `get` against a real catalog returned 78,720 characters, all of it notes printed whole.
+
+Fat was a decision about *what* `get` answers: the description, the attributes, the relations, the notes and the actions in one call rather than five.
+That is untouched, and every one of those still arrives.
+What changes is that the notes are bounded in bytes, and the ones past the bound arrive as their kind, their id and their opening line rather than whole ([ADR-0059](0059-what-a-list-may-not-leave-unsaid.md)).
+
+The consequence this ADR already recorded, that "fat responses cost context on every call" and would be "annoying to reverse once agents depend on the shape", is the one being paid.
+It is paid the smallest way available: nothing is dropped, and a note that did not fit is named and one call away.
+
+The same record narrows this ADR's `search(query, kind?, limit?)`.
+The `kind` argument was implemented as a pass over the page `limit` returned, which reported "nothing matches" for a kind whose matches sat past the window, and it now narrows the query itself.

@@ -348,16 +348,30 @@ func (db *DB) Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv
 	return relations, nil
 }
 
+// SearchFilter narrows a search.
+type SearchFilter struct {
+	// Query is the free text to match. Required.
+	Query string
+
+	// Kind restricts hits to one entity or note kind, without regard to case.
+	// It narrows the query rather than the answer, because a kind applied to a
+	// page a limit already cut reports nothing while matches sit past it.
+	Kind string
+
+	// Limit caps the page. Zero takes the default.
+	Limit int
+}
+
 // Search runs a full-text query against entity text at gitRef. A note whose
 // kind is work ranks below every other hit and by relevance within that group,
 // so a todo never outranks a gotcha or an entity (ADR-0049).
-func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]SearchResult, error) {
-	match := matchExpression(query)
+func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([]SearchResult, error) {
+	match := matchExpression(filter.Query)
 	if match == "" {
 		return nil, errors.New("index: search: query is required")
 	}
-	if limit <= 0 {
-		limit = defaultSearchLimit
+	if filter.Limit <= 0 {
+		filter.Limit = defaultSearchLimit
 	}
 
 	minted, err := db.Minted(ctx, gitRef)
@@ -368,9 +382,12 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 
 	// Qualified, because the join makes a bare git_ref ambiguous.
 	scope, scopeArgs := scopeClause("f", gitRef)
+	kind, kindArgs := kindClause("f", filter.Kind)
+
 	args := append([]any{match}, scopeArgs...)
+	args = append(args, kindArgs...)
 	args = append(args, asAny(work)...)
-	args = append(args, limit)
+	args = append(args, filter.Limit)
 
 	var results []SearchResult
 	err = db.gorm.WithContext(ctx).Raw(`
@@ -387,15 +404,30 @@ func (db *DB) Search(ctx context.Context, gitRef, query string, limit int) ([]Se
 		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
 		  LEFT JOIN notes n
 		    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
-		 WHERE catalog_fts MATCH ? AND `+scope+`
+		 WHERE catalog_fts MATCH ? AND `+scope+kind+`
 		 ORDER BY CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
 		               THEN 1 ELSE 0 END, rank
 		 LIMIT ?`, args...,
 	).Scan(&results).Error
 	if err != nil {
-		return nil, fmt.Errorf("index: search %q at %q: %w", query, gitRef, err)
+		return nil, fmt.Errorf("index: search %q at %q: %w", filter.Query, gitRef, err)
 	}
 	return results, nil
+}
+
+// kindClause restricts a query to one kind, and is empty for every kind. It
+// returns the conjunction rather than the bare predicate so a caller can
+// concatenate it onto a WHERE that always has something in it.
+func kindClause(alias, kind string) (string, []any) {
+	if kind == "" {
+		return "", nil
+	}
+
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return " AND " + prefix + "kind = ? COLLATE NOCASE", []any{kind}
 }
 
 const defaultSearchLimit = 25

@@ -214,7 +214,7 @@ func TestSearchDemotesWorkBelowEverythingElse(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	results, err := db.Search(t.Context(), mainRef, "jellyfin", 10)
+	results, err := db.Search(t.Context(), mainRef, index.SearchFilter{Query: "jellyfin", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

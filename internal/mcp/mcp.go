@@ -38,7 +38,7 @@ import (
 // Catalog is the slice of the index the tools need, declared here so the tools
 // do not depend on how the graph is stored.
 type Catalog interface {
-	Search(ctx context.Context, gitRef, query string, limit int) ([]index.SearchResult, error)
+	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
@@ -296,7 +296,9 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		return text("A query is required. Try a service name, a hostname, or a word from a description."), nil, nil
 	}
 
-	results, err := s.opts.Catalog.Search(ctx, "", in.Query, in.Limit)
+	results, err := s.opts.Catalog.Search(ctx, "", index.SearchFilter{
+		Query: in.Query, Kind: in.Kind, Limit: in.Limit,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -305,9 +307,6 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	shown := 0
 	seen := map[string]string{}
 	for _, hit := range results {
-		if in.Kind != "" && !strings.EqualFold(hit.Kind, in.Kind) {
-			continue
-		}
 		shown++
 		seen[hit.Ref] = hit.Version
 		fmt.Fprintf(&out, "- %s**%s** `%s`\n", noteMark(hit), displayName(hit.Title, hit.Ref), hit.Ref)

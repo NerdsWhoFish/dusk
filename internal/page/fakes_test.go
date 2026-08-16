@@ -20,7 +20,7 @@ func (failing) List(context.Context, string, string) ([]*duskv1alpha1.Entity, er
 	return nil, errBroken
 }
 
-func (failing) Search(context.Context, string, string, int) ([]index.SearchResult, error) {
+func (failing) Search(context.Context, string, index.SearchFilter) ([]index.SearchResult, error) {
 	return nil, errBroken
 }
 
@@ -54,9 +54,9 @@ func (failing) Scopes(context.Context) ([]index.Scope, error) { return nil, errB
 type recording struct{}
 
 var recorded struct {
-	searched, listedKind, neighborsOf string
-	relations                         []*duskv1alpha1.Relation
-	listed                            []*duskv1alpha1.Entity
+	searched, searchedKind, listedKind, neighborsOf string
+	relations                                       []*duskv1alpha1.Relation
+	listed                                          []*duskv1alpha1.Entity
 
 	// asked is the visibility each aggregate block handed the catalog, keyed
 	// by block type, so a block that drops the viewer is visible as a gap.
@@ -70,8 +70,9 @@ func askedWith(t page.Type, v index.Visibility) {
 	recorded.asked[t] = v
 }
 
-func (*recording) Search(_ context.Context, _, query string, _ int) ([]index.SearchResult, error) {
-	recorded.searched = query
+func (*recording) Search(_ context.Context, _ string, filter index.SearchFilter) ([]index.SearchResult, error) {
+	recorded.searched = filter.Query
+	recorded.searchedKind = filter.Kind
 	return nil, nil
 }
 
