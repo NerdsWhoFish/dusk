@@ -66,7 +66,8 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
   const kinds =
     home?.blocks.find((block) => block.type === "kinds")?.kinds ?? [];
   const total = kinds.reduce((sum, entry) => sum + entry.Count, 0);
-  const groups = group(kinds, useVocabulary());
+  const vocabulary = useVocabulary();
+  const groups = group(kinds, vocabulary);
 
   // Absent means yes: a page that says nothing about search still gets it.
   const searchable = home?.search !== false;
