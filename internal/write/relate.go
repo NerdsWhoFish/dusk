@@ -106,9 +106,12 @@ func (r Relation) parts() (from, to, relType string, err error) {
 		return "", "", "", errors.New("write: a relation needs a type, such as runs_on or depends_on")
 	}
 
-	for field, ref := range map[string]string{"from": from, "to": to} {
-		if _, _, _, err := conformance.ParseRef(ref); err != nil {
-			return "", "", "", fmt.Errorf("write: %s %q is not a ref of the form kind:namespace/name: %w", field, ref, err)
+	// Ordered, so an agent that got both refs wrong is told about the same one
+	// every time rather than whichever a map handed over first.
+	for _, checked := range []struct{ field, ref string }{{"from", from}, {"to", to}} {
+		if _, _, _, err := conformance.ParseRef(checked.ref); err != nil {
+			return "", "", "", fmt.Errorf("write: %s %q is not a ref of the form kind:namespace/name: %w",
+				checked.field, checked.ref, err)
 		}
 	}
 	return from, to, relType, nil
