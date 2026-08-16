@@ -83,8 +83,8 @@ func serveCommand() *cli.Command {
                         authentication at all, on a network you trust.
   DUSK_CONFIG_REPOSITORY
                         owner/name of the repository notes are written to. It
-                        needs its own dusk.md, like any other. Unset means the
-                        note tool is not offered; nothing else is affected.
+                        needs its own dusk.md, like any other. Unset means a
+                        note cannot be written; reading them still works.
   DUSK_GITHUB_CLIENT_ID, DUSK_GITHUB_CLIENT_SECRET
                         An OAuth app, enabling sign-in with GitHub. A viewer
                         then sees only what the repositories they can read

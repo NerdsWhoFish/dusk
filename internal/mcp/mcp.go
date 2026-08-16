@@ -93,8 +93,9 @@ type Declarer interface {
 	// is the only direction a repository may assert (ADR-0026).
 	Relate(ctx context.Context, token string, relation write.Relation) (*write.Result, error)
 
-	// NoteDestination is where notes go, and empty means nowhere, in which case
-	// the note tool is not offered at all.
+	// NoteDestination is where notes go, and empty means nowhere. The tool is
+	// still offered, because reading what is written down is a read; only the
+	// write refuses, and the token offer stops naming `note`.
 	NoteDestination() string
 
 	// Home reads the declared portal page, and SetHome writes it. ADR-0013

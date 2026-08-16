@@ -23,7 +23,8 @@ And pointing `include` at an existing documentation tree, which is the thing tha
 
 There is a measured cost as well as a predicted one.
 A sweep of 89 repositories, of which one participates, spends roughly 180 calls per pass to discover that 88 of them still have no `dusk.md`.
-At a ten minute floor that is a fifth of the hourly budget spent learning nothing, before any repository does anything interesting.
+At the ten minute floor of the time that is a fifth of the hourly budget spent learning nothing, before any repository does anything interesting.
+That floor is now a day ([ADR-0006](0006-reconcile-triggering.md), amended), partly because of this record: the numbers below are what made a slower sweep affordable.
 
 ## Considered Options
 

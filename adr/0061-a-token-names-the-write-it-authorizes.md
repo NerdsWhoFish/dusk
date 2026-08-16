@@ -65,7 +65,8 @@ Chosen: **option 3**.
 | `page` | `page`, to declare the first one or to replace the whole of it |
 | `kinds` | `mint`, unchanged |
 
-Whether `note` is named at all still depends on the deployment, because a Dusk with nowhere to put a note is not offered the tool, and naming a call that does not exist is the defect one level down.
+Whether `note` is named at all still depends on the deployment, because a Dusk with nowhere to put a note cannot take one, and offering a write that always refuses is the defect one level down.
+The tool itself stays registered either way, since reading what is written down is a read.
 
 ### Deriving it from the origin was the close call
 

@@ -63,8 +63,8 @@ Chosen: **option 4**.
 [ADR-0010](0010-mcp-surface.md) makes the size of the tool list a product constraint rather than an implementation detail, because it is spent on every session before any work happens.
 A tool that costs that and then explains it has nothing to do is a straight loss.
 
-The codebase already applies this rule in the other direction: `note` is not offered at all in a deployment with nowhere to put a note, on the reasoning that a tool that always fails is worse than one that is absent.
-`push` is the same case reached by a different route, and answering it differently would be two rules where there is one.
+The nearest case in the codebase is `note` in a deployment with nowhere to put one, and it resolves the other way: the tool stays, because reading what is written down is still a read, and only the write refuses.
+That is the distinction. `note` has a job left when its destination is missing; `push` has none in any deployment, because what it did was removed rather than unconfigured.
 
 Option 3 is the status quo, and it is the one worth arguing against hardest, because it costs nothing today.
 It loses because "later" and "abandoned" are indistinguishable from outside, which is the reason this repository requires anything deferred to leave a trace.

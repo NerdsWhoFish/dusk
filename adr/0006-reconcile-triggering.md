@@ -62,3 +62,26 @@ This ADR exists largely to record why.
 
 - Poll only was rejected on latency. Catalog updates arriving up to half an hour late undercuts the premise that an agent's work is reflected immediately.
 - Webhook only was rejected on the silent staleness failure mode above. The API-quota argument that motivates it does not survive the observation that `ls-remote` is not a REST call, and no reliability argument replaces it.
+
+## Amendments
+
+### 2026-08-16: the floor is a day, and `ls-remote` was never how it reads
+
+Two things in this record were false, and both were found by an audit rather than by anything failing.
+
+**The floor is `24 * time.Hour`**, in `controller.DefaultInterval`, and has been since 0.6.0.
+This record still said 15 to 30 minutes, was never amended, and exposes no way to configure it.
+[ADR-0058](0058-a-read-time-is-a-fact-about-the-read.md) then wrote "the poll floor is a day" and cited *this* record for the number, so a change nobody decided in public acquired a citation, and [ADR-0032](0032-tarball-reads.md) reasons from a ten minute floor that also no longer exists.
+
+The widening is deliberate and the reasoning is sound, which is precisely why it should have been written down.
+A webhook delivery is now retried three times with backoff, so the floor no longer catches an ordinary lost delivery: it catches only one that never arrived at all, after every retry failed.
+[ADR-0032](0032-tarball-reads.md) made an unchanged repository cost one request and a repository with no `dusk.md` cost nothing, so a sweep is cheap enough to run daily and would be wasteful more often.
+The cost is that when the webhook path is broken or absent, the catalog can be a day stale with nothing obviously wrong, which is the failure this record calls the worst available bug, now with a window 48 to 96 times wider than the one it was arguing about.
+`changes` reports the commit last read per repository and when, which is how that is detected; it is not a replacement for noticing.
+
+**"Uses `git ls-remote` to compare refs" was never implemented.**
+Change detection is an authenticated call against the API ([0029](0029-reading-repositories.md), [0032](0032-tarball-reads.md)), so the cost argument made here, and repeated in [ADR-0011](0011-ingester-scheduling.md), argues from a mechanism that does not exist.
+The conclusion survives on [ADR-0032](0032-tarball-reads.md)'s numbers rather than on this one's.
+
+The decision itself is unchanged: **the poll floor stays**, for exactly the reason recorded above.
+What changed is its period, and that a poll-only deployment is now a degraded configuration rather than a supported one.

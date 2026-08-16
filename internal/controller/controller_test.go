@@ -685,6 +685,44 @@ func TestRunSweepsUntilCancelled(t *testing.T) {
 	}
 }
 
+// The floor keeps sweeping when it looks redundant, which is the whole of it:
+// a delivery that never arrives leaves nothing to notice, so the sweep that
+// recovers it is the one a reader would delete as duplicated work.
+func TestADR0006_PollFloorRunsWithWebhooksConfigured(t *testing.T) {
+	fake := &fakeGitHub{installs: []install{{
+		id:      10,
+		account: "example",
+		repos:   map[string]string{"example/homelab": rootFile("jellyfin")},
+	}}}
+	c, _ := newController(t, fake, "example", controller.Options{Interval: 50 * time.Millisecond})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go c.Run(ctx)
+
+	first := awaitAttempt(t, c, time.Time{})
+	if second := awaitAttempt(t, c, first); !second.After(first) {
+		t.Fatal("the floor swept once and stopped, so nothing recovers a delivery that never arrived")
+	}
+}
+
+// awaitAttempt waits for a sweep later than one already seen.
+func awaitAttempt(t *testing.T, c *controller.Controller, after time.Time) time.Time {
+	t.Helper()
+
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		for _, status := range c.Status() {
+			if status.Attempted.After(after) {
+				return status.Attempted
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatal("no sweep was attempted before the deadline")
+	return time.Time{}
+}
+
 // Credentials stored before onboarding recorded an owner leave it empty, and an
 // empty owner allows nothing. Upgrading must not silently stop reconciling.
 func TestOwnerIsResolvedWhenOnboardingDidNotRecordIt(t *testing.T) {

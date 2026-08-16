@@ -108,3 +108,21 @@ On the plugin's own page it is refused, in the plugin's own conformance tests an
 
 The decision itself is unchanged, including the claim that most plugins never ship JavaScript and never need a trust decision.
 [ADR-0064](0064-a-declared-view-mounts-where-a-result-set-comes-from.md) records the reasoning and the alternative, which was to have the plugin page resolve a set of its own.
+
+### 2026-08-16: the account allowlist is the trust boundary, and tier 2 has no second gate
+
+**"Tier 2 is opt-in, default deny" above was never implemented, and it is now withdrawn rather than owed.**
+An audit found that installing a plugin mounts its element and serves its JavaScript with no enabling step: `Manager.Views`, `Contributions` and `Asset` ask nothing, the entity endpoint serves what they return, and the install card speaks about the subprocess and never about the session.
+Actions kept their gate, so the two halves of "the same posture as actions" parted company without anybody deciding they should.
+
+The operator has decided they should.
+[ADR-0030](0030-account-allowlist.md) and [ADR-0042](0042-installing-plugins.md) put the boundary at the account: only an allowlisted account is reconciled at all, and a plugin is installed from a release in an allowlisted organisation with its checksum verified.
+Everything past that line is code the operator already chose to run, and a plugin that ships a subprocess with the host's token is not made safer by a second prompt about its JavaScript.
+The design target is one operator and their agents ([ADR-0027](0027-design-target.md)), not a marketplace of strangers, and a consent dialogue that always says yes teaches an operator to click through the one that should have said no.
+
+What is given up is real and is the cost of the decision.
+A plugin's UI runs in Dusk's origin with the session, so an installed plugin can read anything the signed-in viewer can, and there is no per-plugin switch to withdraw that short of uninstalling it.
+The blast radius of a compromised release in an allowlisted organisation is therefore the whole browser session, not just the subprocess.
+
+Tier 3, the sandboxed iframe this record specified for untrusted UI, was also never built, and nothing needs it while the boundary sits where it now sits.
+It stays in the record as the answer if that ever changes.
