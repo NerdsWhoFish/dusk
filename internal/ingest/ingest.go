@@ -94,6 +94,12 @@ type Result struct {
 	// Err is set when the run failed. The previous observation is still in
 	// the index when it is: a failure is not an absence.
 	Err error
+
+	// Failures is how many runs in a row have errored and Next is when the
+	// rotation tries again. The scheduler fills both, because a run cannot know
+	// it is one of a series (ADR-0011).
+	Failures int
+	Next     time.Time
 }
 
 // Run executes one ingester and stores what it found. A failed run stores

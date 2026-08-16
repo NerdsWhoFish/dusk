@@ -196,6 +196,18 @@ func TestSchedulerBacksOffAndRecovers(t *testing.T) {
 			t.Errorf("status = %+v, want one failing entry", status)
 		}
 	})
+
+	// A failure is only readable against how many came before it and when the
+	// next attempt is, and both were known to the rotation and to nobody else.
+	t.Run("status reports how long it has been failing and when it retries", func(t *testing.T) {
+		status := scheduler.Status()
+		if got := status[0].Failures; got != 2 {
+			t.Errorf("Failures = %d, want 2", got)
+		}
+		if !status[0].Next.After(at) {
+			t.Errorf("Next = %v, want a retry after %v", status[0].Next, at)
+		}
+	})
 }
 
 func clock() func() time.Time { return func() time.Time { return observedAt } }

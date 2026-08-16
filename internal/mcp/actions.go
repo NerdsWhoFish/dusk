@@ -257,7 +257,7 @@ func asStrings(value any) []string {
 
 // renderPlugins reports plugin health, which was a UI-only answer while the
 // surface meant to be primary could not see a broken plugin.
-func renderPlugins(reports []plugin.Report) string {
+func renderPlugins(reports []plugin.Report, now time.Time, lastRead map[string]time.Time) string {
 	if len(reports) == 0 {
 		return ""
 	}
@@ -269,27 +269,49 @@ func renderPlugins(reports []plugin.Report) string {
 		case !report.Running:
 			fmt.Fprintf(&out, "- **%s** %s is installed and %s.\n",
 				report.ID, report.Version, downWord(report.Process))
-			continue
 		case report.Failing():
-			fmt.Fprintf(&out, "- **%s** %s is failing on every configuration: %s\n",
-				report.ID, report.Version, report.Health[0].Problem)
-			continue
+			fmt.Fprintf(&out, "- **%s** %s is running and failing on every configuration.\n",
+				report.ID, report.Version)
+		default:
+			fmt.Fprintf(&out, "- **%s** %s is running%s.\n",
+				report.ID, report.Version, cameBack(report.Process))
 		}
 
-		fmt.Fprintf(&out, "- **%s** %s is running%s", report.ID, report.Version, cameBack(report.Process))
 		for _, health := range report.Health {
-			if health.Problem == "" {
-				continue
-			}
-			named := health.Instance
-			if named == "" {
-				named = "its own configuration"
-			}
-			fmt.Fprintf(&out, ", but %s is failing: %s", named, health.Problem)
+			fmt.Fprintf(&out, "  - %s\n", renderHealth(health, now, lastRead))
 		}
-		out.WriteString(".\n")
 	}
 	return out.String()
+}
+
+// renderHealth dates one instance's observations and, when it is failing, says
+// how long for and when it tries again. ADR-0011 keeps what a failing ingester
+// last saw, so the age of that is the answer to how much to trust it.
+func renderHealth(health plugin.Health, now time.Time, lastRead map[string]time.Time) string {
+	named := health.Instance
+	if named == "" {
+		named = "its own configuration"
+	}
+
+	observed := "has never observed anything"
+	if at, seen := lastRead[health.Scope]; seen {
+		observed = "last observed " + stamp(now, at)
+	}
+	if health.Problem == "" {
+		return fmt.Sprintf("`%s` %s", named, observed)
+	}
+	return fmt.Sprintf("`%s` %s, and %s failed, most recently %s: %s. Next attempt %s",
+		named, observed, failing(health.Failures), stamp(now, health.At),
+		singleLine(health.Problem), due(now, health.Next))
+}
+
+// failing phrases how long an instance has been broken, which is what separates
+// a blip from something that has been serving the same answer for a week.
+func failing(failures int) string {
+	if failures < 2 {
+		return "its last run"
+	}
+	return fmt.Sprintf("%d runs in a row have", failures)
 }
 
 // cameBack notes a plugin that is up now and has not been all along, because
