@@ -203,6 +203,31 @@ func TestSearch(t *testing.T) {
 			call(t, session, "search", map[string]any{"query": query})
 		}
 	})
+
+	// An entity keeps both, because a title is a name and a ref is an
+	// identifier. A note has neither twice.
+	t.Run("an entity hit carries its title and its ref", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "jellyfin"})
+		if !strings.Contains(body, "**Jellyfin** `service:home/jellyfin`") {
+			t.Errorf("an entity hit lost its title or its ref:\n%s", body)
+		}
+	})
+}
+
+// A note has no title, so the renderer fell back to the ref and printed the
+// path as the name and again as the ref. One identifier, printed once.
+func TestANoteHitPrintsItsPathOnce(t *testing.T) {
+	session, idx := connect(t, nil)
+	ideas(t, idx)
+
+	body := call(t, session, "search", map[string]any{"query": "transcoding"})
+
+	if n := strings.Count(body, ".dusk/transcoding.md"); n != 1 {
+		t.Errorf("the note's path appears %d times, want once:\n%s", n, body)
+	}
+	if !strings.Contains(body, "gotcha · `.dusk/transcoding.md`") {
+		t.Errorf("a note hit lost its kind or its ref:\n%s", body)
+	}
 }
 
 // ADR-0059: a filter narrows the query. Applied to a page a limit already cut,

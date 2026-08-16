@@ -312,7 +312,7 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	seen := map[string]string{}
 	for _, hit := range results {
 		seen[hit.Ref] = hit.Version
-		fmt.Fprintf(&out, "- %s**%s** `%s`\n", noteMark(hit), displayName(hit.Title, hit.Ref), hit.Ref)
+		fmt.Fprintf(&out, "- %s%s\n", noteMark(hit), named(hit.Title, hit.Ref))
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
 			fmt.Fprintf(&out, "  %s\n", singleLine(snippet))
 		}
@@ -979,6 +979,16 @@ func displayName(title, ref string) string {
 		return title
 	}
 	return ref
+}
+
+// named is a hit's title beside its ref, or the ref alone. A note has no title
+// (ADR-0031), so falling back to one printed its path as the name and again as
+// the ref.
+func named(title, ref string) string {
+	if strings.TrimSpace(title) == "" {
+		return "`" + ref + "`"
+	}
+	return fmt.Sprintf("**%s** `%s`", title, ref)
 }
 
 // sortedKeys keeps attribute order stable, because a map would otherwise
