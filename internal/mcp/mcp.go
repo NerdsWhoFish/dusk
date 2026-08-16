@@ -10,15 +10,18 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
@@ -885,7 +888,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 	if fields := entity.GetAttributes().GetFields(); len(fields) > 0 {
 		out.WriteString("## Attributes\n\n")
 		for _, key := range sortedKeys(fields) {
-			fmt.Fprintf(&out, "- **%s**: %s\n", key, fields[key].AsInterface())
+			fmt.Fprintf(&out, "- **%s**: %s\n", key, attributeValue(fields[key]))
 		}
 		out.WriteString("\n")
 	}
@@ -896,6 +899,30 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 		fmt.Fprintf(&out, "\nDeclared in %s at `%s`.\n", provenance.GetSource(), short(provenance.GetVersion()))
 	}
 	return out.String()
+}
+
+// attributeValue renders one attribute: a scalar as prose, anything composite
+// as the JSON it already is. `%s` against a structpb value printed
+// `%!s(float64=125)`, and `[To Do In Progress]` is a different answer.
+func attributeValue(value *structpb.Value) string {
+	switch kind := value.GetKind().(type) {
+	case *structpb.Value_StringValue:
+		return kind.StringValue
+	case *structpb.Value_NumberValue:
+		return strconv.FormatFloat(kind.NumberValue, 'f', -1, 64)
+	case *structpb.Value_BoolValue:
+		return strconv.FormatBool(kind.BoolValue)
+	case nil, *structpb.Value_NullValue:
+		return "none"
+	}
+
+	// encoding/json rather than protojson, whose output is deliberately
+	// unstable: it varies its spacing between runs.
+	encoded, err := json.Marshal(value.AsInterface())
+	if err != nil {
+		return fmt.Sprintf("%v", value.AsInterface())
+	}
+	return string(encoded)
 }
 
 func renderRelations(ref string, relations []*duskv1alpha1.Relation, titles map[string]string) string {
@@ -964,11 +991,26 @@ func singleLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func short(commit string) string {
-	if len(commit) > 7 {
-		return commit[:7]
+// shortSha is how much of a commit git itself shows.
+const shortSha = 7
+
+// short abbreviates a commit and only a commit. Provenance carries whatever
+// identifies a version, which for an observation is a git ref, and taking the
+// first seven characters of `refs/dusk/observed` named nothing at all.
+func short(version string) string {
+	if len(version) <= shortSha || !hex(version) {
+		return version
 	}
-	return commit
+	return version[:shortSha]
+}
+
+func hex(value string) bool {
+	for _, r := range value {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // pageInput is one tool for both halves. No body reads; a body replaces.

@@ -63,6 +63,9 @@ Notes come back whole rather than as ids to fetch, because a gotcha an agent has
 Fat is about what arrives, not about how much of it: the notes past the byte budget arrive named rather than whole, and `titles` names all of them ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
 A relation carries the title of what it points at, so choosing which of twenty-two related things to open does not cost twenty-two calls.
 
+An attribute arrives as what it is.
+A scalar is prose, and a list or a map is JSON, because Go's own formatting of `["Backlog", "To Do"]` is `[Backlog To Do]`, which cannot be told from a list of the words inside its elements.
+
 ## Installing a plugin adds no tools
 
 A plugin's capabilities are [actions](../adr/0015-plugin-actions-and-events.md), not tools.
