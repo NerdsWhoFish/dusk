@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted, deferred to after the core ships
+Accepted, deferred to after the core ships. Amended, see [Amendments](#amendments).
 
 ## Context and Problem Statement
 
@@ -93,3 +93,18 @@ So Tier 2 follows the same posture as actions in [ADR-0015](0015-plugin-actions-
 
 - Build-time npm plugins were rejected outright. That is the Backstage fork, and avoiding it is a founding constraint rather than a preference.
 - Module Federation was rejected because it makes the host's React version a contract every plugin is coupled to, permanently. The upgrade path it forecloses is worth more than the ergonomics it buys.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-16: tier 1 mounts only where a result set comes from
+
+The tier table said what each tier is and what it costs in trust, and said nothing about where each can mount.
+A contribution also names a slot, and the plugin's own page supplies no entity to any view mounted there, so tier 1 in that slot rendered its own `empty` text for ever.
+
+Tier 1 draws a result set, so it mounts on an entity page, which supplies the entity, or in a page's `view` block, which supplies its `ref` or `query` ([ADR-0035](0035-blocks-resolve-server-side.md)).
+On the plugin's own page it is refused, in the plugin's own conformance tests and again by the host, and only tiers 2 and 3 are available there.
+
+The decision itself is unchanged, including the claim that most plugins never ship JavaScript and never need a trust decision.
+[ADR-0064](0064-a-declared-view-mounts-where-a-result-set-comes-from.md) records the reasoning and the alternative, which was to have the plugin page resolve a set of its own.
