@@ -121,3 +121,44 @@ Two other things keep accidental zoom away, and both are now rules rather than a
 
 - **Inputs are at least 16px.** Below that, iOS zooms the page when a field takes focus, which is the other common source of "why did it zoom".
 - **The layout never overflows horizontally**, so there is nothing to pan into by mistake. This is enforced by not overflowing rather than by `overflow-x: hidden`, which only hides the evidence and, on a zoomed phone, prevents panning to the content it hid.
+
+### 2026-08-16: the matrix in the table is not the matrix that was run
+
+The table above lists 375, 390, 768, 1280 and 1920.
+What has actually been run, and what [`docs/status.md`](../docs/status.md) has recorded all along, is **320, 390, 430, 768, 1024 and 1440**.
+Two lists both claiming to be the definition of done is the failure this ADR opened by describing, so the one that is enforced wins and the table is corrected to it.
+
+| Name | Viewport | Touch | Represents |
+| --- | --- | --- | --- |
+| `phone-xs` | 320 x 568 | yes | The narrowest screen still in use, and the width everything breaks at first |
+| `phone` | 390 x 844 | yes | Typical modern phone |
+| `phone-lg` | 430 x 932 | yes | The widest phone, where a second column is most tempting and still wrong |
+| `tablet` | 768 x 1024 | yes | Tablet portrait, and the breakpoint itself |
+| `tablet-landscape` | 1024 x 768 | yes | Tablet landscape, which is a touch device at a desktop width |
+| `desktop` | 1440 x 900 | no | Laptop |
+
+Three changes and the reason for each.
+
+**320 replaces 375**, because it is strictly harder and it is a real screen.
+Everything that has ever broken here broke at the narrow end, and testing the second narrowest width tests nothing the narrowest does not.
+
+**430 and 1024 are added.**
+430 is the widest phone, and 1024 by 768 is a tablet in landscape as often as it is a small laptop, which makes it the only entry where a touch target rule and a desktop width meet.
+
+**1440 replaces 1280 and 1920.**
+The shell is capped at `52rem` and there is one breakpoint, so past about 830 pixels every wider viewport differs only in how much empty margin it has.
+Two entries above the cap were measuring the same layout twice.
+The cost is real and is accepted: a defect that only appears on a very wide display is now caught by nobody, and if the shell ever stops being capped this entry has to be split again.
+
+**Touch is now a property of the row rather than of the width.** "Interactive targets at least 44 by 44 pixels on touch viewports" left it open which viewports those are, and 1024 is the case that makes it a decision.
+
+**The width half of the 44 pixel rule does not apply to a link inside a sentence.**
+A link in prose cannot be 44 pixels wide without breaking the sentence it is in, which is why WCAG 2.5.8 exempts inline targets, and the same exemption is taken here for `.prose a`, `.attrs a` and `.visit`.
+The height half still applies to them, which is what the `pointer: coarse` block in the stylesheet already does.
+
+### 2026-08-16: the matrix is measured rather than performed
+
+"A view is not done until it passes at every entry" was true and unenforced: this ADR named the checks and left running them to whoever remembered.
+
+They now run on every push, as a Go test driving a headless browser and reading the measurements out of the page.
+[ADR-0065](0065-measuring-the-viewport-matrix.md) records how, and the two things worth knowing here: the application is loaded in a frame rather than the browser window being resized, because a headless window is clamped to a minimum width and lays out at 500 when asked for 320; and screenshot comparison is still rejected, so every assertion is a number the document computed about itself.
