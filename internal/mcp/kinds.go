@@ -249,10 +249,7 @@ func (s *Server) warnAboutKind(ctx context.Context, namespace vocab.Namespace, n
 func quoteNames(kinds []vocab.Kind) string {
 	names := make([]string, 0, len(kinds))
 	for _, kind := range kinds {
-		names = append(names, "`"+kind.Name+"`")
+		names = append(names, kind.Name)
 	}
-	if len(names) == 1 {
-		return names[0]
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	return andList(quoted(names))
 }

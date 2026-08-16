@@ -75,6 +75,10 @@ The surface is therefore constant: a tenth plugin costs nothing, and an agent th
 
 An action declares a class. Read-only needs nothing; mutating needs the proof token from the read it names; **destructive needs `confirm`**, and the refusal carries the preview, or says there is none. `preview` says what would happen without doing it.
 
+`get plugin:name` reads a plugin, and says how each action it offers is invoked rather than saying it once for all of them.
+An action that names kinds needs the ref of one, and only an action naming none takes the plugin and no ref.
+Telling an agent otherwise teaches a call `invoke` refuses.
+
 The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
 
 ## What `search` matches

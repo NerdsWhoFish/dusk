@@ -378,13 +378,12 @@ func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
 
 		var out strings.Builder
 		fmt.Fprintf(&out, "# %s\n\nPlugin, version %s, %s.\n", report.ID, report.Version, runningWord(report))
-		if actions := renderActions(s.opts.Plugins.PluginActions(id)); actions != "" {
-			// renderActions already says to use invoke. What it cannot say is
-			// that these take no ref, since it does not know it is a plugin.
-			fmt.Fprintf(&out, "\n%s", strings.TrimSuffix(actions, "Run one with `invoke`.\n"))
-			out.WriteString("Run one with `invoke`, naming this plugin and no ref.\n")
+
+		declared := s.opts.Plugins.PluginActions(id)
+		if actions := renderPluginActions(declared); actions != "" {
+			out.WriteString(actions)
 		} else {
-			out.WriteString("\nIt offers nothing that can be run without an entity. Anything it does is listed on the things it observed.\n")
+			fmt.Fprintf(&out, "\n%s", nothingToRun(declared))
 		}
 		return text(out.String()), nil, nil
 	}
@@ -999,6 +998,23 @@ func sortedKeys[V any](m map[string]V) []string {
 
 func singleLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// andList joins names the way a sentence does, so an answer reads as prose
+// rather than as a comma-separated field.
+func andList(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+func quoted(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, "`"+name+"`")
+	}
+	return out
 }
 
 // shortSha is how much of a commit git itself shows.

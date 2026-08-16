@@ -188,16 +188,91 @@ func renderOutcome(outcome *plugin.Outcome) string {
 // that thing. An agent that has read an entity already knows what it can do to
 // it, which is the whole of ADR-0041's discovery story.
 func renderActions(actions []plugin.Action) string {
+	offered := enabled(actions)
+	if len(offered) == 0 {
+		return ""
+	}
+	return renderActionList(offered) + "\nRun one with `invoke`.\n"
+}
+
+// renderPluginActions is the same list on a plugin's own page, where no ref has
+// been named yet. "Naming this plugin and no ref" is wrong for every
+// entity-scoped action, which invoke then refuses for applying to a kind.
+func renderPluginActions(actions []plugin.Action) string {
+	offered := enabled(actions)
+	if len(offered) == 0 {
+		return ""
+	}
+
+	var out strings.Builder
+	out.WriteString(renderActionList(offered))
+	out.WriteString("\n")
+	if free := quoted(pluginScoped(offered)); len(free) > 0 {
+		fmt.Fprintf(&out, "Run %s with `invoke`, naming this plugin and no ref.\n", andList(free))
+	}
+	out.WriteString(entityScopedRuns(offered))
+	return out.String()
+}
+
+// entityScopedRuns says how to invoke what is about an entity, grouped by what
+// each applies to, which is the fact invoke uses when it refuses one that
+// arrived with no ref.
+func entityScopedRuns(offered []plugin.Action) string {
+	var applies []string
+	named := map[string][]string{}
+	for _, action := range offered {
+		if !action.EntityScoped() {
+			continue
+		}
+		kinds := strings.Join(action.Kinds, " or ")
+		if _, seen := named[kinds]; !seen {
+			applies = append(applies, kinds)
+		}
+		named[kinds] = append(named[kinds], "`"+action.Name+"`")
+	}
+
+	var out strings.Builder
+	for _, kinds := range applies {
+		fmt.Fprintf(&out, "Run %s with `invoke`, naming the ref of a %s.\n", andList(named[kinds]), kinds)
+	}
+	return out.String()
+}
+
+// nothingToRun says which kind of nothing: actions nobody enabled are fixable
+// by whoever is reading, and a plugin declaring none is not.
+func nothingToRun(actions []plugin.Action) string {
+	if len(actions) == 0 {
+		return "It declares no actions, so there is nothing to run. Anything it does is what it observes.\n"
+	}
+	return fmt.Sprintf("It declares %d action(s) and none of them is enabled, so there is nothing to run. "+
+		"Enabling one is a deliberate act, on the plugin's page in Dusk.\n", len(actions))
+}
+
+// enabled is what has been turned on. ADR-0015 makes that a deliberate act, so
+// installing a plugin never hands over what it declares.
+func enabled(actions []plugin.Action) []plugin.Action {
 	offered := make([]plugin.Action, 0, len(actions))
 	for _, action := range actions {
 		if action.Enabled {
 			offered = append(offered, action)
 		}
 	}
-	if len(offered) == 0 {
-		return ""
-	}
+	return offered
+}
 
+// pluginScoped names the actions that are about the plugin rather than about
+// one thing, which are the only ones invoke takes with no ref.
+func pluginScoped(offered []plugin.Action) []string {
+	var names []string
+	for _, action := range offered {
+		if !action.EntityScoped() {
+			names = append(names, action.Name)
+		}
+	}
+	return names
+}
+
+func renderActionList(offered []plugin.Action) string {
 	var out strings.Builder
 	out.WriteString("\n## Actions\n\n")
 	for _, action := range offered {
@@ -213,7 +288,6 @@ func renderActions(actions []plugin.Action) string {
 		}
 		out.WriteString("\n")
 	}
-	out.WriteString("\nRun one with `invoke`.\n")
 	return out.String()
 }
 

@@ -400,8 +400,110 @@ func TestAPluginCanBeReadToFindWhatItOffers(t *testing.T) {
 
 	// The generic renderer already says to use invoke; only this one knows the
 	// action takes no ref. Saying both leaves the reader told twice.
-	if n := strings.Count(body, "Run one with `invoke`"); n != 1 {
+	if strings.Contains(body, "Run one with `invoke`.") {
+		t.Errorf("the plugin page kept the hint that does not know it is a plugin:\n%s", body)
+	}
+	if n := strings.Count(body, "`invoke`"); n != 1 {
 		t.Errorf("the invoke hint appears %d times, want once:\n%s", n, body)
+	}
+}
+
+// A plugin page listed everything the plugin offers and closed by saying to run
+// one naming no ref. That is wrong for every entity-scoped action, and `invoke`
+// refuses those by name, so the page was teaching a call that fails.
+func TestAPluginPageSaysHowEachActionIsInvoked(t *testing.T) {
+	entityScoped := []plugin.Action{
+		{
+			Plugin: "kubernetes", Name: "restart", Class: plugin.ClassMutating,
+			Description: "Restart the workload.", Enabled: true, Kinds: []string{"service"},
+		},
+		{
+			Plugin: "kubernetes", Name: "scale", Class: plugin.ClassMutating,
+			Description: "Scale the workload.", Enabled: true, Kinds: []string{"service"},
+		},
+	}
+	pluginScoped := plugin.Action{
+		Plugin: "kubernetes", Name: "sync", Class: plugin.ClassMutating,
+		Description: "Sync everything.", Enabled: true,
+	}
+
+	applies := "Run `restart` and `scale` with `invoke`, naming the ref of a service."
+	noRef := "Run `sync` with `invoke`, naming this plugin and no ref."
+
+	for _, tt := range []struct {
+		name    string
+		actions []plugin.Action
+		says    []string
+		quiet   []string
+	}{
+		{
+			name:    "both halves",
+			actions: append([]plugin.Action{pluginScoped}, entityScoped...),
+			says:    []string{noRef, applies},
+		},
+		{
+			name:    "entity scoped only",
+			actions: entityScoped,
+			says:    []string{applies},
+			quiet:   []string{"naming this plugin and no ref"},
+		},
+		{
+			name:    "plugin scoped only",
+			actions: []plugin.Action{pluginScoped},
+			says:    []string{noRef},
+			quiet:   []string{"naming the ref of"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			acts := acting(t, &offering{
+				actions: tt.actions,
+				reports: []plugin.Report{{ID: "kubernetes", Version: "0.2.0", Running: true}},
+			})
+
+			body := call(t, acts.session, "get", map[string]any{"ref": "plugin:kubernetes"})
+			for _, want := range tt.says {
+				if !strings.Contains(body, want) {
+					t.Errorf("the plugin page does not say %q:\n%s", want, body)
+				}
+			}
+			for _, unwanted := range tt.quiet {
+				if strings.Contains(body, unwanted) {
+					t.Errorf("the plugin page still says %q:\n%s", unwanted, body)
+				}
+			}
+		})
+	}
+}
+
+// Nothing to run has two causes, and only one of them is fixable by whoever is
+// reading: a plugin declaring actions nobody enabled needs a deliberate act.
+func TestAPluginWithNothingToRunSaysWhichKindOfNothing(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		actions []plugin.Action
+		says    string
+	}{
+		{name: "declares none", says: "declares no actions"},
+		{
+			name: "none enabled",
+			actions: []plugin.Action{{
+				Plugin: "kubernetes", Name: "restart", Class: plugin.ClassMutating,
+				Kinds: []string{"service"},
+			}},
+			says: "enabled",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			acts := acting(t, &offering{
+				actions: tt.actions,
+				reports: []plugin.Report{{ID: "kubernetes", Version: "0.2.0", Running: true}},
+			})
+
+			body := call(t, acts.session, "get", map[string]any{"ref": "plugin:kubernetes"})
+			if !strings.Contains(body, tt.says) {
+				t.Errorf("the plugin page does not say %q:\n%s", tt.says, body)
+			}
+		})
 	}
 }
 
