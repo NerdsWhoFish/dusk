@@ -84,3 +84,61 @@ Exceeding the budget truncates and warns in the UI.
 
 - `instructions` alone was rejected because it cannot be location-aware, and location is what makes the context genuinely useful rather than generic.
 - A hook alone was rejected because it would make Dusk work properly in exactly one client, which contradicts the portability the MCP surface is built for.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-16: the hook is a binary on `SessionStart`, and every failure of it is silent
+
+This decision named three injection paths and built two.
+The third was described in one sentence and its shape left open, so what follows fills that in rather than deciding anything new.
+The layering stands, the scope stands, and the budget stands: the hook is still an accelerator over `dusk_context`, and nothing on the MCP surface may assume it ran.
+
+**It is a `SessionStart` hook**, which is one of only three Claude Code events whose output reaches the model's context, alongside `UserPromptSubmit` and `UserPromptExpansion`.
+On every other event what a hook prints goes to a debug log the agent never reads, so a hook installed on the wrong one runs, exits zero, and injects nothing.
+That is the constraint that picks the event, and it is not obvious from the outside: the failure looks like a working hook.
+
+`UserPromptSubmit` reaches the context too, and was rejected for paying the budget once a *turn* instead of once a session.
+This ADR already records that every session pays the context cost whether or not it touches Dusk, and per turn multiplies exactly the cost it was worried about.
+
+**It ships as `dusk-context`, a binary in this repository**, installed by naming it as a `SessionStart` command in the client's settings.
+The logic is `pkg/contexthook` and the command is the thin wrapper [ADR-0017](0017-engineering-policy.md) asks for, which is what makes the hook testable at all.
+
+**It passes the payload's working directory to `dusk_context` and passes the answer back unchanged.**
+Ranking, the budget and what is dropped to stay inside it are decided server side ([ADR-0050](0050-what-the-context-budget-buys-first.md), [ADR-0057](0057-charged-for-what-was-printed.md)), so a client that edits the answer is a second content policy that nobody can see and nothing tests.
+Exactly one field of the hook payload is decoded, because the rest of that schema is the moving target this ADR accepted as a cost, and a field never read cannot break.
+
+**Configuration is two environment variables and nothing else**: the endpoint, and the bearer token under the same name the server requires it as.
+A hook is installed by an entry in a settings file, and settings files are committed, so a token written where the hook is wired up is a token in somebody's git history.
+
+**Every failure is silent and exits zero**, with one line on standard error, which a client shows only in its debug log and a person sees immediately by running the binary by hand.
+Unreachable, unauthenticated and unconfigured are all the same answer: nothing on standard output.
+This is the load-bearing rule, because the hook is installed once and fires in every repository, and a hook that errors where Dusk is irrelevant is worse than no hook.
+
+It reads as a contradiction of [the philosophy's](../docs/philosophy.md) rule that anomalies are surfaced rather than silenced, and it is not.
+That rule governs what the catalog *says*, so that a stale answer is never mistaken for a current one.
+A hook that says nothing has made no claim to be wrong about, and the degradation is the one this ADR designed: `instructions` still tells the agent to call `dusk_context` itself.
+
+#### Consequences of the hook
+
+Good:
+
+- The hook is a client of the same public tool every other agent uses, so it cannot drift from what a compliant agent gets. The three paths this ADR worried would drift now share one implementation for two of them.
+- A failure costs a session its orientation and nothing else, which is what makes installing it globally reasonable.
+- Running it by hand prints what a session in that directory would be given, so "is this wired up" is answerable without starting a session.
+
+Bad:
+
+- **The working directory is passed verbatim**, and Dusk matches it by suffix against `owner/name`. A checkout whose path does not end that way gets the estate-wide answer rather than the tailored one, and nothing says so. Reading the git remote would fix it and was rejected below.
+- Silence means a misconfigured hook and a correct one look identical from inside a session. The debug log and a hand run are the only ways to tell.
+- The payload and output shapes are asserted against a documented contract rather than against a real client, so a change to that contract fails silently and the tests still pass. That is the cost this ADR named, now concrete.
+- A binary is a thing to install and keep current, on every machine an agent runs on.
+
+#### Rejected for the hook
+
+- **A shell script** was rejected on what the hook has to do rather than on taste. `/mcp` is JSON-RPC over streamable HTTP, so a script has to hand-roll the initialize handshake, carry the session header, and parse an event stream, in `curl` and `jq`, forever, against a spec it does not own. The module already carries an MCP client. The counter-argument is real and it is the only one: a script is trivially installable and a binary is not. It loses because [ADR-0017](0017-engineering-policy.md) puts logic in a package where it can be tested, and an untested script talking to a live service is exactly the thing that rots without anybody noticing.
+- **A `type: "http"` hook**, where the client POSTs to a URL and Dusk answers, was rejected despite removing the binary entirely. It puts the client's payload and response schema inside the service, so the moving target this ADR accepted would live in Dusk rather than in a small program somebody can update on its own. That is the coupling "a hook alone" was rejected for, arriving through the server instead of the client.
+- **Resolving the repository from the git remote** was rejected here and is worth revisiting. It would turn any checkout into the `owner/name` Dusk matches exactly, which is strictly better than a path that has to end in the right two segments. It also puts a second answer to "which repository is this" in the client, next to the one `dusk_context` already computes, and it means shelling out to `git` from a hook. Deferred rather than dismissed.
+- **A subcommand of `dusk`** was rejected because `dusk` is the server: it carries SQLite, gRPC and the embedded UI, and installing it on a laptop to run a hook is a service binary in a place no service runs.
+- **Caching the answer between sessions** was rejected because the catalog changes under it and the whole point is that the orientation is current. The exchange costs one round trip inside a five second deadline.
