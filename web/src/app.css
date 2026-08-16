@@ -1355,7 +1355,10 @@ h2::after {
 
 .attrs {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr), never 1fr: a grid item's automatic minimum is its
+     min-content width, so one long attribute value widens the track past the
+     viewport and no amount of overflow-wrap on the dd can pull it back. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.125rem 1rem;
   margin: 0;
 }
