@@ -275,7 +275,7 @@ func TestADR0060_AnEntityIsFoundByPartOfItsName(t *testing.T) {
 	mustPut(t, db, "example/homelab", mainRef, []*duskv1alpha1.Entity{
 		entity("host:home/backupnas", "backupnas", "Four bays."),
 		entity("host:home/mediabox", "mediabox", "Plays things."),
-		entity("card:board/nasser", "Call Nasser", "Ring him back."),
+		entity("card:board/nasty-leak", "Nasty leak in the basement", "Under the stairs."),
 	}, nil)
 	notes := []*duskv1alpha1.Note{{
 		Id: ".dusk/todo-1.md", Kind: "todo", ContentHash: "hash-todo",
@@ -295,7 +295,7 @@ func TestADR0060_AnEntityIsFoundByPartOfItsName(t *testing.T) {
 			// index, and the name hit sits between them.
 			name:  "a part of a name is found, below a word hit and above a todo",
 			query: "nas",
-			want:  []string{"card:board/nasser", "host:home/backupnas", ".dusk/todo-1.md"},
+			want:  []string{"card:board/nasty-leak", "host:home/backupnas", ".dusk/todo-1.md"},
 		},
 		{
 			name:  "every word has to be in the name",
@@ -307,7 +307,7 @@ func TestADR0060_AnEntityIsFoundByPartOfItsName(t *testing.T) {
 			// prefix match answers and the compound name stays out.
 			name:  "a word too short to mean anything is left to the full-text index",
 			query: "na",
-			want:  []string{"card:board/nasser", ".dusk/todo-1.md"},
+			want:  []string{"card:board/nasty-leak", ".dusk/todo-1.md"},
 		},
 		{
 			name:  "a name nothing holds still finds nothing",
@@ -339,18 +339,21 @@ func TestADR0060_AnEntityIsFoundByPartOfItsName(t *testing.T) {
 }
 
 // A name hit carries the version a write is checked against, or a search would
-// hand back a ref it cannot authorize writing (ADR-0009).
-func TestADR0060_ANameHitCarriesItsVersion(t *testing.T) {
+// hand back a ref it cannot authorize writing (ADR-0009). One ref is one hit,
+// however many scopes hold it, so the count ADR-0059 prints is of things.
+func TestADR0060_ANameHitIsOneHitCarryingItsVersion(t *testing.T) {
 	db := newDB(t)
 	mustPut(t, db, "example/homelab", mainRef,
 		[]*duskv1alpha1.Entity{entity("host:home/backupnas", "backupnas", "Four bays.")}, nil)
+	mustPut(t, db, index.ObservedScope("kubernetes"), mainRef,
+		[]*duskv1alpha1.Entity{entity("host:home/backupnas", "backupnas", "Four bays.")}, nil)
 
-	results, _, err := db.Search(t.Context(), mainRef, index.SearchFilter{Query: "nas", Limit: 25})
+	results, total, err := db.Search(t.Context(), mainRef, index.SearchFilter{Query: "nas", Limit: 25})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("Search returned %d hits, want the one found by name", len(results))
+	if len(results) != 1 || total != 1 {
+		t.Fatalf("Search = %d of %d, want the one entity once", len(results), total)
 	}
 	if results[0].Version != "abc123" {
 		t.Errorf("version = %q, want the entity's, or the hit authorizes nothing", results[0].Version)

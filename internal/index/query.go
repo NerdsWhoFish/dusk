@@ -453,15 +453,23 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 	// An entity whose own name holds the query, and that the match did not
 	// already find. Below every match and above a work note, because it is a
 	// weaker signal than a word hit and a stronger one than a todo (ADR-0060).
-	named := ""
+	named, namedBranch := "", ""
 	if contains != "" {
-		named = `
-			UNION ALL
+		// One row per ref, from the copy Get would answer with, so a ref
+		// declared in one repository and observed in another is one hit.
+		named = `,
+		named AS (
 			SELECT 'entity' AS type, e.ref AS ref, e.kind AS kind, e.title AS title,
-			       '' AS snippet, e.version AS version, 1 AS demoted, 0.0 AS relevance
+			       '' AS snippet, e.version AS version, 1 AS demoted, 0.0 AS relevance,
+			       ROW_NUMBER() OVER (PARTITION BY e.ref ORDER BY e.observed, e.repository) AS copy
 			  FROM entities e
 			 WHERE ` + entityScope + entityKind + ` AND ` + contains + `
-			   AND e.ref NOT IN (SELECT ref FROM matched)`
+			   AND e.ref NOT IN (SELECT ref FROM matched)
+		)`
+		namedBranch = `
+			UNION ALL
+			SELECT type, ref, kind, title, snippet, version, demoted, relevance
+			  FROM named WHERE copy = 1`
 	}
 
 	// The match is a common table expression so the window function outside it
@@ -487,9 +495,10 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 			  LEFT JOIN notes n
 			    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
 			 WHERE catalog_fts MATCH ? AND `+scope+kind+`
-		),
+		)`+named+`,
 		hits AS (
-			SELECT * FROM matched`+named+`
+			SELECT type, ref, kind, title, snippet, version, demoted, relevance
+			  FROM matched`+namedBranch+`
 		)
 		SELECT type, ref, kind, title, snippet, version,
 		       -- Over every row the query produced, before LIMIT. Free here

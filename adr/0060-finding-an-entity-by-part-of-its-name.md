@@ -81,6 +81,7 @@ If that assumption ever stops holding, option 3 is the upgrade path and this rec
 - No schema change, no second index, no reconcile to rebuild anything. The index stays exactly as [ADR-0008](0008-storage.md) describes it.
 - The rule is one sentence an operator can hold: your words are matched as words, and an entity's own name is also matched by substring.
 - A name hit carries the entity's version like any other, so it authorizes a write the same way ([ADR-0009](0009-proof-tokens.md)).
+- A name hit is one hit per ref, resolved the way `Get` resolves one, so an entity both declared and observed is found once rather than once per scope.
 
 ### Bad
 
@@ -90,6 +91,7 @@ If that assumption ever stops holding, option 3 is the upgrade path and this rec
 - Two mechanisms now answer one question, and their results are ordered by which mechanism found them rather than by how well it matched. Somebody will read that as a bug.
 - The name branch matches only entities. A note is found by its body, and its id is a path with a hash in it, so there is nothing there worth a substring.
 - Case folding is SQLite's `lower`, which is ASCII only. A non-ASCII name is matched case-sensitively, and nothing says so at the call site.
+- The two halves disagree about what a hit is. A name hit is one per ref, and a full-text hit is one per scope, so an entity both declared and observed is counted once when found by its name and twice when found by a word. That asymmetry is deliberate rather than good: not adding a second source of duplicates was in reach, and removing the first means deciding which copy's version a proof token records, which `Get` and `Locate` already answer differently. Recorded in [`docs/status.md`](../docs/status.md).
 
 ### Rejected because
 
