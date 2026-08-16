@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -48,6 +49,7 @@ type Catalog interface {
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
+	LastRead(ctx context.Context) (map[string]time.Time, error)
 	Vocabulary(ctx context.Context, gitRef string) ([]vocab.Kind, error)
 }
 
@@ -55,6 +57,10 @@ type Catalog interface {
 // answer from an absent one.
 type Syncs interface {
 	Status() []SyncStatus
+
+	// NextSweep is when the poll floor next reads every repository, and zero
+	// when nothing is scheduled.
+	NextSweep() time.Time
 }
 
 // SyncStatus is one repository's last reconcile.
@@ -64,6 +70,12 @@ type SyncStatus struct {
 	Entities   int
 	Relations  int
 	Error      string
+
+	// At is the last successful read and Attempted the last try of any kind.
+	// They differ exactly when the last read failed, which is the difference
+	// between an answer that is old and one that is old and not being fixed.
+	At        time.Time
+	Attempted time.Time
 }
 
 // Declarer performs writes. A nil one leaves the surface read-only, which
@@ -102,6 +114,10 @@ type Options struct {
 	// Plugins is what an entity can have done to it. Optional: a deployment
 	// with none offers no invoke tool rather than one that always refuses.
 	Plugins Plugins
+
+	// Now is what ages a read time. Injected so a test can assert on a phrase
+	// rather than on whatever the machine's clock said.
+	Now func() time.Time
 }
 
 // instructions is the portable half of ADR-0014's context injection: an
@@ -137,6 +153,13 @@ type Server struct {
 
 // New builds the MCP server.
 func New(opts Options) *Server { return &Server{opts: opts} }
+
+func (s *Server) now() time.Time {
+	if s.opts.Now != nil {
+		return s.opts.Now()
+	}
+	return time.Now()
+}
 
 // viewer is what this surface may see. One shared bearer token carries no
 // identity, so it is the whole catalog until there is a per-caller credential
@@ -736,30 +759,22 @@ type changesInput struct{}
 
 func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesInput) (*sdk.CallToolResult, any, error) {
 	var out strings.Builder
+	now := s.now()
+
+	// The durable half of every time in this answer. Asked once, because both
+	// repositories and ingesters are dated from it.
+	lastRead, err := s.opts.Catalog.LastRead(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Soundness does not depend on sync status, so it is reported even where
 	// there is none. Returning early here once meant a deployment without a
 	// controller could never learn its catalog was broken.
 	statuses := s.freshness(&out)
-
-	var declaring, failing, quiet int
-	for _, status := range statuses {
-		switch {
-		case status.Error != "":
-			failing++
-			fmt.Fprintf(&out, "- **%s** failed: %s\n", status.Repository, singleLine(status.Error))
-		case status.Entities > 0:
-			declaring++
-			fmt.Fprintf(&out, "- **%s** at `%s`: %d entities, %d relations\n",
-				status.Repository, short(status.Commit), status.Entities, status.Relations)
-		default:
-			quiet++
-		}
-	}
-
+	renderReads(&out, now, statuses, lastRead)
 	if len(statuses) > 0 {
-		fmt.Fprintf(&out, "\n%d repository(s) declare entities, %d failed, and %d contain no dusk.md.\n",
-			declaring, failing, quiet)
+		renderSweep(&out, now, s.opts.Syncs.NextSweep())
 	}
 
 	if err := s.renderIntegrity(ctx, &out); err != nil {
@@ -769,7 +784,7 @@ func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesI
 	// An observation nothing refreshes is a stale answer with no marker on it,
 	// so how much to trust the catalog has to include whether its plugins work.
 	if s.opts.Plugins != nil {
-		out.WriteString(renderPlugins(s.opts.Plugins.Report()))
+		out.WriteString(renderPlugins(s.opts.Plugins.Report(), now, lastRead))
 	}
 	return text(out.String()), nil, nil
 }

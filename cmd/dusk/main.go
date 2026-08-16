@@ -256,10 +256,14 @@ func (s syncStatus) Status() []mcp.SyncStatus {
 			Entities:   status.Entities,
 			Relations:  status.Relations,
 			Error:      status.Error,
+			At:         status.At,
+			Attempted:  status.Attempted,
 		})
 	}
 	return out
 }
+
+func (s syncStatus) NextSweep() time.Time { return s.controller.NextSweep() }
 
 // guard decides who may read the catalog, and reports which way it went so the
 // answer appears in the boot log rather than only in the environment.
