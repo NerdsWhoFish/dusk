@@ -109,7 +109,7 @@ type Result struct {
 	Mode store.AccessMode
 
 	// Existing means what was asked for is already written down, so nothing was
-	// committed: the note already says this, or the vocabulary already does.
+	// committed: the note, the vocabulary or the file's relations say it.
 	Existing bool
 
 	// Similar names notes that nearly say this already. Notes only: an entity

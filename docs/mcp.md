@@ -52,7 +52,8 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
-| `note(kind?, body?, refs?, status?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
+| `relate(from, to, type, proof)` | Connect one entity to another, written in the file of the one it points from |
+| `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
@@ -334,6 +335,7 @@ It also authorizes creating what this search did not find.
 
 **The read names the write it authorizes** ([ADR-0061](../adr/0061-a-token-names-the-write-it-authorizes.md)).
 A page token is spent on `page`, a note token on `note`, a walk's token on the one ref it read rather than on the refs it merely named, and a `kinds` token on `mint`.
+A token covering an entity buys `relate` as well as `declare`, because an edge out of an entity is a change to that entity's own file.
 Offering all of them to `declare` named a call that refuses the token, which is the same defect as an error naming a call that does not work.
 
 A note read that matched nothing issues no token at all, because a new note needs none: the path is the body's hash, so a create cannot overwrite anything ([ADR-0053](../adr/0053-note-dedup.md)).
@@ -397,6 +399,28 @@ An agent that cannot write can still hand a person the change, which is the same
 
 A proposal still needs its proof token. The diff is computed against the file as it stands, so a token from a stale read would produce one that no longer applies.
 
+### Connecting two entities
+
+`relate(from, to, type, proof)` declares one edge, such as a service running on a host.
+
+**Only the outbound direction exists.**
+The edge is written into the frontmatter of the file that declares `from`, and there is no way to write one into the file of `to`, because a repository may only assert facts about entities it owns ([ADR-0026](../adr/0026-dusk-md-schema.md)).
+Both ends still see it: `get` and `neighbors` on `to` list it as an inbound edge, because the graph is assembled by the index across repositories rather than written twice.
+
+The proof token is a read of `from`, since that is the entity whose declaration changes, and a rejection names `get("<from>")`.
+Any read that returned it will do, the same as for `declare`.
+
+**What it points at does not have to be in the catalog**, because the other end may live in a repository Dusk was never shown ([ADR-0033](../adr/0033-graph-integrity.md)).
+The answer says so when nothing declares it, since a typo and a repository nobody has adopted yet produce the same file and only the caller can tell them apart.
+
+**What it points at does have to be a ref.**
+A `to` the parser refuses would be committed and would then fail the whole file, which takes the entity that declared it out of the catalog, so the shape is checked before anything lands.
+That is a different question from whether it resolves, and it gets the opposite answer.
+
+Declaring an edge the file already has writes nothing and answers with where it is, the same as writing a note that already exists word for word.
+
+Nothing withdraws an edge yet.
+
 ### Notes go somewhere else
 
 A note is knowledge with no natural home, so it does not go where an entity would.
@@ -412,6 +436,10 @@ The answer hands it back, and passing it as `id` reads that note, or replaces it
 Replacing needs a proof token, exactly as an entity update does; writing a new note does not, because a create cannot overwrite anything.
 
 An update merges over what the file already says, so changing a body leaves the refs and kind alone.
+
+**A write changes only the fields it names**, which `pinned` needs three states to say.
+It is `boolean | null`: left out it leaves the note's pinning as the file has it, `true` pins, `false` unpins.
+A bare bool made an absent `pinned` and an explicit `false` the same input, so replacing a body unpinned the note, and a pinned note is what `dusk_context` leads with ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 
 ### Writing the same note twice
 
@@ -461,9 +489,11 @@ What the blocks mean is [docs/pages.md](pages.md); the short version is that a b
 
 ## Not built yet
 
-**The other write tools.** `relate` and `push` are not built. `push` is meaningful only in proposal mode.
+**Withdrawing a relation.** `relate` declares an edge and nothing removes one, so a relation to something decommissioned is fixed by hand in the repository that declares it ([ADR-0062](../adr/0062-relate-declares-an-outbound-edge.md)).
 
 **Proposal mode.** The per-session branch and the pull request are not built. A write in proposal mode returns the proposed diff, the same as read mode, which is the honest answer for a mode that was never granted `contents: write` ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0052](../adr/0052-a-write-that-cannot-land.md)).
+
+`push` is **not on this list**. [ADR-0010](../adr/0010-mcp-surface.md) named it and it is retired rather than pending: the queue it flushed was removed when write mode started committing straight to the default branch, proposal mode is declined, and every write already returns its own commit URL ([ADR-0063](../adr/0063-push-is-retired.md)).
 
 **Who ran something.** An event records an actor, and over MCP that actor is always `agent`: the surface authenticates with one shared bearer token and has no per-caller identity to record. Two agents holding one token are indistinguishable in the log.
 

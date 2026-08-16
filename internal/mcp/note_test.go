@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -267,6 +268,46 @@ func TestANoteCanBeReadByTheIdARejectionNames(t *testing.T) {
 		t.Errorf("the token from reading one note did not authorize replacing it:\n%s", body)
 	}
 }
+
+// ADR-0010: JSON has to carry three states here, because a bare bool made
+// replacing a body unpin the note it replaced. Absent, false and true have to
+// arrive at the write path as three different things.
+func TestADR0010_PinnedIsThreeStatesOverTheWire(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args map[string]any
+		want *bool
+	}{
+		{"left out", map[string]any{"body": "rewritten"}, nil},
+		{"false", map[string]any{"body": "rewritten", "pinned": false}, boolPtr(false)},
+		{"true", map[string]any{"body": "rewritten", "pinned": true}, boolPtr(true)},
+		{"false on its own is still a write", map[string]any{"pinned": false}, boolPtr(false)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			session, writer := notingSession(t, configRepo)
+
+			args := map[string]any{"id": transcodingNote}
+			maps.Copy(args, tt.args)
+			args["proof"] = tokenFrom(t, call(t, session, "note", map[string]any{"id": transcodingNote}))
+
+			call(t, session, "note", args)
+			if len(writer.notes) != 1 {
+				t.Fatalf("the writer saw %d notes, want 1", len(writer.notes))
+			}
+
+			switch got := writer.notes[0].Pinned; {
+			case got == nil && tt.want != nil:
+				t.Errorf("pinned arrived absent, want %v", *tt.want)
+			case got != nil && tt.want == nil:
+				t.Errorf("pinned arrived as %v, want it left alone", *got)
+			case got != nil && *got != *tt.want:
+				t.Errorf("pinned = %v, want %v", *got, *tt.want)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // ADR-0009 makes a token cover everything its read returned, so one search
 // authorizes a session's worth of writes, and every search says so in the line

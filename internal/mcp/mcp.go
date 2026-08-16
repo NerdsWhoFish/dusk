@@ -89,6 +89,10 @@ type Declarer interface {
 	Declare(ctx context.Context, token string, declaration write.Declaration) (*write.Result, error)
 	Record(ctx context.Context, token string, note write.Note) (*write.Result, error)
 
+	// Relate declares an edge in the file of the entity it points from, which
+	// is the only direction a repository may assert (ADR-0026).
+	Relate(ctx context.Context, token string, relation write.Relation) (*write.Result, error)
+
 	// NoteDestination is where notes go, and empty means nowhere, in which case
 	// the note tool is not offered at all.
 	NoteDestination() string
@@ -259,6 +263,14 @@ func (s *Server) sdkServer() *sdk.Server {
 			Description: "Create or update an entity. Requires the proof token from a read, which is why every read returns one.",
 		}, s.declare)
 
+		// A separate tool from declare because it writes a different thing: an
+		// edge belongs to the entity it points from, and only that entity's
+		// repository may assert it (ADR-0026).
+		sdk.AddTool(server, &sdk.Tool{
+			Name:        "relate",
+			Description: "Connect one entity to another, such as a service to the host it runs on. The relation is declared in the file of the entity it points from, so the token comes from a read of that one. What it points at does not have to be in the catalog.",
+		}, s.relate)
+
 		// A deployment with nowhere to put notes still reads them, but the page
 		// is both halves of one file and needs somewhere to write it.
 		if s.opts.Writer.NoteDestination() != "" {
@@ -341,9 +353,9 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 // would name a call that does not exist.
 func (s *Server) catalogWrites() string {
 	if s.noteWrites() {
-		return "`declare` or `note`"
+		return "`declare`, `relate` or `note`"
 	}
-	return "`declare`"
+	return "`declare` or `relate`"
 }
 
 // searchHeadline says how many matched as well as how many are shown, which
@@ -497,13 +509,14 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))), nil, nil
 }
 
-// changeThis is what a get's token can be spent on: the entity, and any note
-// the read returned with it, which is what the token also covers.
+// changeThis is what a get's token can be spent on: the entity, an edge out of
+// it, and any note the read returned with it, all of which the token covers.
 func changeThis(ref string, withNotes bool) string {
+	said := fmt.Sprintf("Pass it to `declare` to change `%s`, or to `relate` to connect it to something.", ref)
 	if withNotes {
-		return fmt.Sprintf("Pass it to `declare` to change `%s`, or to `note` with the `id` of one of its notes to replace that note.", ref)
+		said += " It also writes one of its notes, through `note` with that note's `id`."
 	}
-	return fmt.Sprintf("Pass it to `declare` to change `%s`.", ref)
+	return said
 }
 
 // notesBudget is how many bytes of notes one answer prints whole before the
@@ -636,7 +649,7 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 	// issues covers only the entity it was asked about.
 	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
 	return text(out.String() + s.issue(proof.FromNeighbors, seen,
-		fmt.Sprintf("Pass it to `declare` to change `%s`, which is the only ref this walk read.", in.Ref))), nil, nil
+		fmt.Sprintf("Pass it to `declare` or `relate` to change `%s`, which is the only ref this walk read.", in.Ref))), nil, nil
 }
 
 // undeclared answers a walk around a ref nothing declares. What points at one
@@ -708,19 +721,22 @@ func nothingToWrite(in noteInput) bool {
 		return strings.TrimSpace(in.Body) == ""
 	}
 	return strings.TrimSpace(in.Body) == "" && strings.TrimSpace(in.Kind) == "" &&
-		strings.TrimSpace(in.Status) == "" && in.Refs == nil && !in.Pinned
+		strings.TrimSpace(in.Status) == "" && in.Refs == nil && in.Pinned == nil
 }
 
 // noteInput leaves kind and body optional because an update merges over what
 // the file says, so restating them would be a chance to get one wrong. A new
 // note needs both, enforced by the write path rather than the schema.
 type noteInput struct {
-	Kind   string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, todo, or idea. Required for a new note, and a filter when reading"`
-	Body   string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
-	Refs   []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name. An idea about nothing in particular needs none"`
-	Id     string   `json:"id,omitempty" jsonschema:"the path of an existing note. Alone it reads that note and returns the token to replace it; with something to change it replaces it. Omit to write a new one"`
-	Proof  string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
-	Pinned bool     `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to"`
+	Kind  string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, todo, or idea. Required for a new note, and a filter when reading"`
+	Body  string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
+	Refs  []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name. An idea about nothing in particular needs none"`
+	Id    string   `json:"id,omitempty" jsonschema:"the path of an existing note. Alone it reads that note and returns the token to replace it; with something to change it replaces it. Omit to write a new one"`
+	Proof string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
+
+	// A pointer because the schema needs three states, not two: leaving the
+	// field out is how an update says nothing about pinning at all.
+	Pinned *bool `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to. Leave it out to change nothing, true to pin, false to unpin"`
 
 	Status string `json:"status,omitempty" jsonschema:"for a note that is work: open, done or dropped. A filter when reading, and what closes one when writing"`
 	Ref    string `json:"ref,omitempty" jsonschema:"when reading, limit to notes about this entity"`
