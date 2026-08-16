@@ -79,6 +79,10 @@ type Controller struct {
 	// reconciled is the last commit finished for each scope. A commit reaches
 	// it only on success, so an unfinished one is retried by the next sweep.
 	reconciled map[index.Scope]string
+
+	// nextSweep is when the poll floor runs again, which is how long a read can
+	// stay as old as it is before anything corrects it.
+	nextSweep time.Time
 }
 
 // Target returns a writable handle on a repository a sweep has seen, so what
@@ -176,7 +180,12 @@ type Status struct {
 	Commit     string
 	Entities   int
 	Relations  int
-	At         time.Time
+
+	// At is the last successful read: the catalog holds that commit, whether the
+	// tree was downloaded or the commit was confirmed unmoved. Attempted is the
+	// last try, failures included, so the two part company when a read fails.
+	At        time.Time
+	Attempted time.Time
 
 	// Error is the last failure, kept alongside the previous good numbers
 	// rather than replacing them, because the old graph is still what is served.
@@ -453,6 +462,7 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 	// Nothing moved, so there is nothing to read. This is the common case and
 	// the whole reason a sweep of an idle installation is affordable.
 	if c.done(scope, commit) {
+		c.confirmed(scope)
 		return nil
 	}
 
@@ -476,6 +486,7 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 	}
 	c.finish(scope, commit)
 
+	now := c.opts.Now()
 	c.record(index.Scope{Repository: slug, GitRef: gitRef}, func(s *Status) {
 		*s = Status{
 			Repository:    slug,
@@ -484,7 +495,8 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 			Entities:      len(graph.Entities),
 			Relations:     len(graph.Relations),
 			Participating: graph.Participating,
-			At:            c.opts.Now(),
+			At:            now,
+			Attempted:     now,
 		}
 	})
 	c.opts.Logger.Info("reconciled",
@@ -534,6 +546,10 @@ func (c *Controller) Run(ctx context.Context) {
 	defer ticker.Stop()
 
 	for {
+		// Before the sweep rather than after, so it is the ticker's own cadence
+		// rather than that plus however long a sweep takes.
+		c.schedule(c.opts.Now().Add(c.opts.Interval))
+
 		if err := c.Sync(ctx); err != nil && ctx.Err() == nil {
 			c.opts.Logger.Error("sweep failed", "error", err)
 		}
@@ -543,6 +559,21 @@ func (c *Controller) Run(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// NextSweep is when the poll floor next reads every repository. The floor is a
+// day (ADR-0006), so how old an answer is means little without it. Zero means
+// nothing is scheduled, which is a Dusk whose Run loop is not going.
+func (c *Controller) NextSweep() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.nextSweep
+}
+
+func (c *Controller) schedule(at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nextSweep = at
 }
 
 // Status reports the last outcome per repository, ordered by repository.
@@ -575,11 +606,28 @@ func (c *Controller) finish(scope index.Scope, commit string) {
 	c.reconciled[scope] = commit
 }
 
+// confirmed records that the repository had not moved, which is a successful
+// read of its state even though nothing was downloaded. A scope with no status
+// is left alone rather than invented: nothing has read it in this process.
+func (c *Controller) confirmed(scope index.Scope) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	status, known := c.status[scope]
+	if !known {
+		return
+	}
+	now := c.opts.Now()
+	status.At, status.Attempted, status.Error = now, now, ""
+	c.status[scope] = status
+}
+
 // failed records the error against the repository and returns it unchanged. The
-// commit is deliberately not recorded, so the work is retried.
+// commit is deliberately not recorded, so the work is retried. It moves only
+// Attempted: overwriting At would date the catalog by when reading it broke.
 func (c *Controller) failed(scope index.Scope, err error) error {
 	c.record(scope, func(s *Status) {
-		s.At = c.opts.Now()
+		s.Attempted = c.opts.Now()
 		s.Error = err.Error()
 	})
 	c.opts.Logger.Error("reconcile failed",
