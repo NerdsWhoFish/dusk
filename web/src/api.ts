@@ -382,8 +382,11 @@ export const api = {
     get<{ entities: Entity[] }>(
       kind ? `/entities?kind=${encodeURIComponent(kind)}` : "/entities",
     ),
+  // total is what matched, which the limit then cut. Nothing renders it yet.
   search: (query: string) =>
-    get<{ results: SearchResult[] }>(`/search?q=${encodeURIComponent(query)}`),
+    get<{ results: SearchResult[]; total: number }>(
+      `/search?q=${encodeURIComponent(query)}`,
+    ),
   entity: (ref: string) =>
     get<EntityDetail>(`/entities/${encodeURIComponent(ref)}`),
   status: () => get<{ repositories: RepositoryStatus[] }>("/status"),

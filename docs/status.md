@@ -205,6 +205,8 @@ Not deferred, and not forgotten. The operator has decided against these, and the
 
 - **The short form of a note is written twice.** `dusk_context` builds "kind · id: opening line" inline while `nameNote` builds it for `get` and `note`, so the two can drift into disagreeing about what a named note looks like. One function, called from both, is the fix ([0050](../adr/0050-what-the-context-budget-buys-first.md), [0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
 
+- **The browser still says nothing about a cut search.** `GET /api/search` returns `total`, and the landing page renders the results without it, so a person sees twenty-five of four hundred exactly as the agent surface used to ([0056](../adr/0056-what-a-list-may-not-leave-unsaid.md)).
+
 - **A hit found by its name has no snippet**, because `snippet()` quotes a full-text match and there is none inside prose to quote. It renders as its title and ref alone, thinner than the hits above it ([0057](../adr/0057-finding-an-entity-by-part-of-its-name.md)).
 
 - **The name half of a search scans.** `instr` cannot use an index, so it reads the entities table on every search, which [0008](../adr/0008-storage.md) sized for thousands of entities rather than millions. A second trigram index over identity is the upgrade path and is not built ([0057](../adr/0057-finding-an-entity-by-part-of-its-name.md)).
