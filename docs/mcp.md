@@ -52,6 +52,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
+| `relate(from, to, type, proof)` | Connect one entity to another, written in the file of the one it points from |
 | `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
@@ -275,6 +276,7 @@ It also authorizes creating what this search did not find.
 
 **The read names the write it authorizes** ([ADR-0061](../adr/0061-a-token-names-the-write-it-authorizes.md)).
 A page token is spent on `page`, a note token on `note`, a walk's token on the one ref it read rather than on the refs it merely named, and a `kinds` token on `mint`.
+A token covering an entity buys `relate` as well as `declare`, because an edge out of an entity is a change to that entity's own file.
 Offering all of them to `declare` named a call that refuses the token, which is the same defect as an error naming a call that does not work.
 
 A note read that matched nothing issues no token at all, because a new note needs none: the path is the body's hash, so a create cannot overwrite anything ([ADR-0053](../adr/0053-note-dedup.md)).
@@ -337,6 +339,28 @@ The diff is unified and prefixed `a/` and `b/`, so `git apply` takes it as it st
 An agent that cannot write can still hand a person the change, which is the same courtesy as handing them a link.
 
 A proposal still needs its proof token. The diff is computed against the file as it stands, so a token from a stale read would produce one that no longer applies.
+
+### Connecting two entities
+
+`relate(from, to, type, proof)` declares one edge, such as a service running on a host.
+
+**Only the outbound direction exists.**
+The edge is written into the frontmatter of the file that declares `from`, and there is no way to write one into the file of `to`, because a repository may only assert facts about entities it owns ([ADR-0026](../adr/0026-dusk-md-schema.md)).
+Both ends still see it: `get` and `neighbors` on `to` list it as an inbound edge, because the graph is assembled by the index across repositories rather than written twice.
+
+The proof token is a read of `from`, since that is the entity whose declaration changes, and a rejection names `get("<from>")`.
+Any read that returned it will do, the same as for `declare`.
+
+**What it points at does not have to be in the catalog**, because the other end may live in a repository Dusk was never shown ([ADR-0033](../adr/0033-graph-integrity.md)).
+The answer says so when nothing declares it, since a typo and a repository nobody has adopted yet produce the same file and only the caller can tell them apart.
+
+**What it points at does have to be a ref.**
+A `to` the parser refuses would be committed and would then fail the whole file, which takes the entity that declared it out of the catalog, so the shape is checked before anything lands.
+That is a different question from whether it resolves, and it gets the opposite answer.
+
+Declaring an edge the file already has writes nothing and answers with where it is, the same as writing a note that already exists word for word.
+
+Nothing withdraws an edge yet.
 
 ### Notes go somewhere else
 

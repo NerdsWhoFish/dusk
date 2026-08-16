@@ -21,13 +21,14 @@ import (
 // recordingWriter accepts anything, so these tests are about the surface rather
 // than the write path, which has its own.
 type recordingWriter struct {
-	tokens *proof.Store
-	got    []write.Declaration
-	notes  []write.Note
-	home   []byte
-	wrote  []byte
-	kinds  []byte
-	minted []vocab.Kind
+	tokens    *proof.Store
+	got       []write.Declaration
+	notes     []write.Note
+	relations []write.Relation
+	home      []byte
+	wrote     []byte
+	kinds     []byte
+	minted    []vocab.Kind
 
 	// noteBodies is what each note says today, which is what a replacement is
 	// authorized against, the same as the real writer reads from the file.
@@ -70,6 +71,19 @@ func (w *recordingWriter) Declare(_ context.Context, token string, d write.Decla
 	w.got = append(w.got, d)
 	return &write.Result{
 		Ref: d.Ref, Repository: "example/homelab", Path: "services/x/dusk.md",
+		Commit: "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee",
+	}, nil
+}
+
+// An edge is a change to the entity it points from, so it is authorized the
+// same way a declaration against that entity is.
+func (w *recordingWriter) Relate(_ context.Context, token string, r write.Relation) (*write.Result, error) {
+	if err := w.tokens.AuthorizeUpdate(token, proof.Entity(r.From), "abc1234def"); err != nil {
+		return nil, err
+	}
+	w.relations = append(w.relations, r)
+	return &write.Result{
+		Ref: r.From, Repository: "example/homelab", Path: "services/x/dusk.md",
 		Commit: "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee",
 	}, nil
 }
