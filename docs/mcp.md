@@ -63,6 +63,9 @@ Notes come back whole rather than as ids to fetch, because a gotcha an agent has
 Fat is about what arrives, not about how much of it: the notes past the byte budget arrive named rather than whole, and `titles` names all of them ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
 A relation carries the title of what it points at, so choosing which of twenty-two related things to open does not cost twenty-two calls.
 
+An attribute arrives as what it is.
+A scalar is prose, and a list or a map is JSON, because Go's own formatting of `["Backlog", "To Do"]` is `[Backlog To Do]`, which cannot be told from a list of the words inside its elements.
+
 ## Installing a plugin adds no tools
 
 A plugin's capabilities are [actions](../adr/0015-plugin-actions-and-events.md), not tools.
@@ -71,6 +74,10 @@ Discovery folds into `get`, because what can be done to a thing is part of the p
 The surface is therefore constant: a tenth plugin costs nothing, and an agent that has read an entity already knows what it can do to it.
 
 An action declares a class. Read-only needs nothing; mutating needs the proof token from the read it names; **destructive needs `confirm`**, and the refusal carries the preview, or says there is none. `preview` says what would happen without doing it.
+
+`get plugin:name` reads a plugin, and says how each action it offers is invoked rather than saying it once for all of them.
+An action that names kinds needs the ref of one, and only an action naming none takes the plugin and no ref.
+Telling an agent otherwise teaches a call `invoke` refuses.
 
 The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
 
@@ -162,6 +169,10 @@ Agents reason better over prose than over deeply nested objects.
 **Absence is explained, never silent.**
 Searching for something nobody has declared says so, and points at `changes`.
 An agent that cannot tell "not in the catalog" from "the catalog is empty" will invent the difference.
+
+That rule covers the subject of a read as well as its results.
+`neighbors` on a ref nothing declares says so and names `search`, because "No relations are declared for it" is what a declared leaf answers and an agent checking what breaks reads it as nothing ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
+What points at that ref is still listed under the absence, since a relation to something the catalog no longer holds is drift rather than an error ([ADR-0033](../adr/0033-graph-integrity.md)).
 
 That last rule is why **a filter narrows the query and never the answer** ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
 `search(query, kind)` asks the index for that kind, rather than taking a page of hits and dropping the ones that do not match it.
@@ -258,8 +269,15 @@ Pull request previews render a specific ref and are a UI concern, so the MCP too
 Every read therefore returns one unasked, because read-before-write is an unusual contract and an agent that has to discover it will flail instead:
 
 ```text
-Proof token `4QK7…`. Pass it to `declare` to write any of the above.
+Proof token `4QK7…`. Pass it to `declare` or `note` to write any of the above.
+It also authorizes creating what this search did not find.
 ```
+
+**The read names the write it authorizes** ([ADR-0061](../adr/0061-a-token-names-the-write-it-authorizes.md)).
+A page token is spent on `page`, a note token on `note`, a walk's token on the one ref it read rather than on the refs it merely named, and a `kinds` token on `mint`.
+Offering all of them to `declare` named a call that refuses the token, which is the same defect as an error naming a call that does not work.
+
+A note read that matched nothing issues no token at all, because a new note needs none: the path is the body's hash, so a create cannot overwrite anything ([ADR-0053](../adr/0053-note-dedup.md)).
 
 A token carries the version of everything its read returned, so one `search` authorizes a session's worth of writes, and any of them moving invalidates it.
 Creating needs a token from **the read that could have found it and did not**, so an agent cannot duplicate something it never looked for.

@@ -123,6 +123,82 @@ func TestEveryReadIssuesAProofToken(t *testing.T) {
 	}
 }
 
+// ADR-0061: the read that issues a token names the write it authorizes. One
+// sentence offered every token to `declare` or `note`, so a page read named two
+// tools that refuse it and an empty search offered to write nothing at all.
+func TestADR0061_ATokenNamesTheWriteItAuthorizes(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		tool  string
+		args  map[string]any
+		says  []string
+		quiet []string
+	}{
+		{
+			name: "a search", tool: "search", args: map[string]any{"query": "jellyfin"},
+			says: []string{"`declare`", "any of the above"},
+		},
+		{
+			name: "a search that found nothing", tool: "search",
+			args:  map[string]any{"query": "nothinglikethis"},
+			says:  []string{"`declare`", "create"},
+			quiet: []string{"any of the above"},
+		},
+		{
+			name: "a get", tool: "get", args: map[string]any{"ref": "service:home/jellyfin"},
+			says: []string{"`declare`", "`note`"},
+		},
+		{
+			name: "a walk", tool: "neighbors", args: map[string]any{"ref": "host:home/nas"},
+			says:  []string{"`declare`", "host:home/nas"},
+			quiet: []string{"any of the above"},
+		},
+		{
+			name: "a note read", tool: "note", args: map[string]any{"kind": "gotcha"},
+			says:  []string{"`note`"},
+			quiet: []string{"`declare`"},
+		},
+		{
+			name: "the page", tool: "page", args: map[string]any{},
+			says:  []string{"`page`"},
+			quiet: []string{"`declare`", "`note`"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			session, _ := notingSession(t, configRepo)
+
+			body := call(t, session, tt.tool, tt.args)
+			if !strings.Contains(body, "Proof token") {
+				t.Fatalf("%s issued no token:\n%s", tt.tool, body)
+			}
+			for _, want := range tt.says {
+				if !strings.Contains(body, want) {
+					t.Errorf("the token line does not say %q:\n%s", want, body)
+				}
+			}
+			for _, unwanted := range tt.quiet {
+				if strings.Contains(body, unwanted) {
+					t.Errorf("the token line still says %q:\n%s", unwanted, body)
+				}
+			}
+		})
+	}
+}
+
+// A read that found nothing has nothing to be written against, and a note is
+// created without a token, so offering one is offering a key to no door.
+func TestANoteReadThatFoundNothingOffersNoToken(t *testing.T) {
+	session, _ := notingSession(t, configRepo)
+
+	body := call(t, session, "note", map[string]any{"kind": "runbook"})
+	if strings.Contains(body, "Proof token") {
+		t.Errorf("an empty note read offered a token that covers nothing:\n%s", body)
+	}
+	if !strings.Contains(body, "kind and a body") {
+		t.Errorf("an empty note read should say how to write one:\n%s", body)
+	}
+}
+
 // A search that found nothing is what authorizes creating, so it issues a token
 // too. The absence is the evidence.
 func TestAnEmptySearchStillIssuesAToken(t *testing.T) {

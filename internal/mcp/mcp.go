@@ -10,15 +10,18 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
@@ -272,19 +275,22 @@ func (s *Server) sdkServer() *sdk.Server {
 	return server
 }
 
-// issue mints a proof token for what a read returned and renders the line that
-// tells an agent how to use it. Read-before-write is an unusual contract, so
-// the token has to arrive unasked or nobody discovers it.
-func (s *Server) issue(origin proof.Origin, seen map[string]string) string {
+// issue mints a proof token for what a read returned and hands it over unasked,
+// since read-before-write is a contract nobody discovers. The read names the
+// write: offering a call that cannot spend it is worse than offering none.
+func (s *Server) issue(origin proof.Origin, seen map[string]string, spend string) string {
 	if s.opts.Tokens == nil || s.opts.Writer == nil {
 		return ""
 	}
 	token := s.opts.Tokens.Issue(origin, seen)
-	tools := "`declare`"
-	if s.opts.Writer.NoteDestination() != "" {
-		tools = "`declare` or `note`"
-	}
-	return fmt.Sprintf("\n---\nProof token `%s`. Pass it to %s to write any of the above.\n", token.ID, tools)
+	return fmt.Sprintf("\n---\nProof token `%s`. %s\n", token.ID, spend)
+}
+
+// noteWrites reports whether `note` is a call this deployment takes. A read
+// only deployment has no writer at all, and the offer is built before `issue`
+// gets the chance to decide there is nothing to offer.
+func (s *Server) noteWrites() bool {
+	return s.opts.Writer != nil && s.opts.Writer.NoteDestination() != ""
 }
 
 type searchInput struct {
@@ -309,7 +315,7 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	seen := map[string]string{}
 	for _, hit := range results {
 		seen[hit.Ref] = hit.Version
-		fmt.Fprintf(&out, "- %s**%s** `%s`\n", noteMark(hit), displayName(hit.Title, hit.Ref), hit.Ref)
+		fmt.Fprintf(&out, "- %s%s\n", noteMark(hit), named(hit.Title, hit.Ref))
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
 			fmt.Fprintf(&out, "  %s\n", singleLine(snippet))
 		}
@@ -317,13 +323,27 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 
 	if len(results) == 0 {
 		// A search that found nothing is exactly what authorizes creating, so
-		// it still issues a token: the absence is the evidence.
+		// it still issues a token: the absence is the evidence. It covers
+		// nothing, so offering it to write "any of the above" offers nothing.
 		return text(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
-			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil))), nil, nil
+			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil,
+				"Pass it to `declare` to create what this search did not find."))), nil, nil
 	}
 	return text(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
 		searchHeadline(len(results), total, in.Query, in.Kind),
-		out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+		out.String(), s.issue(proof.FromSearch, seen,
+			fmt.Sprintf("Pass it to %s to write any of the above. It also authorizes creating what this search did not find.",
+				s.catalogWrites())))), nil, nil
+}
+
+// catalogWrites is what a token covering catalog content can be spent on. A
+// deployment with nowhere to put a note offers no `note` tool, so naming it
+// would name a call that does not exist.
+func (s *Server) catalogWrites() string {
+	if s.noteWrites() {
+		return "`declare` or `note`"
+	}
+	return "`declare`"
 }
 
 // searchHeadline says how many matched as well as how many are shown, which
@@ -375,13 +395,12 @@ func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
 
 		var out strings.Builder
 		fmt.Fprintf(&out, "# %s\n\nPlugin, version %s, %s.\n", report.ID, report.Version, runningWord(report))
-		if actions := renderActions(s.opts.Plugins.PluginActions(id)); actions != "" {
-			// renderActions already says to use invoke. What it cannot say is
-			// that these take no ref, since it does not know it is a plugin.
-			fmt.Fprintf(&out, "\n%s", strings.TrimSuffix(actions, "Run one with `invoke`.\n"))
-			out.WriteString("Run one with `invoke`, naming this plugin and no ref.\n")
+
+		declared := s.opts.Plugins.PluginActions(id)
+		if actions := renderPluginActions(declared); actions != "" {
+			out.WriteString(actions)
 		} else {
-			out.WriteString("\nIt offers nothing that can be run without an entity. Anything it does is listed on the things it observed.\n")
+			fmt.Fprintf(&out, "\n%s", nothingToRun(declared))
 		}
 		return text(out.String()), nil, nil
 	}
@@ -431,7 +450,7 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	// Only absence becomes a friendly answer. A storage failure reported as
 	// "no such entity" would have the agent believe the thing does not exist.
 	if errors.Is(err, index.ErrNotFound) {
-		return text(fmt.Sprintf("No entity `%s` in the catalog. Try `search` for the name instead; refs are of the form kind:namespace/name.", in.Ref)), nil, nil
+		return text(noSuchEntity(in.Ref)), nil, nil
 	}
 	if err != nil {
 		return nil, nil, err
@@ -474,7 +493,17 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	}
 
 	return text(renderEntity(entity, relations, titles) +
-		renderNotes(notes, len(notes), budget) + actions + s.issue(proof.FromGet, seen)), nil, nil
+		renderNotes(notes, len(notes), budget) + actions +
+		s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))), nil, nil
+}
+
+// changeThis is what a get's token can be spent on: the entity, and any note
+// the read returned with it, which is what the token also covers.
+func changeThis(ref string, withNotes bool) string {
+	if withNotes {
+		return fmt.Sprintf("Pass it to `declare` to change `%s`, or to `note` with the `id` of one of its notes to replace that note.", ref)
+	}
+	return fmt.Sprintf("Pass it to `declare` to change `%s`.", ref)
 }
 
 // notesBudget is how many bytes of notes one answer prints whole before the
@@ -550,10 +579,27 @@ type neighborsInput struct {
 	Depth int    `json:"depth,omitempty" jsonschema:"how many hops to follow inbound, default 3"`
 }
 
+// noSuchEntity is the answer to a ref nothing declares, naming the read that
+// finds the right one.
+func noSuchEntity(ref string) string {
+	return fmt.Sprintf("No entity `%s` in the catalog. Try `search` for the name instead; refs are of the form kind:namespace/name.", ref)
+}
+
 func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neighborsInput) (*sdk.CallToolResult, any, error) {
 	depth := in.Depth
 	if depth < 1 {
 		depth = 3
+	}
+
+	// The subject is resolved first: "no relations are declared for it" is what
+	// a leaf answers, so saying it about a ref nothing declares is the absence
+	// ADR-0059 forbids inventing, and it is read as "nothing depends on this".
+	entity, err := s.opts.Catalog.Get(ctx, "", in.Ref)
+	if errors.Is(err, index.ErrNotFound) {
+		return s.undeclared(ctx, in.Ref)
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 
 	relations, err := s.opts.Catalog.Neighbors(ctx, "", in.Ref)
@@ -588,11 +634,29 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 
 	// A traversal names refs without reading their contents, so the token it
 	// issues covers only the entity it was asked about.
-	seen := map[string]string{}
-	if entity, err := s.opts.Catalog.Get(ctx, "", in.Ref); err == nil {
-		seen[in.Ref] = entity.GetProvenance().GetVersion()
+	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
+	return text(out.String() + s.issue(proof.FromNeighbors, seen,
+		fmt.Sprintf("Pass it to `declare` to change `%s`, which is the only ref this walk read.", in.Ref))), nil, nil
+}
+
+// undeclared answers a walk around a ref nothing declares. What points at one
+// is still real, because ADR-0033 makes an unresolvable ref drift rather than
+// an error, so it is reported under an answer that says the subject is absent.
+func (s *Server) undeclared(ctx context.Context, ref string) (*sdk.CallToolResult, any, error) {
+	relations, err := s.opts.Catalog.Neighbors(ctx, "", ref)
+	if err != nil {
+		return nil, nil, err
 	}
-	return text(out.String() + s.issue(proof.FromNeighbors, seen)), nil, nil
+	if len(relations) == 0 {
+		return text(noSuchEntity(ref)), nil, nil
+	}
+
+	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(ref, relations))
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("%s\n\nSomething points at it anyway, which `drift` reports as a ref nothing holds:\n\n%s",
+		noSuchEntity(ref), renderRelations(ref, relations, titles))), nil, nil
 }
 
 type declareInput struct {
@@ -693,10 +757,13 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 		seen[note.GetId()] = note.GetContentHash()
 	}
 
+	// A read that matched nothing issues no token: it covers nothing, and a new
+	// note needs none, so the token would be a key offered to no door.
 	if len(notes) == 0 {
-		return text(describeNothing(in) + s.issue(proof.FromNote, seen)), nil, nil
+		return text(describeNothing(in)), nil, nil
 	}
-	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen)), nil, nil
+	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen,
+		"Pass it to `note` with the `id` of one of the above to replace or close it.")), nil, nil
 }
 
 func describeNothing(in noteInput) string {
@@ -714,7 +781,7 @@ func describeNothing(in noteInput) string {
 	if in.Ref != "" {
 		said += " about `" + in.Ref + "`"
 	}
-	return said + ". Write one by passing a kind and a body.\n"
+	return said + ". Write one by passing a kind and a body, which needs no proof token: a note that does not exist cannot be overwritten.\n"
 }
 
 // note reads and writes, for the same reason page does: the read is what yields
@@ -851,7 +918,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 	if fields := entity.GetAttributes().GetFields(); len(fields) > 0 {
 		out.WriteString("## Attributes\n\n")
 		for _, key := range sortedKeys(fields) {
-			fmt.Fprintf(&out, "- **%s**: %s\n", key, fields[key].AsInterface())
+			fmt.Fprintf(&out, "- **%s**: %s\n", key, attributeValue(fields[key]))
 		}
 		out.WriteString("\n")
 	}
@@ -862,6 +929,30 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 		fmt.Fprintf(&out, "\nDeclared in %s at `%s`.\n", provenance.GetSource(), short(provenance.GetVersion()))
 	}
 	return out.String()
+}
+
+// attributeValue renders one attribute: a scalar as prose, anything composite
+// as the JSON it already is. `%s` against a structpb value printed
+// `%!s(float64=125)`, and `[To Do In Progress]` is a different answer.
+func attributeValue(value *structpb.Value) string {
+	switch kind := value.GetKind().(type) {
+	case *structpb.Value_StringValue:
+		return kind.StringValue
+	case *structpb.Value_NumberValue:
+		return strconv.FormatFloat(kind.NumberValue, 'f', -1, 64)
+	case *structpb.Value_BoolValue:
+		return strconv.FormatBool(kind.BoolValue)
+	case nil, *structpb.Value_NullValue:
+		return "none"
+	}
+
+	// encoding/json rather than protojson, whose output is deliberately
+	// unstable: it varies its spacing between runs.
+	encoded, err := json.Marshal(value.AsInterface())
+	if err != nil {
+		return fmt.Sprintf("%v", value.AsInterface())
+	}
+	return string(encoded)
 }
 
 func renderRelations(ref string, relations []*duskv1alpha1.Relation, titles map[string]string) string {
@@ -920,6 +1011,16 @@ func displayName(title, ref string) string {
 	return ref
 }
 
+// named is a hit's title beside its ref, or the ref alone. A note has no title
+// (ADR-0031), so falling back to one printed its path as the name and again as
+// the ref.
+func named(title, ref string) string {
+	if strings.TrimSpace(title) == "" {
+		return "`" + ref + "`"
+	}
+	return fmt.Sprintf("**%s** `%s`", title, ref)
+}
+
 // sortedKeys keeps attribute order stable, because a map would otherwise
 // reorder an entity's rendering on every call.
 func sortedKeys[V any](m map[string]V) []string {
@@ -930,11 +1031,43 @@ func singleLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func short(commit string) string {
-	if len(commit) > 7 {
-		return commit[:7]
+// andList joins names the way a sentence does, so an answer reads as prose
+// rather than as a comma-separated field.
+func andList(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
 	}
-	return commit
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+func quoted(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, "`"+name+"`")
+	}
+	return out
+}
+
+// shortSha is how much of a commit git itself shows.
+const shortSha = 7
+
+// short abbreviates a commit and only a commit. Provenance carries whatever
+// identifies a version, which for an observation is a git ref, and taking the
+// first seven characters of `refs/dusk/observed` named nothing at all.
+func short(version string) string {
+	if len(version) <= shortSha || !hex(version) {
+		return version
+	}
+	return version[:shortSha]
+}
+
+func hex(value string) bool {
+	for _, r := range value {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // pageInput is one tool for both halves. No body reads; a body replaces.
@@ -974,7 +1107,8 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 		return text(fmt.Sprintf(
 			"No page is declared, so Dusk serves its default. Writing one replaces it entirely.\n\n"+
 				"The default, as it would be written:\n\n```yaml\n---\n%s---\n```\n\n%s",
-			declared, s.issue(proof.FromPage, nil))), nil, nil
+			declared, s.issue(proof.FromPage, nil,
+				"Pass it to `page` with a body to declare the first one."))), nil, nil
 	}
 	if err != nil {
 		return text(fmt.Sprintf("The page could not be read.\n\n%s", err)), nil, nil
@@ -983,5 +1117,6 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 	return text(fmt.Sprintf(
 		"The homepage, as declared in `%s`:\n\n```markdown\n%s\n```\n\n%s",
 		page.Path, body,
-		s.issue(proof.FromPage, map[string]string{page.Path: duskmd.ContentHash(string(body))}))), nil, nil
+		s.issue(proof.FromPage, map[string]string{page.Path: duskmd.ContentHash(string(body))},
+			"Pass it to `page` with a body to replace the whole of it."))), nil, nil
 }

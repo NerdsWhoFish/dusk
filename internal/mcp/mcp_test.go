@@ -203,6 +203,31 @@ func TestSearch(t *testing.T) {
 			call(t, session, "search", map[string]any{"query": query})
 		}
 	})
+
+	// An entity keeps both, because a title is a name and a ref is an
+	// identifier. A note has neither twice.
+	t.Run("an entity hit carries its title and its ref", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "jellyfin"})
+		if !strings.Contains(body, "**Jellyfin** `service:home/jellyfin`") {
+			t.Errorf("an entity hit lost its title or its ref:\n%s", body)
+		}
+	})
+}
+
+// A note has no title, so the renderer fell back to the ref and printed the
+// path as the name and again as the ref. One identifier, printed once.
+func TestANoteHitPrintsItsPathOnce(t *testing.T) {
+	session, idx := connect(t, nil)
+	ideas(t, idx)
+
+	body := call(t, session, "search", map[string]any{"query": "transcoding"})
+
+	if n := strings.Count(body, ".dusk/transcoding.md"); n != 1 {
+		t.Errorf("the note's path appears %d times, want once:\n%s", n, body)
+	}
+	if !strings.Contains(body, "gotcha · `.dusk/transcoding.md`") {
+		t.Errorf("a note hit lost its kind or its ref:\n%s", body)
+	}
 }
 
 // ADR-0059: a filter narrows the query. Applied to a page a limit already cut,
@@ -341,6 +366,54 @@ func TestNeighbors(t *testing.T) {
 	if !strings.Contains(body, "service:home/jellyfin") {
 		t.Errorf("neighbors body = %q, want the dependent service", body)
 	}
+}
+
+// ADR-0059: a list never reports an absence it has not verified. `neighbors`
+// answered "No relations are declared for it" for a ref nothing declares, which
+// is what a leaf entity answers, so a typo reads as "nothing depends on it".
+func TestADR0059_NeighborsNeverInventsAnEmptyNeighbourhood(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+
+	t.Run("a ref nothing declares says so and names the call that finds it", func(t *testing.T) {
+		body := call(t, session, "neighbors", map[string]any{"ref": "service:example/does-not-exist"})
+
+		if strings.Contains(body, "No relations are declared for it") {
+			t.Errorf("a ref nothing declares answered as a leaf entity:\n%s", body)
+		}
+		if !strings.Contains(body, "search") {
+			t.Errorf("the answer does not name the call that finds the right ref:\n%s", body)
+		}
+	})
+
+	t.Run("a declared leaf still says it has no relations", func(t *testing.T) {
+		put(t, idx, "example/leaf",
+			[]*duskv1alpha1.Entity{entity("host:home/alone", "host", "Alone", "Nothing points at it.")})
+
+		body := call(t, session, "neighbors", map[string]any{"ref": "host:home/alone"})
+		if !strings.Contains(body, "No relations are declared for it") {
+			t.Errorf("a real leaf lost the answer that says it is one:\n%s", body)
+		}
+	})
+
+	// ADR-0033 makes a ref nothing declares drift rather than an error, so what
+	// points at one is real and dropping it would be the same lie the other way.
+	t.Run("what points at an undeclared ref is still reported", func(t *testing.T) {
+		put(t, idx, "example/edge",
+			[]*duskv1alpha1.Entity{entity("service:home/gateway", "service", "Gateway", "")},
+			&duskv1alpha1.Relation{
+				From: "service:home/gateway", To: "service:example/vanished", Type: "depends_on",
+				Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+			})
+
+		body := call(t, session, "neighbors", map[string]any{"ref": "service:example/vanished"})
+		if !strings.Contains(body, "service:home/gateway") {
+			t.Errorf("a relation pointing at an undeclared ref was dropped:\n%s", body)
+		}
+		if !strings.Contains(body, "search") {
+			t.Errorf("the answer does not say the ref itself is undeclared:\n%s", body)
+		}
+	})
 }
 
 func TestChanges(t *testing.T) {

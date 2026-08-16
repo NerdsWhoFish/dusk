@@ -100,8 +100,8 @@ func (s *Server) issueVocabulary(ctx context.Context) string {
 		return fmt.Sprintf("\n---\nThe vocabulary file could not be read, so nothing can be minted right now: %s\n", err)
 	}
 
-	token := s.opts.Tokens.Issue(proof.FromKinds, map[string]string{vocab.Path: minted.Version})
-	return fmt.Sprintf("\n---\nProof token `%s`. Pass it with `mint` to add a kind.\n", token.ID)
+	return s.issue(proof.FromKinds, map[string]string{vocab.Path: minted.Version},
+		"Pass it with `mint` to add a kind.")
 }
 
 func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResult, any, error) {
@@ -249,10 +249,7 @@ func (s *Server) warnAboutKind(ctx context.Context, namespace vocab.Namespace, n
 func quoteNames(kinds []vocab.Kind) string {
 	names := make([]string, 0, len(kinds))
 	for _, kind := range kinds {
-		names = append(names, "`"+kind.Name+"`")
+		names = append(names, kind.Name)
 	}
-	if len(names) == 1 {
-		return names[0]
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	return andList(quoted(names))
 }
