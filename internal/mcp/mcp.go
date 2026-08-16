@@ -708,19 +708,22 @@ func nothingToWrite(in noteInput) bool {
 		return strings.TrimSpace(in.Body) == ""
 	}
 	return strings.TrimSpace(in.Body) == "" && strings.TrimSpace(in.Kind) == "" &&
-		strings.TrimSpace(in.Status) == "" && in.Refs == nil && !in.Pinned
+		strings.TrimSpace(in.Status) == "" && in.Refs == nil && in.Pinned == nil
 }
 
 // noteInput leaves kind and body optional because an update merges over what
 // the file says, so restating them would be a chance to get one wrong. A new
 // note needs both, enforced by the write path rather than the schema.
 type noteInput struct {
-	Kind   string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, todo, or idea. Required for a new note, and a filter when reading"`
-	Body   string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
-	Refs   []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name. An idea about nothing in particular needs none"`
-	Id     string   `json:"id,omitempty" jsonschema:"the path of an existing note. Alone it reads that note and returns the token to replace it; with something to change it replaces it. Omit to write a new one"`
-	Proof  string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
-	Pinned bool     `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to"`
+	Kind  string   `json:"kind,omitempty" jsonschema:"what sort of note: gotcha, runbook, howto, decision, incident, todo, or idea. Required for a new note, and a filter when reading"`
+	Body  string   `json:"body,omitempty" jsonschema:"the note itself, as markdown. Required for a new note; replaces the whole body when updating"`
+	Refs  []string `json:"refs,omitempty" jsonschema:"entity refs this note is about, of the form kind:namespace/name. An idea about nothing in particular needs none"`
+	Id    string   `json:"id,omitempty" jsonschema:"the path of an existing note. Alone it reads that note and returns the token to replace it; with something to change it replaces it. Omit to write a new one"`
+	Proof string   `json:"proof,omitempty" jsonschema:"the proof token from the read that found it, required only when replacing"`
+
+	// A pointer because the schema needs three states, not two: leaving the
+	// field out is how an update says nothing about pinning at all.
+	Pinned *bool `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to. Leave it out to change nothing, true to pin, false to unpin"`
 
 	Status string `json:"status,omitempty" jsonschema:"for a note that is work: open, done or dropped. A filter when reading, and what closes one when writing"`
 	Ref    string `json:"ref,omitempty" jsonschema:"when reading, limit to notes about this entity"`

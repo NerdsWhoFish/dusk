@@ -20,6 +20,17 @@ refs:
 Transcoding is off on purpose.
 `
 
+const pinnedNoteFile = `---
+dusk: v1alpha1
+note: gotcha
+pinned: true
+refs:
+  - service:home/jellyfin
+---
+
+Transcoding is off on purpose.
+`
+
 func newNoteWriter(t *testing.T, files map[string]string) (*write.Writer, *fakeTarget, *proof.Store) {
 	t.Helper()
 	writer, target, tokens := newWriter(t, nil, files)
@@ -137,6 +148,50 @@ func TestReplacingANoteNeedsProofOfHavingReadIt(t *testing.T) {
 		}
 	})
 }
+
+// ADR-0010: an update merges, and `pinned` was the one field that could not say
+// "leave it alone". Replacing a body unpinned the note, which is what
+// dusk_context leads with, so an edit quietly changed every later session.
+func TestADR0010_ANoteUpdateLeavesPinnedAloneUnlessItIsNamed(t *testing.T) {
+	const at = ".dusk/transcoding.md"
+
+	for _, tt := range []struct {
+		name   string
+		pinned *bool
+		want   bool
+	}{
+		{"not named, so it stays as the file has it", nil, true},
+		{"named false, so it is unpinned", boolPtr(false), false},
+		{"named true, so it stays pinned", boolPtr(true), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			writer, target, tokens := newNoteWriter(t, map[string]string{
+				RootPath: rootFile, at: pinnedNoteFile,
+			})
+
+			hash := duskmd.ContentHash("Transcoding is off on purpose.")
+			token := tokens.Issue(proof.FromNote, map[string]string{at: hash})
+
+			if _, err := writer.Record(t.Context(), token.ID, write.Note{
+				Id:     at,
+				Body:   "Transcoding is off because the clients all direct play.",
+				Pinned: tt.pinned,
+			}); err != nil {
+				t.Fatalf("Record: %v", err)
+			}
+
+			parsed, err := duskmd.ParseNote(at, []byte(target.files[at]), duskmd.Provenance{})
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if parsed.GetPinned() != tt.want {
+				t.Errorf("pinned = %v, want %v", parsed.GetPinned(), tt.want)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // An id arrives from an agent, so it is untrusted input like any request body.
 func TestANoteIdCannotEscape(t *testing.T) {

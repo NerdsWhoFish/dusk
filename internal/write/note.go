@@ -27,15 +27,23 @@ type Note struct {
 	// path the id, so updating a note means naming where it already lives.
 	Id string
 
-	Kind   string
-	Refs   []string
-	Body   string
-	Pinned bool
+	Kind string
+	Refs []string
+	Body string
+
+	// Pinned is three states rather than two: nil leaves the note's pinning as
+	// the file has it, and a value sets it. A bare bool cannot tell "leave it"
+	// from "unpin it", which made replacing a body unpin whatever it replaced.
+	Pinned *bool
 
 	// Status closes a note that is work: open, done or dropped. Empty leaves it
 	// as it was, so changing a body does not reopen something finished.
 	Status string
 }
+
+// pins reports whether a new note starts pinned. Nothing to leave alone yet, so
+// the absent state and false are the same answer here.
+func (n Note) pins() bool { return n.Pinned != nil && *n.Pinned }
 
 // ErrNoConfigRepository reports that Dusk has not been told where notes live.
 // Reads and entity writes do not need one, so this is not a boot failure.
@@ -147,7 +155,7 @@ func (w *Writer) createNote(ctx context.Context, target Target, branch string, n
 
 	rendered, err := duskmd.FormatNote(&duskv1alpha1.Note{
 		Kind: note.Kind, Refs: note.Refs, Body: note.Body,
-		Pinned: note.Pinned, Status: note.Status,
+		Pinned: note.pins(), Status: note.Status,
 	})
 	if err != nil {
 		return nil, err
@@ -217,8 +225,11 @@ func merge(existing *duskv1alpha1.Note, note Note) *duskv1alpha1.Note {
 		Kind:   existing.GetKind(),
 		Refs:   existing.GetRefs(),
 		Body:   existing.GetBody(),
-		Pinned: note.Pinned,
+		Pinned: existing.GetPinned(),
 		Status: existing.GetStatus(),
+	}
+	if note.Pinned != nil {
+		merged.Pinned = *note.Pinned
 	}
 	if strings.TrimSpace(note.Status) != "" {
 		merged.Status = note.Status

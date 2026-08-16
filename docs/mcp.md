@@ -52,7 +52,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
 | `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
-| `note(kind?, body?, refs?, status?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
+| `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
@@ -353,6 +353,10 @@ The answer hands it back, and passing it as `id` reads that note, or replaces it
 Replacing needs a proof token, exactly as an entity update does; writing a new note does not, because a create cannot overwrite anything.
 
 An update merges over what the file already says, so changing a body leaves the refs and kind alone.
+
+**A write changes only the fields it names**, which `pinned` needs three states to say.
+It is `boolean | null`: left out it leaves the note's pinning as the file has it, `true` pins, `false` unpins.
+A bare bool made an absent `pinned` and an explicit `false` the same input, so replacing a body unpinned the note, and a pinned note is what `dusk_context` leads with ([ADR-0010](../adr/0010-mcp-surface.md), [ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 
 ### Writing the same note twice
 

@@ -152,3 +152,28 @@ It is paid the smallest way available: nothing is dropped, and a note that did n
 
 The same record narrows this ADR's `search(query, kind?, limit?)`.
 The `kind` argument was implemented as a pass over the page `limit` returned, which reported "nothing matches" for a kind whose matches sat past the window, and it now narrows the query itself.
+
+### 2026-08-16: a note update leaves alone what it does not name, and `pinned` needs three states to say that
+
+This ADR gives notes ids "so an agent can update rather than duplicate", and the update that shipped merges over what the file says: changing a body leaves the kind, the refs and the status as they were.
+
+`pinned` was the one field that could not join that rule.
+It arrived as a bare bool, and a bool has two values where the merge needs three, so an absent `pinned` and an explicit `pinned: false` were the same input.
+**Replacing a note's body therefore unpinned it**, silently, on every update that did not restate the pin.
+
+The cost is larger than one field.
+Pinning is the operator saying a note is worth every future session ([ADR-0050](0050-what-the-context-budget-buys-first.md)), and it is what `dusk_context` leads with, so an agent tidying the wording of a gotcha removed it from every session that came after.
+Nothing in the answer said so, because from the write path's side the note was written exactly as asked.
+
+**The load-bearing rule is that a write changes only the fields it names**, and every input has to be able to express not naming one.
+`pinned` is `boolean | null` in the tool schema and a `*bool` in the write path: absent leaves the note as the file has it, `true` pins, `false` unpins.
+An explicit `null` reads as absent, the same way it does for `refs`.
+
+This is the shape a sensitive plugin field already uses for "submitted empty means keep" ([ADR-0023](0023-plugin-configuration.md)), and it lands here for the same reason: a partial write that cannot say "I am not talking about this field" will eventually clear one.
+
+Two alternatives were rejected.
+A pair of `pin` and `unpin` booleans expresses three states in two fields, and makes a fourth, `pin: true, unpin: true`, that means nothing and has to be refused.
+A `pinned` string enum of `on`, `off` and `unchanged` reads worse in a JSON schema than a nullable boolean and invents a vocabulary for a field that already had one.
+
+The bad consequence to accept is that `null` and absent mean the same thing, so a caller that serialises every field of its struct and sends explicit nulls cannot unpin with a null and must send `false`.
+That is the right way round: the ambiguous input is the one that changes nothing.
