@@ -290,6 +290,39 @@ func TestGet(t *testing.T) {
 	}
 }
 
+// ADR-0059: a ref in a list carries the name of what it points at. Twenty-two
+// bare refs make "which of these is worth opening" cost twenty-two calls, which
+// is what ADR-0010's "refs feed back into get" was meant to avoid.
+func TestADR0059_ARefInAListCarriesItsName(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+
+	// A relation whose target nothing declares still renders, because ADR-0033
+	// treats an unresolvable ref as drift rather than as an error.
+	put(t, idx, "example/board",
+		[]*duskv1alpha1.Entity{entity("card:board/rewire", "card", "Rewire the rack", "")},
+		&duskv1alpha1.Relation{
+			From: "host:home/nas", To: "card:board/rewire", Type: "tracked_by",
+			Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+		},
+		&duskv1alpha1.Relation{
+			From: "host:home/nas", To: "card:board/gone", Type: "tracked_by",
+			Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+		})
+
+	for _, tool := range []string{"get", "neighbors"} {
+		t.Run(tool, func(t *testing.T) {
+			body := call(t, session, tool, map[string]any{"ref": "host:home/nas"})
+			if !strings.Contains(body, "**Rewire the rack** `card:board/rewire`") {
+				t.Errorf("%s does not name what the ref points at:\n%s", tool, body)
+			}
+			if !strings.Contains(body, "`card:board/gone`") {
+				t.Errorf("%s dropped a ref nothing declares:\n%s", tool, body)
+			}
+		})
+	}
+}
+
 func TestGetOnAMissingEntityIsActionable(t *testing.T) {
 	session, idx := connect(t, nil)
 	seed(t, idx)

@@ -343,6 +343,38 @@ func (db *DB) List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.En
 	return entities(rows)
 }
 
+// Titles names entities by ref, so a list of refs can be chosen from without a
+// call per candidate (ADR-0059). A ref nothing declares is simply absent, which
+// is drift rather than an error (ADR-0033).
+func (db *DB) Titles(ctx context.Context, gitRef string, refs []string) (map[string]string, error) {
+	titles := make(map[string]string, len(refs))
+	if len(refs) == 0 {
+		return titles, nil
+	}
+
+	var rows []struct {
+		Ref   string
+		Title string
+	}
+	err := scoped(db.gorm.WithContext(ctx), gitRef).
+		Model(&entityRow{}).
+		Where("ref IN ?", refs).
+		// The same order Get resolves by, so a ref names what Get would return.
+		Order("observed, repository").
+		Select("ref, title").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: titles at %q: %w", gitRef, err)
+	}
+
+	for _, row := range rows {
+		if _, taken := titles[row.Ref]; !taken {
+			titles[row.Ref] = row.Title
+		}
+	}
+	return titles, nil
+}
+
 // Neighbors returns every relation with entityRef at either end.
 func (db *DB) Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error) {
 	var rows []relationRow

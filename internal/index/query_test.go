@@ -238,6 +238,35 @@ func TestADR0059_ASearchCountsWhatMatchedNotWhatFits(t *testing.T) {
 	}
 }
 
+// ADR-0059: one call names a list of refs. Titles resolves the way Get does, so
+// a ref is named by whichever declaration Get would answer with.
+func TestADR0059_TitlesNamesRefsTheWayGetResolvesThem(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/nas", "The NAS", ""),
+		entity("service:home/untitled", "", ""),
+	}, nil)
+	mustPut(t, db, index.ObservedScope("kubernetes"), mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/nas", "nas-01.observed", ""),
+	}, nil)
+
+	titles, err := db.Titles(t.Context(), mainRef,
+		[]string{"host:home/nas", "service:home/untitled", "service:home/absent"})
+	if err != nil {
+		t.Fatalf("Titles: %v", err)
+	}
+
+	want := map[string]string{"host:home/nas": "The NAS", "service:home/untitled": ""}
+	if len(titles) != len(want) {
+		t.Fatalf("Titles = %v, want %v", titles, want)
+	}
+	for ref, title := range want {
+		if got, ok := titles[ref]; !ok || got != title {
+			t.Errorf("Titles[%q] = %q (present %v), want %q", ref, got, ok, title)
+		}
+	}
+}
+
 func note(id string, pinned bool, refs ...string) *duskv1alpha1.Note {
 	return &duskv1alpha1.Note{
 		Id: ".dusk/" + id + ".md", Kind: "gotcha", Body: "Something worth knowing.",

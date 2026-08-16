@@ -41,6 +41,7 @@ type Catalog interface {
 	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
+	Titles(ctx context.Context, gitRef string, refs []string) (map[string]string, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
 	Declared(ctx context.Context, gitRef, repository string) ([]string, error)
@@ -446,6 +447,11 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		return nil, nil, err
 	}
 
+	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(in.Ref, relations))
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// The notes go in the token too, so replacing one needs proof of the read
 	// that surfaced it, the same as changing the entity does.
 	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
@@ -467,7 +473,7 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		budget = 0
 	}
 
-	return text(renderEntity(entity, relations) +
+	return text(renderEntity(entity, relations, titles) +
 		renderNotes(notes, len(notes), budget) + actions + s.issue(proof.FromGet, seen)), nil, nil
 }
 
@@ -559,14 +565,23 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 		return nil, nil, err
 	}
 
+	named := relatedRefs(in.Ref, relations)
+	for _, d := range dependents {
+		named = append(named, d.Ref)
+	}
+	titles, err := s.opts.Catalog.Titles(ctx, "", named)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	var out strings.Builder
 	fmt.Fprintf(&out, "# Around `%s`\n\n", in.Ref)
-	out.WriteString(renderRelations(in.Ref, relations))
+	out.WriteString(renderRelations(in.Ref, relations, titles))
 
 	if len(dependents) > 0 {
 		fmt.Fprintf(&out, "\n## Reaches it within %d hop(s)\n\n", depth)
 		for _, d := range dependents {
-			fmt.Fprintf(&out, "- `%s` (%d hop(s) away)\n", d.Ref, d.Depth)
+			fmt.Fprintf(&out, "- %s`%s` (%d hop(s) away)\n", nameOf(titles, d.Ref), d.Ref, d.Depth)
 		}
 		out.WriteString("\nThese break, or need checking, if it goes away.\n")
 	}
@@ -822,7 +837,7 @@ func (s *Server) freshness(out *strings.Builder) []SyncStatus {
 	return statuses
 }
 
-func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation) string {
+func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation, titles map[string]string) string {
 	var out strings.Builder
 
 	fmt.Fprintf(&out, "# %s\n\n", displayName(entity.GetTitle(), entity.GetRef()))
@@ -841,7 +856,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 		out.WriteString("\n")
 	}
 
-	out.WriteString(renderRelations(entity.GetRef(), relations))
+	out.WriteString(renderRelations(entity.GetRef(), relations, titles))
 
 	if provenance := entity.GetProvenance(); provenance.GetVersion() != "" {
 		fmt.Fprintf(&out, "\nDeclared in %s at `%s`.\n", provenance.GetSource(), short(provenance.GetVersion()))
@@ -849,7 +864,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 	return out.String()
 }
 
-func renderRelations(ref string, relations []*duskv1alpha1.Relation) string {
+func renderRelations(ref string, relations []*duskv1alpha1.Relation, titles map[string]string) string {
 	if len(relations) == 0 {
 		return "No relations are declared for it.\n"
 	}
@@ -858,12 +873,38 @@ func renderRelations(ref string, relations []*duskv1alpha1.Relation) string {
 	out.WriteString("## Connections\n\n")
 	for _, relation := range relations {
 		if relation.GetFrom() == ref {
-			fmt.Fprintf(&out, "- %s → `%s`\n", relation.GetType(), relation.GetTo())
+			fmt.Fprintf(&out, "- %s → %s`%s`\n",
+				relation.GetType(), nameOf(titles, relation.GetTo()), relation.GetTo())
 			continue
 		}
-		fmt.Fprintf(&out, "- `%s` %s this\n", relation.GetFrom(), relation.GetType())
+		fmt.Fprintf(&out, "- %s`%s` %s this\n",
+			nameOf(titles, relation.GetFrom()), relation.GetFrom(), relation.GetType())
 	}
 	return out.String()
+}
+
+// nameOf prefixes a ref with the title of what it points at. A ref nothing
+// declares has none, and neither does an entity that never carried one.
+func nameOf(titles map[string]string, ref string) string {
+	if title := strings.TrimSpace(titles[ref]); title != "" {
+		return "**" + title + "** "
+	}
+	return ""
+}
+
+// relatedRefs is every ref a relation names other than the one being read,
+// which is what one Titles call has to cover.
+func relatedRefs(ref string, relations []*duskv1alpha1.Relation) []string {
+	refs := make([]string, 0, len(relations))
+	for _, relation := range relations {
+		if other := relation.GetFrom(); other != ref {
+			refs = append(refs, other)
+		}
+		if other := relation.GetTo(); other != ref {
+			refs = append(refs, other)
+		}
+	}
+	return refs
 }
 
 func text(body string) *sdk.CallToolResult {
