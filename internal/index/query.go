@@ -362,13 +362,13 @@ type SearchFilter struct {
 	Limit int
 }
 
-// Search runs a full-text query against entity text at gitRef. A note whose
-// kind is work ranks below every other hit and by relevance within that group,
-// so a todo never outranks a gotcha or an entity (ADR-0049).
-func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([]SearchResult, error) {
+// Search runs a full-text query at gitRef, answering one page of hits and how
+// many matched before Limit cut it. A note whose kind is work ranks below every
+// other hit and by relevance within that group (ADR-0049).
+func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([]SearchResult, int, error) {
 	match := matchExpression(filter.Query)
 	if match == "" {
-		return nil, errors.New("index: search: query is required")
+		return nil, 0, errors.New("index: search: query is required")
 	}
 	if filter.Limit <= 0 {
 		filter.Limit = defaultSearchLimit
@@ -376,7 +376,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 
 	minted, err := db.Minted(ctx, gitRef)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	work := namesWithRole(minted, vocab.Note, vocab.Work)
 
@@ -384,35 +384,64 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 	scope, scopeArgs := scopeClause("f", gitRef)
 	kind, kindArgs := kindClause("f", filter.Kind)
 
-	args := append([]any{match}, scopeArgs...)
+	// In statement order: the demotion list sits in the select list, ahead of
+	// the match and the predicates that narrow it.
+	args := asAny(work)
+	args = append(args, match)
+	args = append(args, scopeArgs...)
 	args = append(args, kindArgs...)
-	args = append(args, asAny(work)...)
 	args = append(args, filter.Limit)
 
-	var results []SearchResult
+	// The match is a common table expression so the window function outside it
+	// never sees FTS5's rank column, which is only valid in a plain query on
+	// the virtual table and errors with "row value misused" anywhere else.
+	var rows []searchRow
 	err = db.gorm.WithContext(ctx).Raw(`
-		SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
-		       -- Column 7 is body. snippet() takes a positional index, so
-		       -- adding a column to catalog_fts silently moves this.
-		       snippet(catalog_fts, 7, '', '', '...', 12) AS snippet,
-		       -- Whichever half of the catalog the hit came from. A note joined
-		       -- against entities alone has no version, and a token recording
-		       -- an empty one can never authorize writing it.
-		       COALESCE(e.version, n.content_hash, '') AS version
-		  FROM catalog_fts f
-		  LEFT JOIN entities e
-		    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
-		  LEFT JOIN notes n
-		    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
-		 WHERE catalog_fts MATCH ? AND `+scope+kind+`
-		 ORDER BY CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
-		               THEN 1 ELSE 0 END, rank
+		WITH hits AS (
+			SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
+			       -- Column 7 is body. snippet() takes a positional index, so
+			       -- adding a column to catalog_fts silently moves this.
+			       snippet(catalog_fts, 7, '', '', '...', 12) AS snippet,
+			       -- Whichever half of the catalog the hit came from. A note
+			       -- joined against entities alone has no version, and a token
+			       -- recording an empty one can never authorize writing it.
+			       COALESCE(e.version, n.content_hash, '') AS version,
+			       CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
+			            THEN 1 ELSE 0 END AS demoted,
+			       rank AS relevance
+			  FROM catalog_fts f
+			  LEFT JOIN entities e
+			    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
+			  LEFT JOIN notes n
+			    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
+			 WHERE catalog_fts MATCH ? AND `+scope+kind+`
+		)
+		SELECT type, ref, kind, title, snippet, version,
+		       -- Over every row the match produced, before LIMIT. Free here
+		       -- because ranking has already enumerated them all (ADR-0059).
+		       COUNT(*) OVER () AS total
+		  FROM hits
+		 ORDER BY demoted, relevance
 		 LIMIT ?`, args...,
-	).Scan(&results).Error
+	).Scan(&rows).Error
 	if err != nil {
-		return nil, fmt.Errorf("index: search %q at %q: %w", filter.Query, gitRef, err)
+		return nil, 0, fmt.Errorf("index: search %q at %q: %w", filter.Query, gitRef, err)
 	}
-	return results, nil
+
+	results := make([]SearchResult, 0, len(rows))
+	total := 0
+	for _, row := range rows {
+		results = append(results, row.SearchResult)
+		total = row.Total
+	}
+	return results, total, nil
+}
+
+// searchRow is a hit plus the size of the result set it came from, which the
+// window function repeats on every row.
+type searchRow struct {
+	SearchResult
+	Total int
 }
 
 // kindClause restricts a query to one kind, and is empty for every kind. It

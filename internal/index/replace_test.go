@@ -56,7 +56,7 @@ func TestPutRemovesEverythingTheScopeHeld(t *testing.T) {
 	})
 
 	t.Run("and it is no longer searchable", func(t *testing.T) {
-		results, err := db.Search(ctx, mainRef, index.SearchFilter{Query: "deleted", Limit: 10})
+		results, _, err := db.Search(ctx, mainRef, index.SearchFilter{Query: "deleted", Limit: 10})
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}

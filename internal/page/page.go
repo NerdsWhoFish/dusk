@@ -123,7 +123,7 @@ type Read struct {
 // Catalog is what resolving a page needs.
 type Catalog interface {
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
-	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, error)
+	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
@@ -238,7 +238,7 @@ func candidates(ctx context.Context, catalog Catalog, parsed filter, limit int) 
 		return catalog.List(ctx, "", parsed.kind)
 	}
 
-	results, err := catalog.Search(ctx, "", index.SearchFilter{
+	results, _, err := catalog.Search(ctx, "", index.SearchFilter{
 		Query: parsed.words, Kind: parsed.kind, Limit: limitOr(limit, 50),
 	})
 	if err != nil {

@@ -20,8 +20,8 @@ func (failing) List(context.Context, string, string) ([]*duskv1alpha1.Entity, er
 	return nil, errBroken
 }
 
-func (failing) Search(context.Context, string, index.SearchFilter) ([]index.SearchResult, error) {
-	return nil, errBroken
+func (failing) Search(context.Context, string, index.SearchFilter) ([]index.SearchResult, int, error) {
+	return nil, 0, errBroken
 }
 
 func (failing) Get(context.Context, string, string) (*duskv1alpha1.Entity, error) {
@@ -70,10 +70,10 @@ func askedWith(t page.Type, v index.Visibility) {
 	recorded.asked[t] = v
 }
 
-func (*recording) Search(_ context.Context, _ string, filter index.SearchFilter) ([]index.SearchResult, error) {
+func (*recording) Search(_ context.Context, _ string, filter index.SearchFilter) ([]index.SearchResult, int, error) {
 	recorded.searched = filter.Query
 	recorded.searchedKind = filter.Kind
-	return nil, nil
+	return nil, 0, nil
 }
 
 func (*recording) List(_ context.Context, _, kind string) ([]*duskv1alpha1.Entity, error) {

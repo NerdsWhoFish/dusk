@@ -150,6 +150,16 @@ That last rule is why **a filter narrows the query and never the answer** ([ADR-
 `search(query, kind)` asks the index for that kind, rather than taking a page of hits and dropping the ones that do not match it.
 Applied afterwards, a kind reports "nothing matches" whenever the page it was handed happens to hold none of it, which is the one answer this surface must never invent.
 
+It is also why **a list says how many matched, not only how many it is showing**.
+
+```text
+3 of 12 result(s), the highest ranked. Raise `limit` for more.
+```
+
+A limit is how much an agent asked for, and a total is how much there is.
+Reporting only the first teaches an agent that it has seen everything, which is the same lie as a silent absence with the volume turned down.
+The count is exact: SQLite computes it in the same statement as the search, over every row the match produced and before the limit applies.
+
 ## What `changes` is for
 
 Reconcile status is the difference between a stale answer and a missing one.

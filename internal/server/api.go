@@ -21,7 +21,7 @@ import (
 // client of this and has no privileged path to the index, so anything the UI
 // can show is something a script can fetch.
 type Catalog interface {
-	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, error)
+	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
@@ -140,7 +140,7 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := s.catalog.Search(r.Context(), refOf(r), index.SearchFilter{
+	results, total, err := s.catalog.Search(r.Context(), refOf(r), index.SearchFilter{
 		Query: query, Kind: r.URL.Query().Get("kind"), Limit: limit,
 	})
 	if err != nil {
@@ -155,7 +155,9 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 
 	out := narrow(results, visible)
 
-	answer := map[string]any{"results": out, "query": query}
+	// What matched, not what survived the limit, so a caller can tell a short
+	// answer from a complete one (ADR-0059).
+	answer := map[string]any{"results": out, "query": query, "total": total}
 	if token := s.searched(out); token != "" {
 		answer["proof"] = token
 	}

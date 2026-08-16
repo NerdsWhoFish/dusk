@@ -38,7 +38,7 @@ import (
 // Catalog is the slice of the index the tools need, declared here so the tools
 // do not depend on how the graph is stored.
 type Catalog interface {
-	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, error)
+	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
@@ -296,7 +296,7 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		return text("A query is required. Try a service name, a hostname, or a word from a description."), nil, nil
 	}
 
-	results, err := s.opts.Catalog.Search(ctx, "", index.SearchFilter{
+	results, total, err := s.opts.Catalog.Search(ctx, "", index.SearchFilter{
 		Query: in.Query, Kind: in.Kind, Limit: in.Limit,
 	})
 	if err != nil {
@@ -304,10 +304,8 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	}
 
 	var out strings.Builder
-	shown := 0
 	seen := map[string]string{}
 	for _, hit := range results {
-		shown++
 		seen[hit.Ref] = hit.Version
 		fmt.Fprintf(&out, "- %s**%s** `%s`\n", noteMark(hit), displayName(hit.Title, hit.Ref), hit.Ref)
 		if snippet := strings.TrimSpace(hit.Snippet); snippet != "" {
@@ -315,14 +313,33 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		}
 	}
 
-	if shown == 0 {
+	if len(results) == 0 {
 		// A search that found nothing is exactly what authorizes creating, so
 		// it still issues a token: the absence is the evidence.
-		return text(fmt.Sprintf("Nothing in the catalog matches %q.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
-			in.Query, s.issue(proof.FromSearch, nil))), nil, nil
+		return text(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
+			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil))), nil, nil
 	}
-	return text(fmt.Sprintf("%d result(s) for %q. Pass a ref to `get` for the full picture.\n\n%s%s",
-		shown, in.Query, out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+	return text(fmt.Sprintf("%s for %q%s. Pass a ref to `get` for the full picture.\n\n%s%s",
+		showing(len(results), total), in.Query, ofKind(in.Kind),
+		out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+}
+
+// showing says how many a list holds and how many matched, which ADR-0059
+// makes the difference between a short answer and a wrong one.
+func showing(shown, total int) string {
+	if shown >= total {
+		return fmt.Sprintf("%d result(s)", shown)
+	}
+	return fmt.Sprintf("%d of %d result(s), the highest ranked. Raise `limit` for more", shown, total)
+}
+
+// ofKind names the kind a search was narrowed to, so an empty answer says what
+// it looked for rather than only that it found nothing.
+func ofKind(kind string) string {
+	if kind == "" {
+		return ""
+	}
+	return " of kind " + kind
 }
 
 // noteMark labels a note hit with its kind. A note's ref is a file path, so

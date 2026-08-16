@@ -135,7 +135,7 @@ func TestSearchCarriesTheVersionAWriteIsCheckedAgainst(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	results, err := db.Search(t.Context(), "refs/heads/main", index.SearchFilter{Query: "transcoding", Limit: 10})
+	results, _, err := db.Search(t.Context(), "refs/heads/main", index.SearchFilter{Query: "transcoding", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestADR0059_AKindNarrowsTheQueryNotTheAnswer(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			results, err := db.Search(t.Context(), mainRef,
+			results, _, err := db.Search(t.Context(), mainRef,
 				index.SearchFilter{Query: "shelf", Kind: test.kind, Limit: test.limit})
 			if err != nil {
 				t.Fatalf("Search: %v", err)
@@ -194,6 +194,45 @@ func TestADR0059_AKindNarrowsTheQueryNotTheAnswer(t *testing.T) {
 			}
 			if !slices.Equal(refs, test.want) {
 				t.Errorf("Search(kind=%q) = %v, want %v", test.kind, refs, test.want)
+			}
+		})
+	}
+}
+
+// ADR-0059: a page carries how many matched, so a caller can tell a short
+// answer from a complete one. The kind narrows the count with the query.
+func TestADR0059_ASearchCountsWhatMatchedNotWhatFits(t *testing.T) {
+	db := newDB(t)
+
+	entities := make([]*duskv1alpha1.Entity, 0, 13)
+	for i := range 12 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	entities = append(entities, entity("host:home/rack", "The Rack", "shelf"))
+	mustPut(t, db, "example/homelab", mainRef, entities, nil)
+
+	tests := []struct {
+		name      string
+		filter    index.SearchFilter
+		wantShown int
+		wantTotal int
+	}{
+		{"the limit cuts the page, not the count", index.SearchFilter{Query: "shelf", Limit: 3}, 3, 13},
+		{"a page that holds everything counts everything", index.SearchFilter{Query: "shelf", Limit: 50}, 13, 13},
+		{"a kind narrows the count with the query", index.SearchFilter{Query: "shelf", Kind: "host", Limit: 3}, 1, 1},
+		{"nothing matched counts nothing", index.SearchFilter{Query: "absent", Limit: 3}, 0, 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, total, err := db.Search(t.Context(), mainRef, test.filter)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if len(results) != test.wantShown || total != test.wantTotal {
+				t.Errorf("Search = %d of %d, want %d of %d",
+					len(results), total, test.wantShown, test.wantTotal)
 			}
 		})
 	}
