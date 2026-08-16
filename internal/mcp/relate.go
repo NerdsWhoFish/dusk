@@ -39,9 +39,8 @@ func (s *Server) relate(ctx context.Context, _ *sdk.CallToolRequest, in relateIn
 
 	return text(fmt.Sprintf(
 		"`%s` now says %s `%s`, declared in %s at `%s`.\n\nCommit: %s\n\n"+
-			"The edge is written in the file of the entity it points from and nowhere else, "+
-			"which is how a repository is kept from asserting facts about what it does not own. "+
-			"`get` and `neighbors` on `%s` will still show it, because the graph is assembled across repositories. "+
+			"That file is the only place the edge is written, and `get` on `%s` will show it anyway, "+
+			"because the graph is assembled across repositories. "+
 			"It reaches the catalog on the next reconcile, which the push already triggered.%s",
 		result.Ref, in.Type, in.To, result.Repository, result.Path, result.URL,
 		in.To, s.warnAboutTarget(ctx, in.To))), nil, nil

@@ -56,7 +56,7 @@ The caller already holds every link `push` would repeat.
 
 Chosen: **option 4**.
 
-`push` is not built, and the surface has eight tools rather than nine.
+`push` is not built, and the surface does not gain a tool for it.
 
 ### A tool that can only answer "nothing to flush" is worse than no tool
 
@@ -95,7 +95,7 @@ Retiring this leaves that decision free rather than constrained, which is the op
 ### Good
 
 - The write path is finished rather than perpetually one item short, and `docs/status.md` stops carrying an item nobody was going to build.
-- The tool list stays at eight, against a constraint [ADR-0010](0010-mcp-surface.md) set for itself.
+- The tool list does not grow, against a constraint [ADR-0010](0010-mcp-surface.md) set for itself and pays for on every session.
 - The reasoning is written down once. Without it, the next reader finds `push()` in an accepted ADR, does not find it in the surface, and re-derives all of this or, worse, builds it.
 
 ### Bad

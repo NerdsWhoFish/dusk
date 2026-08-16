@@ -40,7 +40,7 @@ Chosen: **option 2**.
 
 Option 1 is the one that had to be argued rather than dismissed, since [ADR-0010](0010-mcp-surface.md) makes the size of the tool list a product constraint and a ninth tool is a real cost.
 
-It loses on what `relations` would have to mean inside `declare`.
+It loses on what a `relations` argument would have to mean inside `declare`.
 Every field `declare` takes is merged, and an absent one is left alone, which is what stops setting an attribute from blanking a description.
 A list cannot join that rule.
 `relations: [...]` would have to mean either *replace all of them*, in which case a `declare` that changes a title and mentions no relations silently deletes every edge the entity has, or *append*, in which case one field of one tool appends while every other field overwrites and nothing in the call says which.
@@ -106,7 +106,7 @@ This is the same posture the near-duplicate note warning and the near-match kind
 
 - **Nothing withdraws an edge.** A relation to something decommissioned is fixed by hand, in the repository that declares it, and the maintenance queue [ADR-0045](0045-drift-is-a-maintenance-queue.md) builds is therefore one an agent can read and not act on. This is the sharpest cost of the decision and it is deferred rather than missed, recorded under Next in `docs/status.md`.
 - **A relation's `attributes` cannot be authored over MCP.** The format carries them and `relate` does not, so an edge that wants one is written by hand. Adding it later means deciding whether a second `relate` on an existing edge merges attributes or replaces them, which is the merge question this ADR avoided by refusing duplicates, arriving from the other side.
-- A ninth tool is a real cost against [ADR-0010](0010-mcp-surface.md)'s own constraint, and the argument above is why it is paid rather than a reason it is free.
+- One more tool is a real cost against [ADR-0010](0010-mcp-surface.md)'s own constraint, since the list is spent on every session before any work happens. The argument above is why it is paid, not a reason it is free.
 - An agent can still declare an edge that contradicts one already there, such as a service running on two hosts, because Dusk has no vocabulary of relation types and [ADR-0033](0033-graph-integrity.md) has nothing to check cardinality against.
 - The unresolvable-target warning costs one index read on every successful relate. It is the same read `get` makes and it is paid only after the commit, so a slow catalog delays an answer rather than a write.
 
