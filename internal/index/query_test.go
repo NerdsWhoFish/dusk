@@ -267,6 +267,96 @@ func TestADR0059_TitlesNamesRefsTheWayGetResolvesThem(t *testing.T) {
 	}
 }
 
+// ADR-0060: an entity is findable by part of the name somebody gave it.
+// Infrastructure names are compounds, and a full-text index matches whole words
+// with a prefix on the last, so "nas" found the surname and not the host.
+func TestADR0060_AnEntityIsFoundByPartOfItsName(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", mainRef, []*duskv1alpha1.Entity{
+		entity("host:home/backupnas", "backupnas", "Four bays."),
+		entity("host:home/mediabox", "mediabox", "Plays things."),
+		entity("card:board/nasser", "Call Nasser", "Ring him back."),
+	}, nil)
+	notes := []*duskv1alpha1.Note{{
+		Id: ".dusk/todo-1.md", Kind: "todo", ContentHash: "hash-todo",
+		Body: "Rebuild the nas array.", Provenance: testProvenance(),
+	}}
+	if err := db.Put(t.Context(), "example/config", mainRef, nil, nil, notes); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			// The word hit and the work note both come from the full-text
+			// index, and the name hit sits between them.
+			name:  "a part of a name is found, below a word hit and above a todo",
+			query: "nas",
+			want:  []string{"card:board/nasser", "host:home/backupnas", ".dusk/todo-1.md"},
+		},
+		{
+			name:  "every word has to be in the name",
+			query: "media box",
+			want:  []string{"host:home/mediabox"},
+		},
+		{
+			// Two letters would be inside most of a catalog, so only the
+			// prefix match answers and the compound name stays out.
+			name:  "a word too short to mean anything is left to the full-text index",
+			query: "na",
+			want:  []string{"card:board/nasser", ".dusk/todo-1.md"},
+		},
+		{
+			name:  "a name nothing holds still finds nothing",
+			query: "zzz",
+			want:  nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, total, err := db.Search(t.Context(), mainRef,
+				index.SearchFilter{Query: test.query, Limit: 25})
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+
+			refs := make([]string, 0, len(results))
+			for _, hit := range results {
+				refs = append(refs, hit.Ref)
+			}
+			if !slices.Equal(refs, test.want) {
+				t.Errorf("Search(%q) = %v, want %v", test.query, refs, test.want)
+			}
+			if total != len(test.want) {
+				t.Errorf("Search(%q) total = %d, want %d", test.query, total, len(test.want))
+			}
+		})
+	}
+}
+
+// A name hit carries the version a write is checked against, or a search would
+// hand back a ref it cannot authorize writing (ADR-0009).
+func TestADR0060_ANameHitCarriesItsVersion(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, "example/homelab", mainRef,
+		[]*duskv1alpha1.Entity{entity("host:home/backupnas", "backupnas", "Four bays.")}, nil)
+
+	results, _, err := db.Search(t.Context(), mainRef, index.SearchFilter{Query: "nas", Limit: 25})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Search returned %d hits, want the one found by name", len(results))
+	}
+	if results[0].Version != "abc123" {
+		t.Errorf("version = %q, want the entity's, or the hit authorizes nothing", results[0].Version)
+	}
+}
+
 func note(id string, pinned bool, refs ...string) *duskv1alpha1.Note {
 	return &duskv1alpha1.Note{
 		Id: ".dusk/" + id + ".md", Kind: "gotcha", Body: "Something worth knowing.",

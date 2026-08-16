@@ -433,20 +433,43 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 	scope, scopeArgs := scopeClause("f", gitRef)
 	kind, kindArgs := kindClause("f", filter.Kind)
 
+	entityScope, entityScopeArgs := scopeClause("e", gitRef)
+	entityKind, entityKindArgs := kindClause("e", filter.Kind)
+	contains, containsArgs := nameContains("e", filter.Query)
+
 	// In statement order: the demotion list sits in the select list, ahead of
-	// the match and the predicates that narrow it.
+	// the match, the predicates narrowing it, and then the named branch.
 	args := asAny(work)
 	args = append(args, match)
 	args = append(args, scopeArgs...)
 	args = append(args, kindArgs...)
+	if contains != "" {
+		args = append(args, entityScopeArgs...)
+		args = append(args, entityKindArgs...)
+		args = append(args, containsArgs...)
+	}
 	args = append(args, filter.Limit)
+
+	// An entity whose own name holds the query, and that the match did not
+	// already find. Below every match and above a work note, because it is a
+	// weaker signal than a word hit and a stronger one than a todo (ADR-0060).
+	named := ""
+	if contains != "" {
+		named = `
+			UNION ALL
+			SELECT 'entity' AS type, e.ref AS ref, e.kind AS kind, e.title AS title,
+			       '' AS snippet, e.version AS version, 1 AS demoted, 0.0 AS relevance
+			  FROM entities e
+			 WHERE ` + entityScope + entityKind + ` AND ` + contains + `
+			   AND e.ref NOT IN (SELECT ref FROM matched)`
+	}
 
 	// The match is a common table expression so the window function outside it
 	// never sees FTS5's rank column, which is only valid in a plain query on
 	// the virtual table and errors with "row value misused" anywhere else.
 	var rows []searchRow
 	err = db.gorm.WithContext(ctx).Raw(`
-		WITH hits AS (
+		WITH matched AS (
 			SELECT f.kind_of AS type, f.id AS ref, f.kind, f.title,
 			       -- Column 7 is body. snippet() takes a positional index, so
 			       -- adding a column to catalog_fts silently moves this.
@@ -456,7 +479,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 			       -- recording an empty one can never authorize writing it.
 			       COALESCE(e.version, n.content_hash, '') AS version,
 			       CASE WHEN f.kind_of = 'note' AND f.kind IN (`+placeholders(len(work))+`)
-			            THEN 1 ELSE 0 END AS demoted,
+			            THEN 2 ELSE 0 END AS demoted,
 			       rank AS relevance
 			  FROM catalog_fts f
 			  LEFT JOIN entities e
@@ -464,13 +487,16 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 			  LEFT JOIN notes n
 			    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
 			 WHERE catalog_fts MATCH ? AND `+scope+kind+`
+		),
+		hits AS (
+			SELECT * FROM matched`+named+`
 		)
 		SELECT type, ref, kind, title, snippet, version,
-		       -- Over every row the match produced, before LIMIT. Free here
+		       -- Over every row the query produced, before LIMIT. Free here
 		       -- because ranking has already enumerated them all (ADR-0059).
 		       COUNT(*) OVER () AS total
 		  FROM hits
-		 ORDER BY demoted, relevance
+		 ORDER BY demoted, relevance, ref
 		 LIMIT ?`, args...,
 	).Scan(&rows).Error
 	if err != nil {
@@ -546,6 +572,37 @@ func (db *DB) Dependents(ctx context.Context, gitRef, entityRef string, maxDepth
 		return nil, fmt.Errorf("index: dependents of %q at %q: %w", entityRef, gitRef, err)
 	}
 	return dependents, nil
+}
+
+// minSubstring is the shortest word worth looking for inside a name. Below it
+// a substring matches most of a catalog and carries no signal, where the prefix
+// match a full-text query already does at least narrows.
+const minSubstring = 3
+
+// nameContains matches an entity whose own name holds every word of the query,
+// which a word-or-prefix match cannot reach into for a compound name
+// (ADR-0060). Empty when no word is long enough to mean anything.
+func nameContains(alias, query string) (string, []any) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+
+	var clauses []string
+	var args []any
+	for _, field := range strings.Fields(query) {
+		if len([]rune(field)) < minSubstring {
+			continue
+		}
+		// lower on both sides, so folding is SQLite's either way rather than
+		// two implementations that agree until they do not.
+		clauses = append(clauses, "instr(lower("+prefix+"name), lower(?)) > 0")
+		args = append(args, field)
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return "(" + strings.Join(clauses, " AND ") + ")", args
 }
 
 // matchExpression turns free text into an FTS5 query that cannot be a syntax

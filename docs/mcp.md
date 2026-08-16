@@ -43,7 +43,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 
 | Tool | What it answers |
 | --- | --- |
-| `search(query, kind?, limit?)` | "Where is the thing called X" |
+| `search(query, kind?, limit?)` | "Where is the thing called X", by any word in it or any part of its name |
 | `get(ref, titles?)` | Everything about one entity, including its connections |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
@@ -73,6 +73,20 @@ The surface is therefore constant: a tenth plugin costs nothing, and an agent th
 An action declares a class. Read-only needs nothing; mutating needs the proof token from the read it names; **destructive needs `confirm`**, and the refusal carries the preview, or says there is none. `preview` says what would happen without doing it.
 
 The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
+
+## What `search` matches
+
+Words, and one thing that is not a word.
+
+Text is matched as words, with the last one as a prefix so a query narrows as it is typed.
+That is a full-text index and it does what full-text indexes do.
+
+An entity's **own name is additionally matched by substring**, because infrastructure names are compounds an operator ran together and a word index cannot reach inside one ([ADR-0060](../adr/0060-finding-an-entity-by-part-of-its-name.md)).
+`nas` finds a host called `backupnas`, which the prefix match never could.
+Prose keeps word semantics, because a substring over prose finds "cat" in "concatenate".
+
+A hit found that way ranks below every word hit and above a work note, so [ADR-0049](../adr/0049-a-notes-kind-is-its-rank.md)'s ordering is unchanged.
+Words shorter than three characters are left to the prefix match, since a two-letter substring is inside most of a catalog.
 
 ## Reading and writing notes
 
