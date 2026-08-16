@@ -155,4 +155,21 @@ A plugin that wants a status visible from the thing that lists it has three leve
 
 ## Amendments
 
-None yet.
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-15: a read resolves its subject, because an empty list about something absent is a fabricated absence
+
+This ADR's rule is that a list never reports an absence it has not verified, and it was applied to what a query returns.
+It was never applied to the subject the query is about.
+
+`neighbors` did not resolve the ref it was asked to walk from.
+A ref nothing declares has no relations, so the answer was "No relations are declared for it", which is exactly what a declared leaf answers.
+An agent that mistyped a ref, or one checking what breaks before a teardown, reads that as "nothing depends on this" and acts on it.
+It is the same fabricated absence as a kind-filtered search claiming no match, reached from the other end: the query was honest and the subject was never checked.
+
+**A read resolves its subject before answering about it.**
+`neighbors` now answers a ref nothing declares the way `get` already did, naming `search` as the call that finds the right one.
+
+What points at that ref is still reported, because [ADR-0033](0033-graph-integrity.md) makes an unresolvable ref drift rather than an error.
+The case that matters is an entity removed from the catalog while other repositories still declare relations to it: answering only "it is not there" is the same lie in the other direction, and those relations are exactly what a teardown has to look at.
+The answer names them under the absence rather than instead of it.

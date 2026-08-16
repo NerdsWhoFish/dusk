@@ -163,6 +163,10 @@ Agents reason better over prose than over deeply nested objects.
 Searching for something nobody has declared says so, and points at `changes`.
 An agent that cannot tell "not in the catalog" from "the catalog is empty" will invent the difference.
 
+That rule covers the subject of a read as well as its results.
+`neighbors` on a ref nothing declares says so and names `search`, because "No relations are declared for it" is what a declared leaf answers and an agent checking what breaks reads it as nothing ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
+What points at that ref is still listed under the absence, since a relation to something the catalog no longer holds is drift rather than an error ([ADR-0033](../adr/0033-graph-integrity.md)).
+
 That last rule is why **a filter narrows the query and never the answer** ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
 `search(query, kind)` asks the index for that kind, rather than taking a page of hits and dropping the ones that do not match it.
 Applied afterwards, a kind reports "nothing matches" whenever the page it was handed happens to hold none of it, which is the one answer this surface must never invent.

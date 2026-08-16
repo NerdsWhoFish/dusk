@@ -343,6 +343,54 @@ func TestNeighbors(t *testing.T) {
 	}
 }
 
+// ADR-0059: a list never reports an absence it has not verified. `neighbors`
+// answered "No relations are declared for it" for a ref nothing declares, which
+// is what a leaf entity answers, so a typo reads as "nothing depends on it".
+func TestADR0059_NeighborsNeverInventsAnEmptyNeighbourhood(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+
+	t.Run("a ref nothing declares says so and names the call that finds it", func(t *testing.T) {
+		body := call(t, session, "neighbors", map[string]any{"ref": "service:example/does-not-exist"})
+
+		if strings.Contains(body, "No relations are declared for it") {
+			t.Errorf("a ref nothing declares answered as a leaf entity:\n%s", body)
+		}
+		if !strings.Contains(body, "search") {
+			t.Errorf("the answer does not name the call that finds the right ref:\n%s", body)
+		}
+	})
+
+	t.Run("a declared leaf still says it has no relations", func(t *testing.T) {
+		put(t, idx, "example/leaf",
+			[]*duskv1alpha1.Entity{entity("host:home/alone", "host", "Alone", "Nothing points at it.")})
+
+		body := call(t, session, "neighbors", map[string]any{"ref": "host:home/alone"})
+		if !strings.Contains(body, "No relations are declared for it") {
+			t.Errorf("a real leaf lost the answer that says it is one:\n%s", body)
+		}
+	})
+
+	// ADR-0033 makes a ref nothing declares drift rather than an error, so what
+	// points at one is real and dropping it would be the same lie the other way.
+	t.Run("what points at an undeclared ref is still reported", func(t *testing.T) {
+		put(t, idx, "example/edge",
+			[]*duskv1alpha1.Entity{entity("service:home/gateway", "service", "Gateway", "")},
+			&duskv1alpha1.Relation{
+				From: "service:home/gateway", To: "service:example/vanished", Type: "depends_on",
+				Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+			})
+
+		body := call(t, session, "neighbors", map[string]any{"ref": "service:example/vanished"})
+		if !strings.Contains(body, "service:home/gateway") {
+			t.Errorf("a relation pointing at an undeclared ref was dropped:\n%s", body)
+		}
+		if !strings.Contains(body, "search") {
+			t.Errorf("the answer does not say the ref itself is undeclared:\n%s", body)
+		}
+	})
+}
+
 func TestChanges(t *testing.T) {
 	session, _ := connect(t, fakeSyncs{statuses: []mcp.SyncStatus{
 		{Repository: "example/homelab", Commit: "abc1234def", Entities: 2, Relations: 1},

@@ -431,7 +431,7 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	// Only absence becomes a friendly answer. A storage failure reported as
 	// "no such entity" would have the agent believe the thing does not exist.
 	if errors.Is(err, index.ErrNotFound) {
-		return text(fmt.Sprintf("No entity `%s` in the catalog. Try `search` for the name instead; refs are of the form kind:namespace/name.", in.Ref)), nil, nil
+		return text(noSuchEntity(in.Ref)), nil, nil
 	}
 	if err != nil {
 		return nil, nil, err
@@ -550,10 +550,27 @@ type neighborsInput struct {
 	Depth int    `json:"depth,omitempty" jsonschema:"how many hops to follow inbound, default 3"`
 }
 
+// noSuchEntity is the answer to a ref nothing declares, naming the read that
+// finds the right one.
+func noSuchEntity(ref string) string {
+	return fmt.Sprintf("No entity `%s` in the catalog. Try `search` for the name instead; refs are of the form kind:namespace/name.", ref)
+}
+
 func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neighborsInput) (*sdk.CallToolResult, any, error) {
 	depth := in.Depth
 	if depth < 1 {
 		depth = 3
+	}
+
+	// The subject is resolved first: "no relations are declared for it" is what
+	// a leaf answers, so saying it about a ref nothing declares is the absence
+	// ADR-0059 forbids inventing, and it is read as "nothing depends on this".
+	entity, err := s.opts.Catalog.Get(ctx, "", in.Ref)
+	if errors.Is(err, index.ErrNotFound) {
+		return s.undeclared(ctx, in.Ref)
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 
 	relations, err := s.opts.Catalog.Neighbors(ctx, "", in.Ref)
@@ -588,11 +605,28 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 
 	// A traversal names refs without reading their contents, so the token it
 	// issues covers only the entity it was asked about.
-	seen := map[string]string{}
-	if entity, err := s.opts.Catalog.Get(ctx, "", in.Ref); err == nil {
-		seen[in.Ref] = entity.GetProvenance().GetVersion()
-	}
+	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
 	return text(out.String() + s.issue(proof.FromNeighbors, seen)), nil, nil
+}
+
+// undeclared answers a walk around a ref nothing declares. What points at one
+// is still real, because ADR-0033 makes an unresolvable ref drift rather than
+// an error, so it is reported under an answer that says the subject is absent.
+func (s *Server) undeclared(ctx context.Context, ref string) (*sdk.CallToolResult, any, error) {
+	relations, err := s.opts.Catalog.Neighbors(ctx, "", ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(relations) == 0 {
+		return text(noSuchEntity(ref)), nil, nil
+	}
+
+	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(ref, relations))
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("%s\n\nSomething points at it anyway, which `drift` reports as a ref nothing holds:\n\n%s",
+		noSuchEntity(ref), renderRelations(ref, relations, titles))), nil, nil
 }
 
 type declareInput struct {
