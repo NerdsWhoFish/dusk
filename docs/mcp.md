@@ -158,6 +158,65 @@ Below either, and under the heading it belongs to, a line **names** what was lef
 
 The closing also names the kinds that carry actions, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one.
 
+## Injecting it at the start of a session
+
+[ADR-0014](../adr/0014-agent-context-injection.md) delivers context three ways, each an accelerator over the one below.
+The `instructions` field is portable and location-blind, `dusk_context` is a tool any client can call, and a client hook calls it so the agent does not have to remember.
+
+The hook is `dusk-context`, a binary in this repository.
+It is optional in the strong sense: nothing here assumes it ran, and a client that has no hooks loses nothing except having to be told.
+
+```bash
+go install github.com/NerdsWhoFish/dusk/cmd/dusk-context@latest
+```
+
+Wire it into Claude Code as a `SessionStart` hook, in `~/.claude/settings.json` for every project or `.claude/settings.json` for one:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "dusk-context" } ] }
+    ]
+  }
+}
+```
+
+`SessionStart` is the event because it is one of only three whose output reaches the model's context.
+On any other, what a hook prints goes to a debug log the agent never reads, so a hook on the wrong event runs, exits zero, and injects nothing.
+
+### Configuring it
+
+Two environment variables, set where the client will inherit them:
+
+| Variable | What it is |
+| --- | --- |
+| `DUSK_MCP_URL` | Dusk's MCP URL, such as `https://dusk.example.com/mcp`. One naming only a host is read as `/mcp` on it. Unset means the hook does nothing |
+| `DUSK_MCP_TOKEN` | The bearer token the agent surface requires, under the same name the server takes it. Unset is right for a deployment serving that surface on a trusted network |
+
+The token is not a setting.
+A hook is installed by an entry in a settings file, settings files are committed, and a token written beside the command is a token in somebody's git history.
+
+### What it sends, and what it does not
+
+It passes the working directory the client reported, verbatim, as `dusk_context`'s `root`, and injects the answer unchanged.
+The budget, the ranking, and what is dropped to stay inside it are decided here rather than there, so there is no second content policy on the client.
+
+Dusk matches that directory against `owner/name` by suffix, so a checkout at `~/src/example/homelab` is tailored to `example/homelab`.
+A checkout somewhere else gets the estate-wide answer instead, and nothing says so.
+
+### When it cannot ask
+
+Unreachable, unauthenticated and unconfigured are all the same answer: nothing on standard output, and exit zero.
+A hook is installed once and fires in every repository, so one that errors where Dusk is irrelevant is worse than no hook.
+
+Why it was quiet goes to standard error in one line, which the client shows only in its debug log.
+Running the binary by hand prints what a session in that directory would be given, and that line if there is one:
+
+```bash
+cd ~/src/example/homelab && dusk-context
+```
+
 ## Three rules the answers follow
 
 **Every answer carries refs that feed back into `get`.**
