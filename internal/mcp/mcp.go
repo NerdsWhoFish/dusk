@@ -275,19 +275,22 @@ func (s *Server) sdkServer() *sdk.Server {
 	return server
 }
 
-// issue mints a proof token for what a read returned and renders the line that
-// tells an agent how to use it. Read-before-write is an unusual contract, so
-// the token has to arrive unasked or nobody discovers it.
-func (s *Server) issue(origin proof.Origin, seen map[string]string) string {
+// issue mints a proof token for what a read returned and hands it over unasked,
+// since read-before-write is a contract nobody discovers. The read names the
+// write: offering a call that cannot spend it is worse than offering none.
+func (s *Server) issue(origin proof.Origin, seen map[string]string, spend string) string {
 	if s.opts.Tokens == nil || s.opts.Writer == nil {
 		return ""
 	}
 	token := s.opts.Tokens.Issue(origin, seen)
-	tools := "`declare`"
-	if s.opts.Writer.NoteDestination() != "" {
-		tools = "`declare` or `note`"
-	}
-	return fmt.Sprintf("\n---\nProof token `%s`. Pass it to %s to write any of the above.\n", token.ID, tools)
+	return fmt.Sprintf("\n---\nProof token `%s`. %s\n", token.ID, spend)
+}
+
+// noteWrites reports whether `note` is a call this deployment takes. A read
+// only deployment has no writer at all, and the offer is built before `issue`
+// gets the chance to decide there is nothing to offer.
+func (s *Server) noteWrites() bool {
+	return s.opts.Writer != nil && s.opts.Writer.NoteDestination() != ""
 }
 
 type searchInput struct {
@@ -320,13 +323,27 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 
 	if len(results) == 0 {
 		// A search that found nothing is exactly what authorizes creating, so
-		// it still issues a token: the absence is the evidence.
+		// it still issues a token: the absence is the evidence. It covers
+		// nothing, so offering it to write "any of the above" offers nothing.
 		return text(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
-			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil))), nil, nil
+			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil,
+				"Pass it to `declare` to create what this search did not find."))), nil, nil
 	}
 	return text(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
 		searchHeadline(len(results), total, in.Query, in.Kind),
-		out.String(), s.issue(proof.FromSearch, seen))), nil, nil
+		out.String(), s.issue(proof.FromSearch, seen,
+			fmt.Sprintf("Pass it to %s to write any of the above. It also authorizes creating what this search did not find.",
+				s.catalogWrites())))), nil, nil
+}
+
+// catalogWrites is what a token covering catalog content can be spent on. A
+// deployment with nowhere to put a note offers no `note` tool, so naming it
+// would name a call that does not exist.
+func (s *Server) catalogWrites() string {
+	if s.noteWrites() {
+		return "`declare` or `note`"
+	}
+	return "`declare`"
 }
 
 // searchHeadline says how many matched as well as how many are shown, which
@@ -476,7 +493,17 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	}
 
 	return text(renderEntity(entity, relations, titles) +
-		renderNotes(notes, len(notes), budget) + actions + s.issue(proof.FromGet, seen)), nil, nil
+		renderNotes(notes, len(notes), budget) + actions +
+		s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))), nil, nil
+}
+
+// changeThis is what a get's token can be spent on: the entity, and any note
+// the read returned with it, which is what the token also covers.
+func changeThis(ref string, withNotes bool) string {
+	if withNotes {
+		return fmt.Sprintf("Pass it to `declare` to change `%s`, or to `note` with the `id` of one of its notes to replace that note.", ref)
+	}
+	return fmt.Sprintf("Pass it to `declare` to change `%s`.", ref)
 }
 
 // notesBudget is how many bytes of notes one answer prints whole before the
@@ -608,7 +635,8 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 	// A traversal names refs without reading their contents, so the token it
 	// issues covers only the entity it was asked about.
 	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
-	return text(out.String() + s.issue(proof.FromNeighbors, seen)), nil, nil
+	return text(out.String() + s.issue(proof.FromNeighbors, seen,
+		fmt.Sprintf("Pass it to `declare` to change `%s`, which is the only ref this walk read.", in.Ref))), nil, nil
 }
 
 // undeclared answers a walk around a ref nothing declares. What points at one
@@ -729,10 +757,13 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 		seen[note.GetId()] = note.GetContentHash()
 	}
 
+	// A read that matched nothing issues no token: it covers nothing, and a new
+	// note needs none, so the token would be a key offered to no door.
 	if len(notes) == 0 {
-		return text(describeNothing(in) + s.issue(proof.FromNote, seen)), nil, nil
+		return text(describeNothing(in)), nil, nil
 	}
-	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen)), nil, nil
+	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen,
+		"Pass it to `note` with the `id` of one of the above to replace or close it.")), nil, nil
 }
 
 func describeNothing(in noteInput) string {
@@ -750,7 +781,7 @@ func describeNothing(in noteInput) string {
 	if in.Ref != "" {
 		said += " about `" + in.Ref + "`"
 	}
-	return said + ". Write one by passing a kind and a body.\n"
+	return said + ". Write one by passing a kind and a body, which needs no proof token: a note that does not exist cannot be overwritten.\n"
 }
 
 // note reads and writes, for the same reason page does: the read is what yields
@@ -1076,7 +1107,8 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 		return text(fmt.Sprintf(
 			"No page is declared, so Dusk serves its default. Writing one replaces it entirely.\n\n"+
 				"The default, as it would be written:\n\n```yaml\n---\n%s---\n```\n\n%s",
-			declared, s.issue(proof.FromPage, nil))), nil, nil
+			declared, s.issue(proof.FromPage, nil,
+				"Pass it to `page` with a body to declare the first one."))), nil, nil
 	}
 	if err != nil {
 		return text(fmt.Sprintf("The page could not be read.\n\n%s", err)), nil, nil
@@ -1085,5 +1117,6 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 	return text(fmt.Sprintf(
 		"The homepage, as declared in `%s`:\n\n```markdown\n%s\n```\n\n%s",
 		page.Path, body,
-		s.issue(proof.FromPage, map[string]string{page.Path: duskmd.ContentHash(string(body))}))), nil, nil
+		s.issue(proof.FromPage, map[string]string{page.Path: duskmd.ContentHash(string(body))},
+			"Pass it to `page` with a body to replace the whole of it."))), nil, nil
 }

@@ -269,8 +269,15 @@ Pull request previews render a specific ref and are a UI concern, so the MCP too
 Every read therefore returns one unasked, because read-before-write is an unusual contract and an agent that has to discover it will flail instead:
 
 ```text
-Proof token `4QK7…`. Pass it to `declare` to write any of the above.
+Proof token `4QK7…`. Pass it to `declare` or `note` to write any of the above.
+It also authorizes creating what this search did not find.
 ```
+
+**The read names the write it authorizes** ([ADR-0061](../adr/0061-a-token-names-the-write-it-authorizes.md)).
+A page token is spent on `page`, a note token on `note`, a walk's token on the one ref it read rather than on the refs it merely named, and a `kinds` token on `mint`.
+Offering all of them to `declare` named a call that refuses the token, which is the same defect as an error naming a call that does not work.
+
+A note read that matched nothing issues no token at all, because a new note needs none: the path is the body's hash, so a create cannot overwrite anything ([ADR-0053](../adr/0053-note-dedup.md)).
 
 A token carries the version of everything its read returned, so one `search` authorizes a session's worth of writes, and any of them moving invalidates it.
 Creating needs a token from **the read that could have found it and did not**, so an agent cannot duplicate something it never looked for.

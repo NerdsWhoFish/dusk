@@ -100,8 +100,8 @@ func (s *Server) issueVocabulary(ctx context.Context) string {
 		return fmt.Sprintf("\n---\nThe vocabulary file could not be read, so nothing can be minted right now: %s\n", err)
 	}
 
-	token := s.opts.Tokens.Issue(proof.FromKinds, map[string]string{vocab.Path: minted.Version})
-	return fmt.Sprintf("\n---\nProof token `%s`. Pass it with `mint` to add a kind.\n", token.ID)
+	return s.issue(proof.FromKinds, map[string]string{vocab.Path: minted.Version},
+		"Pass it with `mint` to add a kind.")
 }
 
 func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResult, any, error) {
