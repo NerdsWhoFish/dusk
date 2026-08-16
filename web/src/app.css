@@ -289,9 +289,27 @@ input,
 
 .kinds {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.75rem;
+}
+
+/* One role is one unlabelled row, which is what this was before roles reached
+   the browser. Several roles stack, each under its own word. */
+.kinds-group {
+  display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 1.75rem;
+}
+
+/* Its own line: inline, the label eats the room the chips need at 320px. */
+.kinds-role {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .chip {
@@ -299,6 +317,9 @@ input,
   align-items: center;
   gap: 0.4rem;
   min-height: 44px;
+  /* A chip carrying an alias can be longer than a phone is wide, and a filter
+     control is not worth overflowing the page for. */
+  max-width: 100%;
   padding: 0 0.875rem;
   background: var(--card);
   border: 1px solid var(--line);
@@ -307,6 +328,18 @@ input,
   font: inherit;
   font-size: 0.875rem;
   cursor: pointer;
+}
+
+/* What else this kind is called, or which kind it is a spelling of. Muted,
+   because it is the answer to a question nobody asked until they see it. */
+.chip-alias {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+  font-size: 0.75rem;
+  font-style: italic;
 }
 
 .chip:hover {
@@ -839,27 +872,76 @@ input,
   overflow-x: auto;
 }
 
+/* ADR-0025's declared answer for tables: a row is a card until there is room
+   for columns, because a table that scrolls sideways hides the column that
+   mattered. Mobile first, so the card is the base and the table is what a wide
+   screen adds back, below. */
 .declared {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
 
+.declared,
+.declared tbody,
+.declared tr,
+.declared td {
+  display: block;
+}
+
+/* Every cell names itself down here, so the header row would say it twice. */
+.declared thead {
+  display: none;
+}
+
+.declared tr {
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.declared tr:last-child {
+  margin-bottom: 0;
+}
+
+.declared td {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+  /* A ref is one long word, and a flex item's automatic minimum is its content:
+     without this it widens the card and takes the page with it. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.declared td:first-child {
+  border-top: 0;
+}
+
+.cell-label,
 .declared th {
-  padding: 0.375rem 0.75rem 0.375rem 0;
   color: var(--muted);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-align: left;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
-.declared td {
-  padding: 0.5rem 0.75rem 0.5rem 0;
-  border-top: 1px solid var(--line);
-  vertical-align: top;
+/* Wide enough to line the values up, narrow enough to leave room at 320px. */
+.cell-label {
+  flex: none;
+  width: 6.5rem;
+  padding-top: 0.2rem;
+}
+
+.declared th {
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  white-space: nowrap;
 }
 
 .declared-list {
@@ -1046,6 +1128,13 @@ input,
 .tag.rel {
   color: var(--green);
   border-color: rgb(80 250 123 / 0.35);
+}
+
+/* A fact about the world rather than something anybody maintains, so it is
+   quiet: this tag exists to explain why drift never mentions these. */
+.tag.reference {
+  color: var(--muted);
+  border-style: dashed;
 }
 
 /* Kind is how a catalog is scanned, so it carries colour rather than being
@@ -1432,5 +1521,41 @@ h2::after {
 
   .attrs dd {
     margin-bottom: 0.25rem;
+  }
+
+  /* Room for columns, so the cards become the table they were. The header row
+     carries the labels again, so each cell stops carrying its own. */
+  .declared {
+    display: table;
+  }
+
+  .declared thead {
+    display: table-header-group;
+  }
+
+  .declared tbody {
+    display: table-row-group;
+  }
+
+  .declared tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* Breaking mid-word is what a card needs and what a column does not: with it
+     on, a table squeezes `platform` into `platfor` and `m` rather than letting
+     .scroller do the job ADR-0025 gives it. */
+  .declared td {
+    display: table-cell;
+    padding: 0.5rem 0.75rem 0.5rem 0;
+    overflow-wrap: normal;
+  }
+
+  .cell-label {
+    display: none;
   }
 }

@@ -31,6 +31,11 @@ jobs:
       # time where the image build is the first thing to try it.
       - run: make web
 
+      # ADR-0065's viewport matrix renders the UI in this. Named here so a
+      # runner image that drops Chrome fails on a missing dependency rather
+      # than inside a test, which is where nobody looks first.
+      - run: google-chrome --version
+
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest

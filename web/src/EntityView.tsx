@@ -7,6 +7,7 @@ import { Markdown } from "./Markdown";
 import { Notes } from "./Notes";
 import { PluginBlock } from "./PluginView";
 import { Rows } from "./Rows";
+import { describe, useVocabulary } from "./vocabulary";
 
 export function EntityView({
   entityRef,
@@ -17,6 +18,7 @@ export function EntityView({
 }) {
   const [detail, setDetail] = useState<EntityDetail | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const vocabulary = useVocabulary();
 
   // Reloading after an action is not a nicety: the answer carried the proof
   // token, and running something invalidates it along with what it described.
@@ -83,6 +85,12 @@ export function EntityView({
         <div className="title">
           <h1>{entity.title || entity.name}</h1>
           <span className={`tag kind-${entity.kind}`}>{entity.kind}</span>
+          {/* Only reference is shown. Infrastructure is the default and says
+              nothing; reference says nobody is expected to declare these, which
+              is why drift stays quiet about them (ADR-0048). */}
+          {describe(entity.kind, vocabulary)?.role === "reference" && (
+            <span className="tag reference">reference</span>
+          )}
         </div>
         <p className="ref">{entity.ref}</p>
         {url(entity.attributes) && (

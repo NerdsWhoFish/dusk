@@ -198,6 +198,27 @@ async function get<T>(path: string): Promise<T> {
 
 export type KindCount = { Kind: string; Count: number };
 
+// KindInfo is what a kind is for and what else it is called. The role is
+// resolved server side, so a kind nobody minted still carries one and the
+// browser never has to know what the default is (ADR-0048).
+export type KindInfo = {
+  namespace: string;
+  kind: string;
+  role: string;
+  count?: number;
+  aliases?: string[];
+
+  // alias_of names the kind this spelling resolves to. Both halves are said,
+  // because a catalog carrying `service` and `svc` has two chips and one kind
+  // and that split is the thing worth seeing.
+  alias_of?: string;
+  minted?: boolean;
+};
+
+// Vocabulary carries the roles in rank order, so grouping by them needs no
+// copy here of what they are or which comes first.
+export type Vocabulary = { roles: string[]; kinds: KindInfo[] };
+
 // Overview is the portal's whole payload. One shape, one request: the landing
 // page is the first thing loaded and a waterfall there is what people feel.
 export type Overview = {
@@ -384,6 +405,7 @@ export const api = {
   home: () => get<Home>("/home"),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),
+  kinds: () => get<Vocabulary>("/kinds"),
   entities: (kind?: string) =>
     get<{ entities: Entity[] }>(
       kind ? `/entities?kind=${encodeURIComponent(kind)}` : "/entities",

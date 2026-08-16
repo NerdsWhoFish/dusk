@@ -1,0 +1,215 @@
+package web_test
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// harnessPath is where the browser is pointed. It is not the app: it is a page
+// holding the app in a frame sized to one row of the matrix.
+const harnessPath = "/__matrix"
+
+// reportPath is where the harness posts what it measured.
+const reportPath = "/__measured"
+
+// A page of the app, and the selector that proves it finished rendering rather
+// than merely finished loading.
+type route struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Rendered string `json:"rendered"`
+
+	// Click is followed before measuring, which is how a panel that is closed
+	// until somebody opens it gets measured at all.
+	Click string `json:"click,omitempty"`
+}
+
+// A control that failed the touch target minimum, named so a failure says which
+// one rather than that something on the page was small.
+type target struct {
+	Selector string  `json:"selector"`
+	Width    float64 `json:"width"`
+	Height   float64 `json:"height"`
+}
+
+// What one page measured at one viewport.
+type measurement struct {
+	Page string `json:"page"`
+
+	// Confirmations, not results: Chrome clamps a headless window to a minimum
+	// width, so one asked for 320 lays out at 500 and reports overflow that is
+	// not there. Nothing below is worth reading unless these are what was asked.
+	InnerWidth  int `json:"innerWidth"`
+	ClientWidth int `json:"clientWidth"`
+
+	Coarse bool `json:"coarse"`
+
+	DocScrollWidth  int `json:"docScrollWidth"`
+	BodyScrollWidth int `json:"bodyScrollWidth"`
+
+	// Overflowing names what sticks out past the viewport without a scroller of
+	// its own, which is the diagnosis for the two widths above.
+	Overflowing []string `json:"overflowing"`
+
+	// Counted is how many controls were measured. Zero means the selector
+	// matched nothing, which passes every assertion while testing none.
+	Counted int      `json:"counted"`
+	Small   []target `json:"small"`
+
+	Problem string `json:"problem,omitempty"`
+}
+
+// harness holds the app in a frame sized to the viewport, because a frame lays
+// out at the width it is given and a headless window does not. Measuring it
+// from the parent leaves the app served exactly as the binary serves it.
+func harness(width, height int, touch bool, routes []route) []byte {
+	pages, err := json.Marshal(routes)
+	if err != nil {
+		panic(err)
+	}
+
+	return fmt.Appendf(nil, harnessHTML, width, height, pages, touch, reportPath)
+}
+
+const harnessHTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>matrix</title>
+<style>html,body{margin:0;padding:0}iframe{border:0;display:block}</style></head>
+<body>
+<iframe id="frame" width="%d" height="%d"></iframe>
+<script>
+(function () {
+  var frame = document.getElementById('frame');
+  var pages = %s;
+  var touch = %t;
+  var report = %q;
+  var patience = 15000;
+
+  // Anything reachable by tap, click or keyboard. ADR-0025 asks 44 by 44 of
+  // these on a touch viewport.
+  var CONTROLS = 'a[href], button, input, select, textarea, [role="button"], [role="menuitem"]';
+
+  // A link inside a sentence cannot be 44 pixels wide without breaking the
+  // sentence, which is why WCAG 2.5.8 exempts inline targets. Height still
+  // applies to these; only the width rule is lifted.
+  var INLINE = '.prose a, .attrs a, .visit';
+
+  function wait(ms) { return new Promise(function (go) { setTimeout(go, ms); }); }
+
+  function painted() {
+    return new Promise(function (go) {
+      requestAnimationFrame(function () { requestAnimationFrame(go); });
+    });
+  }
+
+  function load(path) {
+    return new Promise(function (go, stop) {
+      var timer = setTimeout(function () { stop(new Error('timed out loading ' + path)); }, patience);
+      frame.onload = function () { clearTimeout(timer); go(); };
+      frame.src = path;
+    });
+  }
+
+  async function settle(selector) {
+    var until = Date.now() + patience;
+    for (;;) {
+      var doc = frame.contentDocument;
+      if (doc && doc.querySelector(selector)) { return; }
+      if (Date.now() > until) { throw new Error('nothing ever matched ' + selector); }
+      await wait(25);
+    }
+  }
+
+  function describe(el) {
+    var classes = (el.getAttribute('class') || '').trim();
+    return el.tagName.toLowerCase() + (classes ? '.' + classes.split(/\s+/).join('.') : '');
+  }
+
+  // Whether el sits inside something that scrolls on its own, which is where
+  // ADR-0025 puts wide content. An overflow of hidden deliberately does not
+  // count: that ADR wants the layout not to overflow, not the evidence hidden.
+  function scrolls(win, el) {
+    for (var at = el.parentElement; at; at = at.parentElement) {
+      var overflow = win.getComputedStyle(at).overflowX;
+      if (overflow === 'auto' || overflow === 'scroll') { return true; }
+    }
+    return false;
+  }
+
+  function measure(name) {
+    var win = frame.contentWindow;
+    var doc = win.document;
+    var viewport = doc.documentElement.clientWidth;
+
+    var overflowing = [];
+    var all = doc.querySelectorAll('body *');
+    for (var i = 0; i < all.length && overflowing.length < 8; i++) {
+      var el = all[i];
+      var box = el.getBoundingClientRect();
+      if (box.width < 1 && box.height < 1) { continue; }
+      if (box.left >= -0.5 && box.right <= viewport + 0.5) { continue; }
+      if (scrolls(win, el)) { continue; }
+      overflowing.push(describe(el) + ' spans ' + Math.round(box.left) + ' to ' + Math.round(box.right));
+    }
+
+    var counted = 0;
+    var small = [];
+    var controls = doc.querySelectorAll(CONTROLS);
+    for (var j = 0; j < controls.length; j++) {
+      var control = controls[j];
+      var rect = control.getBoundingClientRect();
+      if (rect.width < 1 && rect.height < 1) { continue; }
+      counted++;
+      if (!touch) { continue; }
+
+      var wide = control.matches(INLINE) || rect.width >= 43.5;
+      if (rect.height >= 43.5 && wide) { continue; }
+      small.push({ selector: describe(control), width: rect.width, height: rect.height });
+    }
+
+    return {
+      page: name,
+      innerWidth: win.innerWidth,
+      clientWidth: viewport,
+      coarse: win.matchMedia('(pointer: coarse)').matches,
+      docScrollWidth: doc.documentElement.scrollWidth,
+      bodyScrollWidth: doc.body.scrollWidth,
+      overflowing: overflowing,
+      counted: counted,
+      small: small
+    };
+  }
+
+  async function run() {
+    var measured = [];
+    for (var i = 0; i < pages.length; i++) {
+      var page = pages[i];
+      await load(page.path);
+      await settle(page.rendered);
+      if (page.click) {
+        frame.contentDocument.querySelector(page.click).click();
+        await settle(page.click);
+      }
+      await painted();
+      measured.push(measure(page.name));
+    }
+    return measured;
+  }
+
+  run().then(function (measured) {
+    send(measured);
+  }).catch(function (err) {
+    send([{ page: 'harness', problem: String(err && err.message || err) }]);
+  });
+
+  function send(body) {
+    fetch(report, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+})();
+</script>
+</body>
+</html>`
