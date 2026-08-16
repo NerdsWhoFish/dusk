@@ -15,6 +15,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // Catalog is the slice of the index the API serves. The UI is an ordinary
@@ -30,6 +31,10 @@ type Catalog interface {
 	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
 	Kinds(ctx context.Context, gitRef string, v index.Visibility) ([]index.KindCount, error)
+
+	// Minted is the overlay a mint writes: a role and aliases, and no counts,
+	// so it needs no visibility of its own.
+	Minted(ctx context.Context, gitRef string) ([]vocab.Kind, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)

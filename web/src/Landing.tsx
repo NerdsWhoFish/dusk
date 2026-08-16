@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import type { Entity, Home, KindCount, SearchResult } from "./api";
+import type { Entity, Home, SearchResult } from "./api";
 import { handle } from "./App";
 import { renderBlock } from "./blocks";
 import { Markdown } from "./Markdown";
 import { Rows } from "./Rows";
+import { group, useVocabulary } from "./vocabulary";
+import type { KindGroup } from "./vocabulary";
 
 export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
   const [query, setQuery] = useState("");
@@ -64,6 +66,7 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
   const kinds =
     home?.blocks.find((block) => block.type === "kinds")?.kinds ?? [];
   const total = kinds.reduce((sum, entry) => sum + entry.Count, 0);
+  const groups = group(kinds, useVocabulary());
 
   // Absent means yes: a page that says nothing about search still gets it.
   const searchable = home?.search !== false;
@@ -113,7 +116,7 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
       ) : (
         <Portal
           home={home}
-          kinds={kinds}
+          groups={groups}
           kind={kind}
           entities={entities}
           onKind={setKind}
@@ -127,7 +130,7 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
 
 function Portal({
   home,
-  kinds,
+  groups,
   kind,
   entities,
   onKind,
@@ -135,7 +138,7 @@ function Portal({
   onChanged,
 }: {
   home: Home | null;
-  kinds: KindCount[];
+  groups: KindGroup[];
   kind: string | null;
   entities: Entity[] | null;
   onKind: (kind: string | null) => void;
@@ -151,7 +154,7 @@ function Portal({
     );
   }
 
-  if (kinds.length === 0 && home.blocks.every((block) => empty(block))) {
+  if (groups.length === 0 && home.blocks.every((block) => empty(block))) {
     return (
       <p className="empty">
         Nothing here yet. Add a <code>dusk.md</code> to a repository Dusk can
@@ -163,19 +166,35 @@ function Portal({
 
   return (
     <>
-      {kinds.length > 0 && (
+      {groups.length > 0 && (
         <div className="kinds">
-          {kinds.map((entry) => (
-            <button
-              key={entry.Kind}
-              type="button"
-              className={`chip kind-${entry.Kind}${kind === entry.Kind ? " on" : ""}`}
-              aria-pressed={kind === entry.Kind}
-              onClick={() => onKind(kind === entry.Kind ? null : entry.Kind)}
-            >
-              <span className="chip-count">{entry.Count}</span>
-              {entry.Count === 1 ? entry.Kind : pluralize(entry.Kind)}
-            </button>
+          {groups.map((entry) => (
+            <div className="kinds-group" key={entry.role || "all"}>
+              {/* Labelled only when there is more than one, so an operator who
+                  has minted nothing sees the row they always saw. */}
+              {entry.role && <span className="kinds-role">{entry.role}</span>}
+              {entry.chips.map((one) => (
+                <button
+                  key={one.kind}
+                  type="button"
+                  className={`chip kind-${one.kind}${kind === one.kind ? " on" : ""}`}
+                  aria-pressed={kind === one.kind}
+                  onClick={() => onKind(kind === one.kind ? null : one.kind)}
+                >
+                  <span className="chip-count">{one.count}</span>
+                  {one.count === 1 ? one.kind : pluralize(one.kind)}
+                  {/* Both halves, because two chips for one kind is the split
+                      worth seeing and only an alias makes it legible. */}
+                  {one.aliasOf ? (
+                    <span className="chip-alias">spelling of {one.aliasOf}</span>
+                  ) : (
+                    one.aliases.length > 0 && (
+                      <span className="chip-alias">also {one.aliases.join(", ")}</span>
+                    )
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}
