@@ -13,6 +13,8 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // ContextBudget caps the rendered context in bytes, standing in for ADR-0014's
@@ -29,10 +31,14 @@ const contextNotes = ContextBudget / 20
 // whole note does not fit.
 const noteSummary = 100
 
-// sectionShare is the most of the budget one section may take before every
-// other section has had a turn. An operator who pins forty notes still gets an
-// inventory, which is the other half of what ADR-0014 promises.
+// sectionShare is the most of what is left that one section may take on the
+// first pass. Binding against the remainder rather than the whole is what
+// leaves something for the section below it, at any number of sections.
 const sectionShare = 50
+
+// overflowNames caps how many entries an overflow line names, because the room
+// for that line is reserved whether or not it ever prints.
+const overflowNames = 12
 
 type contextInput struct {
 	Root string `json:"root,omitempty" jsonschema:"the repository being worked in, as a path or owner/name. Omit for an inventory of everything"`
@@ -52,6 +58,12 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 		return nil, nil, err
 	}
 
+	vocabulary, err := s.opts.Catalog.Vocabulary(ctx, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	held := takeInventory(entities, vocabulary)
+
 	var declared []string
 	if repository != "" {
 		if declared, err = s.opts.Catalog.Declared(ctx, "", repository); err != nil {
@@ -64,15 +76,78 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 		return nil, nil, err
 	}
 
-	tail, err := s.tail(ctx)
+	tail, err := s.tail(ctx, held)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	reading, priority := contextSections(declared, here, elsewhere, entities)
-	body := assemble(header(in.Root, repository, len(declared), len(entities)), tail, reading, priority)
+	reading, priority := contextSections(declared, here, elsewhere, held)
+	body := assemble(header(in.Root, repository, len(declared), held.total), tail, reading, priority)
 
 	return text(truncate(body, ContextBudget)), nil, nil
+}
+
+// estate is what the operator has, deduplicated, grouped by kind and ranked by
+// what the kinds are for.
+type estate struct {
+	kinds []kindGroup
+	total int
+}
+
+// kindGroup is one kind, what it is for, and the refs carrying it.
+type kindGroup struct {
+	kind string
+	role vocab.Role
+	refs []string
+}
+
+// takeInventory groups the catalog by kind and ranks the kinds by role. A ref
+// arrives twice when two repositories declare it or an ingester observes what
+// one of them declares, and printing it twice is a defect the reader sees.
+func takeInventory(entities []*duskv1alpha1.Entity, vocabulary []vocab.Kind) estate {
+	byKind := map[string][]string{}
+	seen := make(map[string]bool, len(entities))
+	for _, entity := range entities {
+		ref := entity.GetRef()
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		byKind[entity.GetKind()] = append(byKind[entity.GetKind()], ref)
+	}
+
+	groups := make([]kindGroup, 0, len(byKind))
+	for _, kind := range slices.Sorted(maps.Keys(byKind)) {
+		groups = append(groups, kindGroup{
+			kind: kind,
+			role: vocab.RoleOf(vocab.Entity, kind, vocabulary),
+			refs: byKind[kind],
+		})
+	}
+
+	// Infrastructure is what somebody maintains and reference is a fact about
+	// the world, so an orientation that opens with airports and never reaches
+	// services is ordered backwards (ADR-0048, ADR-0057).
+	slices.SortStableFunc(groups, func(a, b kindGroup) int {
+		if rank := entityRank(a.role) - entityRank(b.role); rank != 0 {
+			return rank
+		}
+		if len(a.refs) != len(b.refs) {
+			return len(b.refs) - len(a.refs)
+		}
+		return strings.Compare(a.kind, b.kind)
+	})
+	return estate{kinds: groups, total: len(seen)}
+}
+
+// entityRank orders the entity roles, taking the order from vocab rather than
+// restating it: Roles already lists them in rank order.
+func entityRank(role vocab.Role) int {
+	roles := vocab.Roles(vocab.Entity)
+	if i := slices.Index(roles, role); i >= 0 {
+		return i
+	}
+	return len(roles)
 }
 
 // pinned splits what somebody pinned into the notes about the repository being
@@ -108,52 +183,49 @@ func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere
 
 // contextSections builds the answer's blocks, in reading order and again in
 // the order they are paid for.
-func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, entities []*duskv1alpha1.Entity) (reading, priority []*section) {
+func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, held estate) (reading, priority []*section) {
 	notesHere := &section{
 		heading: "\n## Pinned, about this repository\n\n",
 		items:   noteItems(here),
-		overflow: func(n int) string {
+		overflow: func(dropped []item) string {
 			return fmt.Sprintf("%d more pinned note(s) about this repository did not fit. "+
-				"Ask `note` with this repository's refs for them.\n\n", n)
+				"Ask `note` with this repository's refs for them.\n\n", len(dropped))
 		},
 	}
 
 	owned := &section{
 		heading: fmt.Sprintf("\n## What this repository declares (%d)\n\n", len(declared)),
-		overflow: func(n int) string {
-			return fmt.Sprintf("...and %d more it declares. `search` finds them by name.\n\n", n)
+		overflow: func(dropped []item) string {
+			return fmt.Sprintf("%d more it declares are not listed. `search` finds them by name.\n\n", len(dropped))
 		},
 	}
 	for _, ref := range declared {
 		line := fmt.Sprintf("- `%s`\n", ref)
-		owned.items = append(owned.items, item{full: line, short: line})
+		owned.items = append(owned.items, item{name: ref, full: line, short: line})
 	}
 
 	notesElsewhere := &section{
 		heading: "\n## Pinned, across the estate\n\n",
 		items:   noteItems(elsewhere),
-		overflow: func(n int) string {
-			return fmt.Sprintf("%d more pinned note(s) did not fit. Ask `note` for them.\n\n", n)
+		overflow: func(dropped []item) string {
+			return fmt.Sprintf("%d more pinned note(s) did not fit. Ask `note` for them.\n\n", len(dropped))
 		},
 	}
 
 	// Names only, per ADR-0014: this is an interaction manual and an inventory,
-	// not somebody's whole CLAUDE.md.
-	byKind := map[string][]string{}
-	for _, entity := range entities {
-		byKind[entity.GetKind()] = append(byKind[entity.GetKind()], entity.GetRef())
-	}
+	// not somebody's whole CLAUDE.md. A kind left out is named rather than
+	// counted, because a count cannot say `service` (ADR-0057).
 	inventory := &section{
-		heading: fmt.Sprintf("\n## What this operator has (%d)\n\n", len(entities)),
-		overflow: func(n int) string {
-			return fmt.Sprintf("%d more kind(s) not listed. `search` finds anything by name.\n\n", n)
+		heading: fmt.Sprintf("\n## What this operator has (%d)\n\n", held.total),
+		overflow: func(dropped []item) string {
+			return fmt.Sprintf("Kinds not listed: %s. `search` finds anything by name.\n\n", names(dropped))
 		},
 	}
-	for _, kind := range sortedKeysOf(byKind) {
-		refs := byKind[kind]
+	for _, group := range held.kinds {
 		inventory.items = append(inventory.items, item{
-			full:  fmt.Sprintf("**%s** (%d): %s\n\n", kind, len(refs), strings.Join(refs, ", ")),
-			short: fmt.Sprintf("**%s** (%d): names not listed, `search` finds them\n\n", kind, len(refs)),
+			name:  fmt.Sprintf("%s (%d)", group.kind, len(group.refs)),
+			full:  fmt.Sprintf("**%s** (%d): %s\n\n", group.kind, len(group.refs), strings.Join(group.refs, ", ")),
+			short: fmt.Sprintf("**%s** (%d): names not listed, `search` finds them\n\n", group.kind, len(group.refs)),
 		})
 	}
 
@@ -188,11 +260,13 @@ func header(root, repository string, declared, total int) string {
 	return out.String()
 }
 
-// tail is the fixed closing: how much reality supports, and what silence means.
-// Both are reserved before anything is spent, because the sentence that stops
-// an agent reading absence as proof is the worst one to lose to a cut.
-func (s *Server) tail(ctx context.Context) (string, error) {
+// tail is the fixed closing: what can be done, how much reality supports, and
+// what silence means. All are reserved before anything is spent, because the
+// sentence that stops an agent reading absence as proof is the worst to lose.
+func (s *Server) tail(ctx context.Context, held estate) (string, error) {
 	var out strings.Builder
+
+	out.WriteString(s.actionable(held))
 
 	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{}, s.viewer())
 	if err != nil {
@@ -214,9 +288,52 @@ func (s *Server) tail(ctx context.Context) (string, error) {
 	return out.String(), nil
 }
 
-// item is one entry in a section: what it says in full, and the shorter form
-// that still names it when the budget cannot afford the full one.
+// actionable is the one sentence saying the catalog does things as well as
+// answering questions. Nothing else in the context mentions actions, so an
+// agent that never happens to `get` an acting entity never learns `invoke`.
+func (s *Server) actionable(held estate) string {
+	if s.opts.Plugins == nil {
+		return ""
+	}
+
+	var acts []string
+	for _, group := range held.kinds {
+		offered := s.opts.Plugins.Actions(group.kind)
+		if slices.ContainsFunc(offered, func(action plugin.Action) bool { return action.Enabled }) {
+			acts = append(acts, "`"+group.kind+"`")
+		}
+	}
+	if len(acts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\nThe catalog acts as well as answers: %s carry actions. "+
+		"`get` names what an entity takes and `invoke` runs it.\n", listed(acts))
+}
+
+// names is what an overflow line calls the entries it left out.
+func names(dropped []item) string {
+	called := make([]string, 0, len(dropped))
+	for _, entry := range dropped {
+		called = append(called, entry.name)
+	}
+	return listed(called)
+}
+
+// listed names things and counts whatever it did not name. Every line built
+// here is one whose room is reserved before it exists, so its length is capped
+// rather than left to how much a catalog happens to hold.
+func listed(names []string) string {
+	if len(names) <= overflowNames {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:overflowNames], ", "), len(names)-overflowNames)
+}
+
+// item is one entry in a section: what it says in full, the shorter form that
+// still names it when the budget cannot afford the full one, and what an
+// overflow line calls it when it does not fit at all.
 type item struct {
+	name  string
 	full  string
 	short string
 }
@@ -230,47 +347,43 @@ type section struct {
 
 	// overflow names what did not fit. A section with no way to say it dropped
 	// something is a section that drops it silently.
-	overflow func(n int) string
+	overflow func(dropped []item) string
 
 	body string
 }
 
-// reserve is the room a section needs to report a total loss, set aside before
-// anything is spent so that even the last section can say it exists.
+// reserve is the room a section needs to say it exists and to report a total
+// loss: its heading and its overflow line, both set aside before anything is
+// spent so an overflow line never prints under no heading (ADR-0057).
 func (s *section) reserve() int {
 	if len(s.items) == 0 {
 		return 0
 	}
-	return len(s.overflow(len(s.items)))
+	return len(s.heading) + len(s.overflow(worstDrop(s.items)))
 }
 
-// wants is what the section would spend if nothing constrained it.
-func (s *section) wants() int {
-	if len(s.items) == 0 {
-		return 0
-	}
-	want := len(s.heading)
-	for _, entry := range s.items {
-		want += len(entry.full)
-	}
-	return want
+// worstDrop is the drop set producing the longest overflow line. An overflow
+// names a bounded number of entries, so the most it can cost is that many of
+// the longest names with every remaining item counted behind them.
+func worstDrop(items []item) []item {
+	worst := slices.Clone(items)
+	slices.SortFunc(worst, func(a, b item) int { return len(b.name) - len(a.name) })
+	return worst
 }
 
-// render writes what budget allows and returns what it spent. The overflow line
-// is not counted, because reserve already set that room aside.
+// render writes what budget allows and returns what it spent. Neither the
+// heading nor the overflow line is counted, because reserve already set that
+// room aside.
 func (s *section) render(budget int) int {
 	if len(s.items) == 0 {
 		return 0
 	}
 
 	var out strings.Builder
-	spent := 0
-	if len(s.heading) <= budget {
-		out.WriteString(s.heading)
-		spent = len(s.heading)
-	}
+	out.WriteString(s.heading)
 
-	dropped := 0
+	spent := 0
+	var dropped []item
 	for _, entry := range s.items {
 		switch {
 		case spent+len(entry.full) <= budget:
@@ -280,15 +393,29 @@ func (s *section) render(budget int) int {
 			out.WriteString(entry.short)
 			spent += len(entry.short)
 		default:
-			dropped++
+			dropped = append(dropped, entry)
 		}
 	}
-	if dropped > 0 {
+	if len(dropped) > 0 {
 		out.WriteString(s.overflow(dropped))
 	}
 
 	s.body = out.String()
 	return spent
+}
+
+// grow re-renders the section against more room and reports the extra it spent.
+// Greedy packing is not quite monotonic, since a full entry that only fits at
+// the larger budget can crowd out two shorts, so a worse render is undone.
+func (s *section) grow(spent, room int) int {
+	if room <= spent {
+		return 0
+	}
+	if grown := s.render(room); grown >= spent {
+		return grown - spent
+	}
+	s.render(spent)
+	return 0
 }
 
 // assemble spends the budget in priority order and writes the result in reading
@@ -299,26 +426,7 @@ func assemble(header, tail string, reading, priority []*section) string {
 	for _, block := range priority {
 		budget -= block.reserve()
 	}
-	budget = max(budget, 0)
-
-	allowance := make([]int, len(priority))
-	remaining := budget
-	// The share caps the first pass so that nothing starves what follows it,
-	// and the second pass hands on whatever the capped sections did not want,
-	// so a cap costs nothing when only one section has anything to say.
-	for _, ceiling := range []int{budget * sectionShare / 100, budget} {
-		for i, block := range priority {
-			take := min(min(block.wants(), ceiling)-allowance[i], remaining)
-			if take <= 0 {
-				continue
-			}
-			allowance[i] += take
-			remaining -= take
-		}
-	}
-	for i, block := range priority {
-		block.render(allowance[i])
-	}
+	spend(max(budget, 0), priority)
 
 	var out strings.Builder
 	out.WriteString(header)
@@ -327,6 +435,30 @@ func assemble(header, tail string, reading, priority []*section) string {
 	}
 	out.WriteString(tail)
 	return out.String()
+}
+
+// spend hands the budget out in priority order, charging each section what it
+// wrote rather than what it was offered. A section granted room for whole notes
+// and printing one-line shorts holds budget it will never use (ADR-0057).
+func spend(budget int, priority []*section) {
+	// Rendered before anything is spent, so a section that never wins any room
+	// still carries the heading and overflow line reserve set aside for it.
+	for _, block := range priority {
+		block.render(0)
+	}
+
+	spent := make([]int, len(priority))
+	remaining := budget
+	// The first pass caps a section at a share of what is left when its turn
+	// comes, so there is always something for the section below it. The second
+	// hands on everything the first did not use.
+	for _, share := range []int{sectionShare, 100} {
+		for i, block := range priority {
+			extra := block.grow(spent[i], spent[i]+remaining*share/100)
+			spent[i] += extra
+			remaining -= extra
+		}
+	}
 }
 
 // noteItems renders notes for a budget: whole while they fit, and named by
@@ -400,10 +532,6 @@ func truncate(body string, budget int) string {
 		cut = cut[:last]
 	}
 	return cut + fmt.Sprintf("\n\n---\nTruncated at %d bytes. Use `search` and `get` for anything not listed above.\n", budget)
-}
-
-func sortedKeysOf(byKind map[string][]string) []string {
-	return slices.Sorted(maps.Keys(byKind))
 }
 
 func displayRoot(root string) string {

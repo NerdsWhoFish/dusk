@@ -2,6 +2,8 @@ package mcp_test
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,6 +11,8 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 const homelabRoot = "/Users/somebody/projects/src/github.com/example/homelab"
@@ -199,6 +203,246 @@ func TestADR0050_WrittenKnowledgeOutranksTheInventory(t *testing.T) {
 	}
 	if !strings.Contains(body, "names not listed") {
 		t.Errorf("the inventory should give up its names first:\n%s", body)
+	}
+}
+
+// ADR-0057: a section is charged what it wrote, not what it was granted. Notes
+// too long to print whole are granted room for their bodies, print title lines,
+// and used to leave everything below them nothing at all to spend.
+func TestADR0057_UnspentAllowanceReachesTheNextSection(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	spread(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("here-one", "gotcha", strings.Repeat("A long note about this repository. ", 200), true, "service:home/jellyfin"),
+		note("here-two", "gotcha", strings.Repeat("Another long note about this repository. ", 200), true, "service:home/jellyfin"),
+		note("estate", "gotcha", strings.Repeat("A long note about the whole estate. ", 200), true),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	t.Logf("the context spent %d of %d bytes", len(body), mcp.ContextBudget)
+	if spent := len(body); spent < mcp.ContextBudget*3/4 {
+		t.Errorf("the context spent %d of %d bytes, so a section that degraded to shorts kept what it could not use:\n%s",
+			spent, mcp.ContextBudget, body)
+	}
+	if len(body) > mcp.ContextBudget {
+		t.Errorf("the context is %d bytes, past the %d budget", len(body), mcp.ContextBudget)
+	}
+	if !strings.Contains(body, "service:home/jellyfin") {
+		t.Errorf("the inventory was starved by notes that could not be printed whole:\n%s", body)
+	}
+}
+
+// ADR-0057: infrastructure is what somebody maintains and reference is a fact
+// about the world, so airports outranking services is exactly backwards.
+func TestADR0057_InfrastructureOutranksReference(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	spread(t, idx)
+	mint(t, idx, vocab.Kind{Namespace: vocab.Entity, Name: "airport", Role: vocab.Reference})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	// airport carries more than service, so anything ranking on count alone
+	// puts it first. Only the role it was minted with moves it.
+	service := strings.Index(body, "**service**")
+	airport := strings.Index(body, "**airport**")
+	switch {
+	case service < 0 || airport < 0:
+		t.Fatalf("both kinds should be in the inventory:\n%s", body)
+	case service > airport:
+		t.Errorf("reference data outranked what the operator maintains:\n%s", body)
+	}
+}
+
+// A count cannot say `service`. An inventory that elides the kind the catalog
+// exists for, and says only how many it elided, has not named what it dropped.
+func TestADR0057_TheOverflowNamesTheKindsItLeftOut(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	spread(t, idx)
+	crowd(t, idx)
+
+	var pinned []*duskv1alpha1.Note
+	for i := range 20 {
+		pinned = append(pinned, note(
+			fmt.Sprintf("pinned-%02d", i), "gotcha",
+			strings.Repeat(fmt.Sprintf("Pinned note %02d. ", i), 40), true, "service:home/jellyfin"))
+	}
+	notes(t, idx, pinned)
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	overflow := lineWith(t, body, "Kinds not listed:")
+	if !strings.Contains(overflow, "datastore") {
+		t.Errorf("the overflow counted what it left out instead of naming it: %q\n%s", overflow, body)
+	}
+}
+
+// A ref reaching the index from two sources is one thing, so the inventory
+// lists it once and the count above it agrees with the list below it.
+func TestADR0057_ARefFromTwoSourcesIsListedOnce(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	alsoDeclares(t, idx, "example/mirror", "service:home/jellyfin")
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	listed := body[strings.Index(body, "## What this operator has"):]
+	if count := strings.Count(listed, "service:home/jellyfin"); count != 1 {
+		t.Errorf("a ref declared twice was listed %d times:\n%s", count, listed)
+	}
+	if !strings.Contains(body, "What this operator has (2)") {
+		t.Errorf("the count included the same ref twice:\n%s", body)
+	}
+}
+
+// An overflow line is meaningless without the thing it is overflowing from. A
+// heading is reserved beside the line under it, so a section that wins no room
+// at all still says which section the fragment belongs to.
+func TestADR0057_AnOverflowLineCarriesItsHeading(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	spread(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("here-one", "gotcha", strings.Repeat("A long note about this repository. ", 200), true, "service:home/jellyfin"),
+		note("here-two", "gotcha", strings.Repeat("Another long note about this repository. ", 200), true, "service:home/jellyfin"),
+		note("estate", "gotcha", strings.Repeat("A long note about the whole estate. ", 200), true),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	for _, block := range []struct{ heading, overflow string }{
+		{"## Pinned, about this repository", "more pinned note(s) about this repository did not fit"},
+		{"## What this repository declares", "more it declares are not listed"},
+		{"## Pinned, across the estate", "more pinned note(s) did not fit"},
+		{"## What this operator has", "Kinds not listed:"},
+	} {
+		heading := strings.Index(body, block.heading)
+		if heading < 0 {
+			t.Errorf("a section with entries printed no %q:\n%s", block.heading, body)
+			continue
+		}
+		if fragment := strings.Index(body, block.overflow); fragment >= 0 && fragment < heading {
+			t.Errorf("%q printed above its own %q:\n%s", block.overflow, block.heading, body)
+		}
+	}
+}
+
+// ADR-0057: an agent that never happens to `get` an entity carrying an action
+// never learns the catalog can do anything, and nothing else says so.
+func TestADR0057_TheContextSaysWhatCanBeDone(t *testing.T) {
+	acting := acting(t, &offering{actions: []plugin.Action{{
+		Plugin: "airtrail", Name: "delete_flight", Description: "Remove it from the logbook.",
+		Class: plugin.ClassDestructive, Enabled: true, Kinds: []string{"service"},
+	}}})
+	seed(t, acting.index)
+
+	body := call(t, acting.session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	for _, want := range []string{"carry actions", "`invoke`", "`service`"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the context never says %s is possible:\n%s", want, body)
+		}
+	}
+}
+
+// A read-only deployment does not register `invoke`, so naming it would send an
+// agent at a tool that is not there.
+func TestADR0057_NoPluginsMeansNoTalkOfActions(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	if strings.Contains(body, "invoke") {
+		t.Errorf("a deployment with no plugins offered actions anyway:\n%s", body)
+	}
+}
+
+// lineWith returns the line carrying marker, so a test asserts on the sentence
+// the agent reads rather than on the whole answer.
+func lineWith(t *testing.T, body, marker string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, marker) {
+			return line
+		}
+	}
+	t.Fatalf("no line carrying %q:\n%s", marker, body)
+	return ""
+}
+
+// mint declares a kind the way an operator does, which is the only way a kind
+// carries a role other than the default.
+func mint(t *testing.T, idx *index.DB, kinds ...vocab.Kind) {
+	t.Helper()
+
+	if err := idx.PutVocabulary(t.Context(), "example/vocabulary", mainRef, kinds); err != nil {
+		t.Fatalf("PutVocabulary: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/vocabulary", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+}
+
+// alsoDeclares gives a ref a second source, which is what a second repository
+// declaring it, or an ingester observing it, looks like to the index.
+func alsoDeclares(t *testing.T, idx *index.DB, repository, ref string) {
+	t.Helper()
+
+	kind, rest, _ := strings.Cut(ref, ":")
+	namespace, name, _ := strings.Cut(rest, "/")
+	declarations := []index.Declaration{{
+		Path:   "dusk.md",
+		Entity: &duskv1alpha1.Entity{Ref: ref, Kind: kind, Namespace: namespace, Name: name},
+	}}
+
+	if err := idx.Put(t.Context(), repository, mainRef, declarations, nil, nil); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), repository, mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+}
+
+// spread fills the catalog with more kinds than the budget can name, so what
+// the inventory gives up, and the order it gives it up in, are observable.
+func spread(t *testing.T, idx *index.DB) {
+	t.Helper()
+
+	counts := map[string]int{
+		"airport": 40, "board-card": 30, "container": 20, "dashboard": 15,
+		"datastore": 6, "flight": 25, "host": 8, "service": 30,
+		"vault-note": 12, "workflow": 10,
+	}
+
+	var declarations []index.Declaration
+	for _, kind := range slices.Sorted(maps.Keys(counts)) {
+		for i := range counts[kind] {
+			name := fmt.Sprintf("%s-%03d", kind, i)
+			declarations = append(declarations, index.Declaration{
+				Path: "dusk.md",
+				Entity: &duskv1alpha1.Entity{
+					Ref: kind + ":estate/" + name, Kind: kind, Namespace: "estate", Name: name,
+				},
+			})
+		}
+	}
+
+	if err := idx.Put(t.Context(), "example/estate", mainRef, declarations, nil, nil); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/estate", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
 	}
 }
 

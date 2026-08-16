@@ -113,18 +113,26 @@ It carries four sections, and pinning is how something earns a place in the two 
 | Pinned, about this repository | Notes somebody pinned that attach to something this repository declares |
 | What this repository declares | The refs it owns |
 | Pinned, across the estate | Everything else pinned |
-| What this operator has | Every ref, grouped by kind |
+| What this operator has | Every ref, grouped by kind, listed once however many sources declared it |
 
 Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 Written knowledge wins that contest because a ref left out is one `search` away and a gotcha left out is reachable by nothing.
 
+A section is **charged what it printed** and not what it asked for, so one that degrades to short forms hands the difference down to the section below it ([ADR-0057](../adr/0057-charged-for-what-was-printed.md)).
+No section takes more than half of what is left when its turn comes, which is what leaves something for the section after it.
+
 Relevance orders the pinned set and does not widen it.
 An unpinned note about this repository still does not appear, because pinning is the operator saying it is worth every future session.
+
+The inventory is ordered by **what a kind is for**: `infrastructure` above `reference`, and within each, the kind carrying most of the estate first.
+An orientation that opens with airports and never reaches services is ordered backwards, and a kind's role is the thing that knows the difference ([ADR-0048](../adr/0048-the-kind-vocabulary.md)).
 
 **Nothing is dropped without being named.**
 A note that will not fit whole is printed as its kind, its id and its opening line, which is what to pass back to `note`.
 A kind whose refs will not fit prints its count.
-Below either, a line says how many entries were left out and which tool answers them.
+Below either, and under the heading it belongs to, a line **names** what was left out and says which tool answers it, because a count cannot say `service`.
+
+The closing also names the kinds that carry actions, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one.
 
 ## Three rules the answers follow
 

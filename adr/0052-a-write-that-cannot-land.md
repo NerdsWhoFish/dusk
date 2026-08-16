@@ -1,4 +1,4 @@
-# 48. A write Dusk may not commit comes back as the change it would have made
+# 52. A write Dusk may not commit comes back as the change it would have made
 
 Date: 2026-08-13
 

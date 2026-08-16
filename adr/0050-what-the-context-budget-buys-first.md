@@ -1,4 +1,4 @@
-# 48. What the context budget buys first
+# 50. What the context budget buys first
 
 Date: 2026-08-13
 
@@ -110,3 +110,24 @@ Without the second pass, a cap would waste budget in the ordinary case where onl
 - **Option 2** was rejected because ratios describe a catalog nobody has. A catalog with three pinned notes and four hundred entities would get the same split as one with three hundred pinned notes and four entities, and both would be wrong. The share cap kept here is not this option: it binds only until every section has had a turn, and unspent budget flows on rather than being held for a section that does not want it.
 - **Option 4** was rejected because the ceiling is the point. Every session pays the context cost whether or not it touches Dusk, and a limit that moves whenever it binds is advice. The ranking has to be right at any ceiling, and raising it only delays finding out that it is wrong.
 - **Option 5** was rejected because a note's whole value is its body, and a note has no title to inject: its id is a path. An agent handed a list of paths has been told to make another call, and for a gotcha that means it will not read it. The title form is kept for exactly the case it is good for, which is a note that could not fit whole.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-15: a section is charged what it printed, and the share binds on the remainder
+
+The allocation this ADR shipped does not survive the catalog it was written for, and [ADR-0057](0057-charged-for-what-was-printed.md) records what replaced it.
+
+Two things here are corrected rather than extended.
+
+The second pass is described as handing on "whatever the capped sections did not want", and it hands on what they did not **want** rather than what they did not **spend**.
+A section holding notes too long to print whole wants their bodies and spends two title lines, so it holds most of the budget and prints almost none of it.
+A section is now charged what it printed.
+
+"No section takes more than half the spendable budget until every other section has had a turn" is not true of an answer with four sections, because two halves are the whole.
+The share now binds on what is left when a section's turn comes.
+
+[ADR-0057](0057-charged-for-what-was-printed.md) also settles what this ADR did not: the order kinds are listed in, and what an overflow line says about the entries it dropped.
+The doctrine here is unchanged.
+Priority order against reading order, written knowledge outranking enumerable fact, relevance ordering the pinned set without widening it, and nothing dropped without being named all stand.
