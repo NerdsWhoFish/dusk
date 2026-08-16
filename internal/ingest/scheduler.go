@@ -112,13 +112,18 @@ func (s *Scheduler) Names() []string {
 	return names
 }
 
-// Status is what each ingester last did.
+// Status is what each ingester last did, and what the rotation intends to do
+// next. The two travel together because a failed run is only readable against
+// how many preceded it and when the next one is due.
 func (s *Scheduler) Status() []Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	out := make([]Result, 0, len(s.results))
-	for _, result := range s.results {
+	for name, result := range s.results {
+		if state, scheduled := s.states[name]; scheduled {
+			result.Failures, result.Next = state.failures, state.next
+		}
 		out = append(out, result)
 	}
 	return out

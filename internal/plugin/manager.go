@@ -38,6 +38,10 @@ type Health struct {
 	// Instance is empty for the plugin's own configuration.
 	Instance string `json:"instance,omitempty"`
 
+	// Scope is where this instance's observations are stored. It is the join
+	// onto how old they are, which only the index knows and only durably.
+	Scope string `json:"scope,omitempty"`
+
 	Entities  int       `json:"entities"`
 	Relations int       `json:"relations"`
 	At        time.Time `json:"at"`
@@ -45,6 +49,11 @@ type Health struct {
 	// Problem is why the last run failed. The catalog still serves what that
 	// plugin last observed, so this is a warning rather than an outage.
 	Problem string `json:"problem,omitempty"`
+
+	// Failures is how many runs in a row have failed and Next is when the
+	// rotation tries again, so "failing" is readable as a duration.
+	Failures int       `json:"failures,omitempty"`
+	Next     time.Time `json:"next"`
 }
 
 // Catalog is the slice of the index an action needs: what the entity is, and
@@ -329,9 +338,12 @@ func (m *Manager) healthOf(id string) []Health {
 
 		entry := Health{
 			Instance:  strings.TrimPrefix(strings.TrimPrefix(result.Ingester, prefix), ":"),
+			Scope:     ingest.Scope(result.Ingester),
 			Entities:  result.Entities,
 			Relations: result.Relations,
 			At:        result.At,
+			Failures:  result.Failures,
+			Next:      result.Next,
 		}
 		if result.Err != nil {
 			entry.Problem = result.Err.Error()
