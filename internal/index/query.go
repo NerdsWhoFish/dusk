@@ -268,12 +268,13 @@ type Location struct {
 	Version    string
 }
 
-// Locate finds the file that declares an entity, which is how a write routes to
-// the repository that owns it rather than needing a routing table.
+// Locate finds the file that declares an entity, which is how a write routes.
+// Declarations only: an observation fills the repository slot with an ingester
+// scope nothing can commit to, and an entity nobody declared is a create.
 func (db *DB) Locate(ctx context.Context, gitRef, entityRef string) (*Location, error) {
 	var row entityRow
 	err := scoped(db.gorm.WithContext(ctx), gitRef).
-		Where("ref = ?", entityRef).
+		Where("ref = ? AND observed = ?", entityRef, false).
 		Order("repository").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

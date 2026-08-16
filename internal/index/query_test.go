@@ -1,6 +1,7 @@
 package index_test
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -44,6 +45,50 @@ func TestDeclaredIsPerRepository(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Locate routes a write, and an observation owns no file: its repository slot
+// holds an ingester scope nothing can commit to. Ordering by repository alone
+// made that depend on how somebody had named a plugin.
+func TestLocateRoutesToADeclarationAndNeverToAnObservation(t *testing.T) {
+	// Whether the declaration or the observation sorted first was decided by the
+	// repository's own name against the literal "ingester:".
+	for _, repository := range []string{"alpha/homelab", "zulu/homelab"} {
+		t.Run("declared in "+repository, func(t *testing.T) {
+			db := newDB(t)
+			for _, scope := range []string{repository, index.ObservedScope("kubernetes")} {
+				mustPut(t, db, scope, mainRef,
+					[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}, nil)
+				if err := db.SetDefaultView(t.Context(), scope, mainRef); err != nil {
+					t.Fatalf("SetDefaultView: %v", err)
+				}
+			}
+
+			at, err := db.Locate(t.Context(), "", "service:home/jellyfin")
+			if err != nil {
+				t.Fatalf("Locate: %v", err)
+			}
+			if at.Repository != repository {
+				t.Errorf("Locate routed a write at %q, want %q", at.Repository, repository)
+			}
+		})
+	}
+
+	// Nothing declares it, so there is no file to write to, and a create is the
+	// answer rather than a commit aimed at an ingester scope.
+	t.Run("observed and declared nowhere", func(t *testing.T) {
+		db := newDB(t)
+		scope := index.ObservedScope("kubernetes")
+		mustPut(t, db, scope, mainRef,
+			[]*duskv1alpha1.Entity{entity("service:home/jellyfin", "Jellyfin", "")}, nil)
+		if err := db.SetDefaultView(t.Context(), scope, mainRef); err != nil {
+			t.Fatalf("SetDefaultView: %v", err)
+		}
+
+		if _, err := db.Locate(t.Context(), "", "service:home/jellyfin"); !errors.Is(err, index.ErrNotFound) {
+			t.Errorf("Locate = %v, want ErrNotFound so the write takes the create path", err)
+		}
+	})
 }
 
 // A note about what a repository declares usually lives in the config
