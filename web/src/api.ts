@@ -68,6 +68,11 @@ export type PluginView = {
   title?: string;
   source?: string;
   spec?: ViewSpec;
+
+  // problem is why this contribution cannot render where it mounts, shown in
+  // its place so a view that was never going to work is not read as an empty
+  // answer (ADR-0064).
+  problem?: string;
 };
 
 // Action is one thing that can be done to something. The same declaration is a
@@ -241,6 +246,7 @@ export type ResolvedBlock = {
   element?: string;
   ref?: string;
   source?: string;
+  spec?: ViewSpec;
   title: string;
   wide?: boolean;
   entities?: Entity[];

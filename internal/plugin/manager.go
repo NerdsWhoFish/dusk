@@ -497,9 +497,10 @@ func (m *Manager) Views(kind string) []View {
 	return views
 }
 
-// PluginViews are the contributions mounted on a plugin's own page, which is
-// where a view that is about the plugin rather than about one entity belongs.
-func (m *Manager) PluginViews(id string) []View {
+// Contributions is everything one plugin contributes to the UI, in both slots.
+// A caller narrows by Slot: which of them a surface may mount is that surface's
+// question, and asking it here once meant two answers that could disagree.
+func (m *Manager) Contributions(id string) []View {
 	m.mu.Lock()
 	running, ok := m.running[id]
 	m.mu.Unlock()
@@ -507,14 +508,7 @@ func (m *Manager) PluginViews(id string) []View {
 	if !ok {
 		return nil
 	}
-
-	var views []View
-	for _, view := range running.Views() {
-		if view.Slot == SlotPlugin {
-			views = append(views, view)
-		}
-	}
-	return views
+	return running.Views()
 }
 
 // Asset returns a plugin's JavaScript by digest, for serving from Dusk's own
