@@ -146,6 +146,47 @@ It reports, per repository, the commit last read and how many entities came from
 
 The last of those is the common case and is not a failure.
 
+### Every answer is dated
+
+A commit and a count cannot say whether something is current, so each line carries **when**.
+
+```text
+- **example/homelab** at `abc1234`: 2 entities, 1 relations, read 1 hour ago (2026-08-15T10:30:00Z)
+- **example/broken** was last read 7 days ago (2026-08-08T12:00:00Z), and the attempt 4 hours ago (2026-08-15T08:00:00Z) failed: read dusk.md: boom
+```
+
+**The last read and the last attempt are different facts**, and they part company exactly when a read fails.
+A repository that broke this morning while last succeeding a week ago is not a repository read this morning, and recording the failure against the read time made the two identical.
+
+Confirming a commit has not moved counts as a read, because the catalog is provably what git holds as of that moment, even though nothing was downloaded.
+
+**Times are given both ways, relative first.**
+The reader is usually an agent, which has no dependable sense of now, so the relative half is what actually answers "is this stale"; the absolute half is what correlates with a commit or a log line and stays true when the answer is quoted later ([ADR-0056](../adr/0056-a-read-time-is-a-fact-about-the-read.md)).
+
+Under the repositories, the next sweep.
+The poll floor is a day ([ADR-0006](../adr/0006-reconcile-triggering.md)), so how old an answer is means little without knowing how much older it can get before anything corrects it.
+
+### And so is every plugin
+
+An ingester that fails keeps serving what it last observed, on purpose ([ADR-0011](../adr/0011-ingester-scheduling.md)), so "how old is what it is serving" is the question a broken plugin raises and the one nothing answered.
+
+```text
+## Plugins
+
+- **kubernetes** v0.2.0 is running.
+  - `prod` last observed 3 days ago (2026-08-12T12:00:00Z), and 5 runs in a row have failed, most recently 20 minutes ago (2026-08-15T11:40:00Z): dial tcp: i/o timeout. Next attempt in 26 minutes (2026-08-15T12:26:00Z)
+  - `staging` last observed 4 minutes ago (2026-08-15T11:56:00Z)
+```
+
+The failure count and the next attempt come from the rotation, which knew both and reported neither.
+
+### The read time survives a restart
+
+It is derived from the `observed_at` stored with the content, not remembered in the process, so a Dusk that has just come up still says when each repository was read rather than reporting that nothing ever was.
+
+It moves to "just now" after an index rebuild, and that is honest: **a read time is a fact about the read**, and a rebuild re-reads every repository from git.
+How old the content is remains the commit's business.
+
 ## Scope
 
 Queries run against the **default view**: every repository at its own default branch.
