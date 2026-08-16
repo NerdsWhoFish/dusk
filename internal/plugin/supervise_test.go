@@ -64,6 +64,27 @@ func supervised(t *testing.T, spec standIn, policy plugin.RestartPolicy) (*plugi
 func awaitPhase(t *testing.T, manager *plugin.Manager, id, phase string) plugin.Process {
 	t.Helper()
 
+	return awaitProcess(t, manager, id, "phase "+phase, func(p plugin.Process) bool {
+		return p.Phase == phase
+	})
+}
+
+// awaitRestart waits for a plugin to be up again after a crash. The phase is
+// still running until the supervisor notices the exit, so waiting only for
+// running reads the process that is about to die and sees no restart.
+func awaitRestart(t *testing.T, manager *plugin.Manager, id string) plugin.Process {
+	t.Helper()
+
+	return awaitProcess(t, manager, id, "a counted restart", func(p plugin.Process) bool {
+		return p.Phase == plugin.PhaseRunning && p.Restarts > 0
+	})
+}
+
+// awaitProcess polls the supervisor until a plugin's process satisfies want,
+// naming what it was waiting for when it does not.
+func awaitProcess(t *testing.T, manager *plugin.Manager, id, wanted string, want func(plugin.Process) bool) plugin.Process {
+	t.Helper()
+
 	var last plugin.Process
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		for _, report := range manager.Report() {
@@ -72,14 +93,14 @@ func awaitPhase(t *testing.T, manager *plugin.Manager, id, phase string) plugin.
 			}
 			last = *report.Process
 		}
-		if last.Phase == phase {
+		if want(last) {
 			return last
 		}
 		time.Sleep(time.Millisecond)
 	}
 
-	t.Fatalf("%s never reached %q: it is %q, restarted %d times, %d attempts, last exit %q",
-		id, phase, last.Phase, last.Restarts, last.Attempts, last.Exit)
+	t.Fatalf("%s never reached %s: it is %q, restarted %d times, %d attempts, last exit %q",
+		id, wanted, last.Phase, last.Restarts, last.Attempts, last.Exit)
 	return last
 }
 
@@ -105,7 +126,7 @@ func TestADR0055_ACrashedPluginIsStartedAgain(t *testing.T) {
 		t.Fatal("the action killed the plugin's process, so it cannot have reported success")
 	}
 
-	process := awaitPhase(t, manager, "crasher", plugin.PhaseRunning)
+	process := awaitRestart(t, manager, "crasher")
 	if process.Restarts < 1 {
 		t.Errorf("restarts = %d, want the crash to have been counted", process.Restarts)
 	}
@@ -330,7 +351,7 @@ func TestOutputSurvivesARestart(t *testing.T) {
 	if _, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:noisy/one", Action: "poke"}); err == nil {
 		t.Fatal("the action killed the plugin's process, so it cannot have reported success")
 	}
-	awaitPhase(t, manager, "noisy", plugin.PhaseRunning)
+	awaitRestart(t, manager, "noisy")
 
 	var said []string
 	for _, line := range manager.Output("noisy") {
