@@ -156,6 +156,33 @@ The cost is real and is accepted: a defect that only appears on a very wide disp
 A link in prose cannot be 44 pixels wide without breaking the sentence it is in, which is why WCAG 2.5.8 exempts inline targets, and the same exemption is taken here for `.prose a`, `.attrs a` and `.visit`.
 The height half still applies to them, which is what the `pointer: coarse` block in the stylesheet already does.
 
+### 2026-08-16: the table this ADR was written about now exists, and collapses
+
+"Tables collapse to stacked cards below `tablet`" was written before there was a table, and [`docs/status.md`](../docs/status.md) recorded the transform as unbuilt "because neither exists".
+
+One does now.
+[ADR-0020](0020-plugin-ui.md)'s declarative view spec takes `layout: "table"`, and a plugin declaring one got a table that scrolled sideways at every width.
+Measured at 390 pixels with a five column view: two columns visible, three off screen, which is this ADR's own sentence about a table hiding the column that mattered, happening.
+
+A row is now a card below the breakpoint and a row again above it.
+Two things about how, because both are the kind of detail that gets undone by somebody tidying up:
+
+**Each cell carries its own label as real text**, rendered from the same `field.label || field.source` the header uses, rather than as `content: attr(...)` in the stylesheet.
+Generated content is announced inconsistently and cannot be selected or copied, and a label somebody cannot copy is worse than a column they have to scroll to.
+The header row is hidden below the breakpoint and the cell labels above it, so exactly one of them is the label at any width.
+
+**Breaking mid-word belongs to the card and not to the column.**
+A card is one column wide, so a ref has to break inside the word or it takes the page with it.
+A table has `.scroller`, which is what this ADR gives wide content, so the same rule applied there squeezes `platform` onto two lines to avoid a scroll that was already allowed.
+
+**The other tables are deliberately not transformed.**
+A markdown table in an operator's prose keeps scrolling inside its own container, because Dusk did not declare those columns and cannot label their cells without walking the rendered tree and guessing.
+That is this ADR's rule for code blocks applied to a table it does not understand, and it satisfies the rule that actually matters: the body never scrolls.
+
+**The graph half of this section is still vacuous**, and is not being built to look complete.
+Relations render as a list already, on every viewport, because nothing anywhere draws a graph.
+There is nothing to fall back from.
+
 ### 2026-08-16: the matrix is measured rather than performed
 
 "A view is not done until it passes at every entry" was true and unenforced: this ADR named the checks and left running them to whoever remembered.

@@ -43,7 +43,7 @@ function Table({
         <thead>
           <tr>
             {spec.fields.map((field) => (
-              <th key={field.source}>{field.label || field.source}</th>
+              <th key={field.source}>{label(field)}</th>
             ))}
           </tr>
         </thead>
@@ -52,6 +52,10 @@ function Table({
             <tr key={entity.ref}>
               {spec.fields.map((field) => (
                 <td key={field.source}>
+                  {/* The label below the breakpoint, where the header row is
+                      gone. Real text rather than generated content, so it is
+                      read out and selected like everything else. */}
+                  <span className="cell-label">{label(field)}</span>
                   <Value field={field} entity={entity} onOpen={onOpen} />
                 </td>
               ))}
@@ -61,6 +65,12 @@ function Table({
       </table>
     </div>
   );
+}
+
+// One label for the header and the cell, so a table and the cards it becomes
+// cannot end up naming the same column two different things.
+function label(field: ViewField): string {
+  return field.label || field.source;
 }
 
 function List({

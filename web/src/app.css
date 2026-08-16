@@ -872,27 +872,76 @@ input,
   overflow-x: auto;
 }
 
+/* ADR-0025's declared answer for tables: a row is a card until there is room
+   for columns, because a table that scrolls sideways hides the column that
+   mattered. Mobile first, so the card is the base and the table is what a wide
+   screen adds back, below. */
 .declared {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
 
+.declared,
+.declared tbody,
+.declared tr,
+.declared td {
+  display: block;
+}
+
+/* Every cell names itself down here, so the header row would say it twice. */
+.declared thead {
+  display: none;
+}
+
+.declared tr {
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.declared tr:last-child {
+  margin-bottom: 0;
+}
+
+.declared td {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+  /* A ref is one long word, and a flex item's automatic minimum is its content:
+     without this it widens the card and takes the page with it. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.declared td:first-child {
+  border-top: 0;
+}
+
+.cell-label,
 .declared th {
-  padding: 0.375rem 0.75rem 0.375rem 0;
   color: var(--muted);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-align: left;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
-.declared td {
-  padding: 0.5rem 0.75rem 0.5rem 0;
-  border-top: 1px solid var(--line);
-  vertical-align: top;
+/* Wide enough to line the values up, narrow enough to leave room at 320px. */
+.cell-label {
+  flex: none;
+  width: 6.5rem;
+  padding-top: 0.2rem;
+}
+
+.declared th {
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  white-space: nowrap;
 }
 
 .declared-list {
@@ -1472,5 +1521,41 @@ h2::after {
 
   .attrs dd {
     margin-bottom: 0.25rem;
+  }
+
+  /* Room for columns, so the cards become the table they were. The header row
+     carries the labels again, so each cell stops carrying its own. */
+  .declared {
+    display: table;
+  }
+
+  .declared thead {
+    display: table-header-group;
+  }
+
+  .declared tbody {
+    display: table-row-group;
+  }
+
+  .declared tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* Breaking mid-word is what a card needs and what a column does not: with it
+     on, a table squeezes `platform` into `platfor` and `m` rather than letting
+     .scroller do the job ADR-0025 gives it. */
+  .declared td {
+    display: table-cell;
+    padding: 0.5rem 0.75rem 0.5rem 0;
+    overflow-wrap: normal;
+  }
+
+  .cell-label {
+    display: none;
   }
 }
