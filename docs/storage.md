@@ -51,6 +51,7 @@ Attributes are stored as protojson, so what comes back out is the same `structpb
 | `DropGitRef` | Removes every repository's contents at a git ref |
 | `DropRepository` | Removes one repository's contents at a git ref |
 | `Scopes` | Which (repository, ref) partitions are materialized |
+| `LastRead` | When each partition in the default view was last read, from the `observed_at` stored with its rows |
 | `GitRefs` | Which refs are currently materialized |
 
 `Put` **replaces** rather than merges, because git already gives the complete picture at a ref.

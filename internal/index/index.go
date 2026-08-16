@@ -444,6 +444,38 @@ func (db *DB) Scopes(ctx context.Context) ([]Scope, error) {
 	return scopes, nil
 }
 
+// LastRead reports when each partition in the default view was last read, keyed
+// by the repository slot, so an ingester's scope is dated like a repository. It
+// is ADR-0011's observed_at, stored with the content, so it survives a restart.
+func (db *DB) LastRead(ctx context.Context) (map[string]time.Time, error) {
+	var rows []struct {
+		Repository string
+		ObservedAt time.Time
+	}
+
+	// The column itself rather than MAX of it: an aggregate loses the declared
+	// type, and the driver will not scan what it cannot recognise as a time.
+	// One reconcile stamps every row it writes alike, so this stays small.
+	clause, args := scopeClause("", "")
+	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
+		Distinct("repository", "observed_at").
+		Where(clause, args...).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: last read: %w", err)
+	}
+
+	out := make(map[string]time.Time, len(rows))
+	for _, row := range rows {
+		at := row.ObservedAt.UTC()
+		if at.IsZero() || !at.After(out[row.Repository]) {
+			continue
+		}
+		out[row.Repository] = at
+	}
+	return out, nil
+}
+
 // Participates reports whether a repository contributes to the catalog at this
 // ref. A delivery asks before spending a request on the push, so the answer
 // comes from SQLite, and unlike an in-memory one it survives a restart.
