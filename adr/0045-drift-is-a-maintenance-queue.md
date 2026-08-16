@@ -114,4 +114,13 @@ It gets a named test: `TestADR0045_DriftIsSilentAboutWhatIsMerelyObserved`.
 
 ## Amendments
 
-None yet.
+### 2026-08-15: a closed note leaves the queue
+
+This ADR folded the dangling note check into drift and framed the whole report as a maintenance queue, and the section it produced tells the reader to close an orphaned note with status done or dropped.
+
+The query never had a status predicate, so doing that changed nothing and the row came back on the next read.
+Proved live on a real catalog by closing one.
+
+The predicate is now there: only a note nobody has closed is reported, with empty status still meaning open.
+[ADR-0056](0056-coverage-is-a-namespace.md) records it alongside the rest of what drift may say.
+The cost is that a closed note pointing at nothing is no longer findable in drift, only through `note`.

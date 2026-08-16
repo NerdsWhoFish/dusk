@@ -115,7 +115,7 @@ Use it before guessing at infrastructure. If a question mentions a service, a ho
 - get returns everything known about one entity, including what it connects to.
 - neighbors walks the graph outward from an entity.
 - changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
-- drift reports where the catalog and reality disagree: declared and nowhere to be found, or running and written down nowhere.
+- drift reports where the catalog and reality disagree: declared where something is watching and not observed there, or running and written down nowhere. It reports what it can check, never what it cannot see, so a row is a thing to look into rather than a thing to delete.
 - invoke does something to an entity. What can be done is part of what get returns, so read a thing to learn what you can do to it. Anything that changes something needs the proof token from the read it names; anything destructive needs confirm; pass preview to see what would happen first.
 
 - note reads and writes what has been written down. An **idea** is a note of kind idea: something somebody wants to keep, attached to what it is about or to nothing at all. Ask for them with note and no body, narrowed by kind, status and ref, and close one with status done or dropped.
@@ -186,7 +186,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	// with "what should I go and do", which are different sessions.
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "drift",
-		Description: "What the catalog claims and reality does not support: declared and nowhere to be found, or a note pointing at a ref nothing holds. This is the maintenance queue, so ask after something is decommissioned. Pass undeclared to also list what is running and written down nowhere.",
+		Description: "What the catalog claims and reality does not support: declared where something is watching and not observed there, or a note pointing at a ref nothing holds. This is the maintenance queue, so ask after something is decommissioned. A row is not proof a thing is gone, and the answer says what else it can mean. Pass undeclared to also list what is running and written down nowhere.",
 	}, s.drift)
 
 	sdk.AddTool(server, &sdk.Tool{
@@ -667,69 +667,6 @@ func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) erro
 
 	out.WriteString("These are not read failures. Each is a place the catalog answers confidently and may be wrong.\n")
 	return nil
-}
-
-// sortDrift splits one list into the three questions it answers, which read
-// differently enough that one list of them is worse than three.
-func sortDrift(drifts []index.Drift) (missing, notes, undeclared []index.Drift) {
-	for _, drift := range drifts {
-		switch drift.Kind {
-		case index.DriftMissing:
-			missing = append(missing, drift)
-		case index.DriftNoteRef:
-			notes = append(notes, drift)
-		default:
-			undeclared = append(undeclared, drift)
-		}
-	}
-	return missing, notes, undeclared
-}
-
-type driftInput struct {
-	Undeclared bool `json:"undeclared,omitempty" jsonschema:"also list what is running and written down nowhere. Off by default: that is a description of reality rather than work, and it buries what needs acting on"`
-}
-
-func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInput) (*sdk.CallToolResult, any, error) {
-	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{Undeclared: in.Undeclared}, s.viewer())
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(drifts) == 0 {
-		return text("Nothing the catalog claims is unsupported: everything declared is observed, and every note points at something real.\n\nThis says nothing about what is running and undeclared. Pass `undeclared` for that. And if no ingester is configured there is nothing to compare against, in which case this answer means only that."), nil, nil
-	}
-
-	missing, notes, undeclared := sortDrift(drifts)
-
-	var out strings.Builder
-	out.WriteString("# Drift\n\n")
-
-	if len(missing) > 0 {
-		fmt.Fprintf(&out, "## %d declared and not found\n\n", len(missing))
-		for _, drift := range missing {
-			fmt.Fprintf(&out, "- `%s` %s, declared in %s\n",
-				drift.Ref, displayName(drift.Title, ""), drift.Declared)
-		}
-		out.WriteString("\nEither these are gone and their declarations should be removed, or nothing is watching where they run.\n\n")
-	}
-
-	if len(notes) > 0 {
-		fmt.Fprintf(&out, "## %d note ref(s) pointing at nothing\n\n", len(notes))
-		for _, drift := range notes {
-			fmt.Fprintf(&out, "- `%s`, written down in %s\n", drift.Ref, drift.Declared)
-		}
-		out.WriteString("\nThe notes are findable by search and will never appear on the thing they are about. Repoint them with `note`, or close them with status done or dropped.\n\n")
-	}
-
-	if len(undeclared) > 0 {
-		fmt.Fprintf(&out, "## %d running and undeclared\n\n", len(undeclared))
-		for _, drift := range undeclared {
-			fmt.Fprintf(&out, "- `%s` %s, seen by %s\n",
-				drift.Ref, displayName(drift.Title, ""), drift.Observed)
-		}
-		out.WriteString("\nThese exist and nobody has said what they are for. Declaring one is a `declare` call.\n")
-	}
-
-	return text(out.String()), nil, nil
 }
 
 type changesInput struct{}

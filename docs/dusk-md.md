@@ -124,7 +124,11 @@ observed_as:
 ---
 ```
 
-Without it, drift reports your declaration as missing and the observed service as undeclared, forever, and the report is noise rather than a signal.
+Without it the observed service reads as undeclared, and your declaration is checked only where something already observes its kind in its namespace ([ADR-0056](../adr/0056-coverage-is-a-namespace.md)).
 
-An `observed_as` naming something no ingester sees is still reported.
+Writing one does two things.
+It joins the pair, so a matching observation clears the row.
+And it is you saying an ingester sees this thing, which is the witness drift needs, so the declaration is judged wherever it sits.
+
+An `observed_as` naming something no ingester sees is therefore still reported.
 The mapping is a claim, and a claim that does not hold is exactly what drift is for.

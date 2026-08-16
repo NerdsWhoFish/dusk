@@ -68,6 +68,37 @@ func TestADR0038_DriftIsSilentWhereNothingObserves(t *testing.T) {
 	}
 }
 
+// An ingester covers the namespace it observes in, not every namespace
+// sharing a kind. ADR-0056's load-bearing rule, and the case it was written
+// for: one cluster's ingester making a host nothing watches read as gone.
+func TestADR0056_CoverageIsPerNamespaceNotPerKind(t *testing.T) {
+	db := newDB(t)
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{
+		entity("host:estate/nas", "The NAS", ""),
+		entity("host:cluster-a/node-2", "Node 2", ""),
+	}, nil)
+	observe(t, db, "kubernetes", entity("host:cluster-a/node-1", "node-1", ""))
+
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+
+	for _, drift := range drifts {
+		if drift.Ref == "host:estate/nas" {
+			t.Errorf("a declaration outside every observed namespace was reported: %+v", drift)
+		}
+	}
+
+	// Inside the watched namespace absence is still evidence, or narrowing the
+	// rule has silenced the report it exists to produce.
+	if !slices.ContainsFunc(drifts, func(d index.Drift) bool {
+		return d.Ref == "host:cluster-a/node-2" && d.Kind == index.DriftMissing
+	}) {
+		t.Errorf("a declaration inside the watched namespace was not reported: %+v", drifts)
+	}
+}
+
 // Both directions still compare correctly when the undeclared half is asked
 // for. ADR-0045 moved the default, not the comparison.
 func TestDriftComparesDeclaredAgainstObserved(t *testing.T) {
@@ -177,6 +208,74 @@ func TestDriftStillReportsAnAliasThatMatchesNothing(t *testing.T) {
 	}
 }
 
+// The shape that made the declared half one hundred percent false positives: an
+// operator names one namespace for the estate, every plugin names what it read,
+// and the two sets never intersect (ADR-0056).
+func TestADR0056_AnEstateNothingObservesReportsNothing(t *testing.T) {
+	declared := []*duskv1alpha1.Entity{
+		entity("host:estate/nas", "The NAS", ""),
+		entity("host:estate/router", "The router", ""),
+		entity("service:estate/media", "Media", ""),
+		entity("device:estate/switch", "The switch", ""),
+		entity("network:estate/wifi", "Wi-Fi", ""),
+	}
+	observed := map[string][]*duskv1alpha1.Entity{
+		"kubernetes": {
+			entity("host:cluster-a/node-1", "node-1", ""),
+			entity("service:cluster-a/ingress-ingress", "ingress", ""),
+		},
+		"appliance": {
+			entity("device:appliance/00-11-22-33-44-55", "A phone", ""),
+			entity("network:appliance/lan", "lan", ""),
+		},
+	}
+
+	db := newDB(t)
+	mustPut(t, db, testRepo, mainRef, declared, nil)
+	for scope, entities := range observed {
+		observe(t, db, scope, entities...)
+	}
+
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+	for _, drift := range drifts {
+		if drift.Kind == index.DriftMissing {
+			t.Errorf("an estate nothing observes reported a declaration as missing: %+v", drift)
+		}
+	}
+}
+
+// Writing an `observed_as` is the operator saying an ingester sees this, which
+// is the witness the coverage rule looks for. Narrowing coverage to the
+// observed namespace must not swallow a claim nothing bears out (ADR-0056).
+func TestADR0056_AnObservedAsIsItsOwnWitness(t *testing.T) {
+	db := newDB(t)
+	err := db.Put(t.Context(), testRepo, mainRef, []index.Declaration{{
+		Path:       "hosts/nas/dusk.md",
+		Entity:     entity("host:estate/nas", "The NAS", ""),
+		ObservedAs: []string{"host:containers/nas"},
+	}}, nil, nil)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := db.SetDefaultView(t.Context(), testRepo, mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+	observe(t, db, "kubernetes", entity("service:cluster-a/web", "web", ""))
+
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+	if !slices.ContainsFunc(drifts, func(d index.Drift) bool {
+		return d.Ref == "host:estate/nas" && d.Kind == index.DriftMissing
+	}) {
+		t.Errorf("an observed_as no ingester bears out was not reported: %+v", drifts)
+	}
+}
+
 // An observed entity is reality reporting itself, not a task, so drift stays
 // quiet about it until asked. ADR-0045's load-bearing rule.
 func TestADR0045_DriftIsSilentAboutWhatIsMerelyObserved(t *testing.T) {
@@ -232,6 +331,39 @@ func TestDriftReportsANoteWhoseSubjectIsGone(t *testing.T) {
 		return d.Ref == "service:home/jellyfin" && d.Kind == index.DriftNoteRef
 	}) {
 		t.Fatalf("a note pointing at nothing was not reported: %+v", drifts)
+	}
+}
+
+// Drift tells you to close an orphaned note with status done or dropped, so
+// doing it has to clear the row. Advice a report ignores leaves a queue that
+// can never be emptied, which is what makes it noise (ADR-0056).
+func TestADR0056_ClosingAnOrphanedNoteClearsIt(t *testing.T) {
+	for _, status := range []string{"done", "dropped"} {
+		t.Run(status, func(t *testing.T) {
+			db := newDB(t)
+			notes := []*duskv1alpha1.Note{{
+				Id:     "notes/gone.md",
+				Kind:   "idea",
+				Status: status,
+				Refs:   []string{"service:home/jellyfin"},
+			}}
+			if err := db.Put(t.Context(), testRepo, mainRef, nil, nil, notes); err != nil {
+				t.Fatalf("Put: %v", err)
+			}
+			if err := db.SetDefaultView(t.Context(), testRepo, mainRef); err != nil {
+				t.Fatalf("SetDefaultView: %v", err)
+			}
+
+			drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
+			if err != nil {
+				t.Fatalf("Drift: %v", err)
+			}
+			for _, drift := range drifts {
+				if drift.Kind == index.DriftNoteRef {
+					t.Errorf("a note closed as %q was still reported: %+v", status, drift)
+				}
+			}
+		})
 	}
 }
 

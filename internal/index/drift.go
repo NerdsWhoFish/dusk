@@ -82,18 +82,21 @@ func (db *DB) Drift(ctx context.Context, gitRef string, filter DriftFilter, v Vi
 	return append(drifts, undeclared...), nil
 }
 
-// notesWithoutEntity finds notes attached to a ref nothing holds. ADR-0031
-// accepted that a note's refs go unchecked at write time, so this is where a
-// typo, or a declaration somebody removed, stops being silent.
+// notesWithoutEntity finds open notes attached to a ref nothing holds, which
+// is where ADR-0031's unchecked refs stop being silent. Closing one clears it:
+// the report says to, and a queue ignoring its own advice cannot be emptied.
 func (db *DB) notesWithoutEntity(ctx context.Context, gitRef string, v Visibility) ([]Drift, error) {
 	clause, args := scopeClause("note_refs", gitRef)
 	entityScope, entityArgs := v.within("e", gitRef)
+	open, openArgs := openNote("n")
 
 	query := db.gorm.WithContext(ctx).
 		Model(&noteRefRow{}).
 		Select("note_refs.ref as target, group_concat(DISTINCT note_refs.note_id) as places").
 		Where(clause, args...).
-		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = note_refs.ref AND "+entityScope+")", entityArgs...)
+		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = note_refs.ref AND "+entityScope+")", entityArgs...).
+		Where("EXISTS (SELECT 1 FROM notes n WHERE n.repository = note_refs.repository"+
+			" AND n.git_ref = note_refs.git_ref AND n.note_id = note_refs.note_id AND "+open+")", openArgs...)
 
 	var rows []danglingRow
 	err := visible(query, v, "note_refs").
@@ -164,8 +167,8 @@ func (db *DB) observedNotDeclared(ctx context.Context, gitRef string, v Visibili
 // compare finds refs on one side and absent on the other, where an
 // `observed_as` alias counts as a match. Without the alias every entity would
 // appear on both sides, because a human and an ingester never pick one name.
-// Declared rows are limited to kinds something observes, because absence needs
-// an observer to be absent from.
+// Declared rows are limited to what something watches, because absence needs
+// an observer to be absent from (ADR-0056).
 func (db *DB) compare(ctx context.Context, gitRef string, observed bool, v Visibility) ([]driftRow, error) {
 	clause, args := scopeClause("", gitRef)
 	otherScope, otherArgs := v.within("other", gitRef)
@@ -190,10 +193,8 @@ func (db *DB) compare(ctx context.Context, gitRef string, observed bool, v Visib
 		Where(matched, append(append([]any{!observed}, otherArgs...), aliasArgs...)...)
 
 	if !observed {
-		watchedScope, watchedArgs := v.within("watched", gitRef)
-		query = query.Where("EXISTS (SELECT 1 FROM entities watched WHERE watched.observed = ?"+
-			" AND "+watchedScope+" AND watched.kind = entities.kind)",
-			append([]any{true}, watchedArgs...)...)
+		watchedClause, watchedArgs := watched(gitRef, v)
+		query = query.Where(watchedClause, watchedArgs...)
 	}
 
 	var rows []driftRow
@@ -201,4 +202,21 @@ func (db *DB) compare(ctx context.Context, gitRef string, observed bool, v Visib
 		return nil, fmt.Errorf("index: compare declared against observed: %w", err)
 	}
 	return rows, nil
+}
+
+// watched limits declared rows to the ones absence says something about: a
+// kind is watched only in the namespaces it was observed in, and an
+// `observed_as` is the operator supplying the witness themselves (ADR-0056).
+func watched(gitRef string, v Visibility) (string, []any) {
+	coveredScope, coveredArgs := v.within("covered", gitRef)
+	claimedScope, claimedArgs := v.within("claimed", gitRef)
+
+	clause := "(EXISTS (SELECT 1 FROM entities covered WHERE covered.observed = ?" +
+		" AND " + coveredScope + " AND covered.kind = entities.kind" +
+		" AND covered.namespace = entities.namespace)" +
+		" OR EXISTS (SELECT 1 FROM entity_aliases claimed WHERE " + claimedScope +
+		" AND claimed.ref = entities.ref))"
+
+	args := append([]any{true}, coveredArgs...)
+	return clause, append(args, claimedArgs...)
 }

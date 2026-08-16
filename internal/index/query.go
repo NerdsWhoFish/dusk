@@ -148,6 +148,16 @@ type NoteFilter struct {
 	Limit int
 }
 
+// openNote matches a note nobody has closed. Empty counts as open, so a note
+// written before there was a status is not read as finished.
+func openNote(alias string) (string, []any) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return prefix + "status IN (?, ?)", []any{duskmd.StatusOpen, ""}
+}
+
 // Notes answers what has been written down, narrowed. It is one query rather
 // than several so "my open ideas about this repository" is one question.
 func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*duskv1alpha1.Note, error) {
@@ -167,7 +177,8 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	switch filter.Status {
 	case "":
 	case duskmd.StatusOpen:
-		query = query.Where("notes.status = ? OR notes.status = ?", duskmd.StatusOpen, "")
+		open, openArgs := openNote("notes")
+		query = query.Where(open, openArgs...)
 	default:
 		query = query.Where("notes.status = ?", filter.Status)
 	}

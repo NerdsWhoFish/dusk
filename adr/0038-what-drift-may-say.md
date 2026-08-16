@@ -4,7 +4,11 @@ Date: 2026-08-12
 
 ## Status
 
-Accepted
+Superseded by [ADR-0056](0056-coverage-is-a-namespace.md).
+
+Its rule that absence is only evidence where there is a witness stands and is carried forward.
+What ADR-0056 replaces is the granularity of the witness, which this ADR set at the kind and recorded as a known cost.
+Driven against a real catalog that cost turned out to be the entire declared half of the report.
 
 ## Context and Problem Statement
 
@@ -107,3 +111,14 @@ It stopped holding once a plugin observed a domain where declaring each entity i
 [ADR-0045](0045-drift-is-a-maintenance-queue.md) makes the observed direction opt in through `DriftFilter{Undeclared: true}`.
 Nothing in the comparison logic above changes, including the load-bearing rule that absence needs a witness.
 Only which halves are returned by default.
+
+### 2026-08-15: superseded, on the consequence this ADR wrote down itself
+
+The third entry under Bad above reads "A kind is global, so an ingester covering one cluster makes `service` watched everywhere", and treats it as a rough edge for option 4 to smooth later.
+
+Measured on a real catalog it was not a rough edge.
+Declarations are written in a namespace naming the estate and observations in namespaces naming whatever a plugin read, so the two sets never intersect and every declaration of an observed kind read as missing.
+All twenty one rows in the declared half were false positives.
+
+[ADR-0056](0056-coverage-is-a-namespace.md) narrows the witness from the kind to the kind in its namespace and takes over this decision.
+The rule in "Absence is only evidence where there is a witness" is unchanged and moves there intact.

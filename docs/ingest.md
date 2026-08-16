@@ -84,7 +84,8 @@ observed_as:
   - service:prod/media-jellyfin
 ```
 
-Without the mapping, drift reports your declaration as missing forever, and the observed service reads as undeclared whenever anyone asks for that half.
+Without the mapping the observed service reads as undeclared whenever anyone asks for that half, and your declaration is judged only if something observes its kind in its namespace, which for a hand-named estate it usually does not.
+Writing the alias is also what puts the declaration under judgement, so a mapping that stops holding is reported rather than going quiet.
 See [dusk-md.md](dusk-md.md).
 
 The mapping is unnecessary when you declare an entity at the ref the ingester already reports, which is the shortest path from the undeclared list to a documented estate.
@@ -93,10 +94,17 @@ Declaring `host:prod/node-1` when that is what the ingester calls it makes them 
 
 ## What drift will not tell you
 
-Drift only judges kinds something observes ([ADR-0038](../adr/0038-what-drift-may-say.md)).
+Drift only judges a kind where something observes that kind **in that namespace** ([ADR-0056](../adr/0056-coverage-is-a-namespace.md)).
 
 A Kubernetes plugin reports services, hosts and clusters, so with only that installed a declared `repository:` or `team:` is never reported as missing however long it has been gone.
 Nothing is watching for it, and a report that named every unwatched kind would be noise on the first page.
 
-The cost is the reverse case: uninstalling the only plugin that observes a kind makes drift go quiet about that kind rather than raising an alarm.
+The namespace half matters more than it sounds.
+That plugin names what it found after the cluster it read, so it observes `host:cluster-a/...`, and a host you declared as `host:estate/nas` is in a namespace it says nothing about.
+Judging it anyway is how the report came to be one hundred percent false positives before ADR-0056.
+
+An `observed_as` is the exception, because writing one is you saying an ingester does see this thing.
+A declaration carrying an alias is judged wherever it sits, and an alias nothing bears out is reported.
+
+The cost is the reverse case: uninstalling the only plugin covering a namespace makes drift go quiet about it rather than raising an alarm.
 Watch the plugin's own health for that, not drift.
