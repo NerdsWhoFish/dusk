@@ -8,7 +8,15 @@ Humans browse it, agents read and write it over MCP, and git is the source of tr
 Every knowledge tool dies the same way: the curation burden falls on a human who has better things to do.
 Dusk assumes the agents doing the work can also do the documenting, so the catalog updates as a byproduct of the work rather than as a chore after it.
 
-> Status: **pre-implementation.** The design is being written before the code. See [DESIGN.md](DESIGN.md).
+> Status: **1.0.0.** Running in production against a real estate, with plugins observing Kubernetes, Flux, container hosts, OCI registries and a router. [DESIGN.md](DESIGN.md) is the architecture, [docs/status.md](docs/status.md) is what is built and what is not.
+
+![The Dusk homepage: a search box, a count of every kind in the catalog, what has drifted, what Dusk last read, and the notes agents have written](docs/images/home.png)
+
+The homepage is declared, not configured: `.dusk/home.md` in a config repository, where every block is a query ([docs/pages.md](docs/pages.md)).
+
+![An entity page for a checkout service: its ref, its description, a Gotchas section, and the notes attached to it rendered in full](docs/images/entity.png)
+
+An entity is one markdown file in the repository that owns it, and the notes agents attach to it are rendered where somebody will be standing when they need them.
 
 ## What makes it different
 

@@ -1,8 +1,8 @@
 # Dusk: Design
 
-> Status: draft, pre-implementation.
-> This document records decisions already argued out.
-> Anything still contested lives under [Open Questions](#open-questions).
+> Status: implemented, at 1.0.0.
+> This document records decisions already argued out, and [adr/](adr/) holds them individually with the alternatives that were rejected.
+> Anything still contested lives under [Open Questions](#open-questions), and [docs/status.md](docs/status.md) tracks what is built against it.
 
 ## What Dusk is
 
