@@ -25,6 +25,10 @@ An entity is one markdown file in the repository that owns it, and the notes age
 - **Pull requests are first class.** Any open PR renders as the catalog as it would be after merge, with a semantic diff of what actually changed.
 - **Plugins are subprocesses.** A plugin can be a shell script that prints JSON. Write one in any language.
 
+![The plugins page: each plugin with its version and an install button, above the sentence that a plugin runs as a subprocess with Dusk's permissions](docs/images/plugins.png)
+
+A plugin is installed from a release in an allowlisted organisation, with its checksum verified before anything runs. That account list is the trust boundary, which is why the page says what installing one means rather than asking a question nobody reads ([ADR-0020](adr/0020-plugin-ui.md), [ADR-0042](adr/0042-installing-plugins.md)).
+
 ## Documentation
 
 - [DESIGN.md](DESIGN.md) covers the architecture, the decisions, and the open questions.
