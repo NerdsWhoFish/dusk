@@ -77,7 +77,8 @@ The action may target a fake or disposable upstream; the inventory check should 
 A plugin is a subprocess ([ADR-0039](../adr/0039-one-plugin-transport.md)), and Dusk keeps it up ([ADR-0055](../adr/0055-supervising-plugin-processes.md)).
 
 It does **not** inherit Dusk's process environment.
-Dusk passes the plugin's private socket and token plus `PATH`, `TMPDIR`, `TZ`, `LANG`, `SSL_CERT_FILE`, and `SSL_CERT_DIR` when those runtime settings exist.
+Dusk passes the plugin's private socket and token plus `PATH`, `TMPDIR`, `TZ`, `LANG`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `KUBERNETES_SERVICE_HOST`, and `KUBERNETES_SERVICE_PORT` when those runtime settings exist.
+The Kubernetes pair is service discovery, not a credential; `client-go` needs it to combine the cluster address with the mounted ServiceAccount identity.
 GitHub credentials, the MCP token, the encryption key, and arbitrary deployment secrets are not ambient plugin configuration; declared settings reach only their plugin over its private socket.
 
 This prevents accidental credential inheritance, not a hostile-code sandbox.

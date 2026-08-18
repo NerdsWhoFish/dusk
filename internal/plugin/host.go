@@ -199,7 +199,11 @@ func Start(ctx context.Context, spec Exec) (*Running, error) {
 // deployment credentials would turn installation into ambient root access.
 func pluginEnvironment(socket, token string) []string {
 	environment := []string{SocketEnv + "=" + socket, TokenEnv + "=" + token}
-	for _, name := range []string{"PATH", "TMPDIR", "TZ", "LANG", "SSL_CERT_FILE", "SSL_CERT_DIR", "DUSK_TEST_PLUGIN"} {
+	for _, name := range []string{
+		"PATH", "TMPDIR", "TZ", "LANG", "SSL_CERT_FILE", "SSL_CERT_DIR",
+		"KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT",
+		"DUSK_TEST_PLUGIN",
+	} {
 		if value, ok := os.LookupEnv(name); ok {
 			environment = append(environment, name+"="+value)
 		}

@@ -98,3 +98,15 @@ Dusk polls the orgs on the same schedule and with the same budget discipline the
 - **Option 1** was rejected because an integration that requires placing a binary by hand will not be installed, which makes the plugin protocol an architecture rather than a feature.
 - **Option 2** was rejected because curation implies a review nobody has committed to perform, and a curated list reads as an endorsement precisely where an operator stops evaluating.
 - **Option 3** was rejected because it costs the plugin author a second account, second credentials and a second release process to reach distribution the author already has on GitHub.
+
+## Amendments
+
+### 2026-08-18 — Kubernetes service discovery crosses the environment allowlist
+
+Plugins still inherit an explicit runtime allowlist rather than Dusk's environment.
+That allowlist includes `KUBERNETES_SERVICE_HOST` and `KUBERNETES_SERVICE_PORT`, which identify the cluster API address and contain no credential.
+The mounted ServiceAccount files remain the identity, and a plugin already has Dusk's filesystem, network, and Kubernetes permissions under this decision.
+
+Removing the pair while stripping deployment secrets broke the official Kubernetes plugin's default in-cluster configuration: `client-go` requires both variables before it reads the mounted token and CA.
+It did not reduce the plugin's authority, so the result was an outage rather than isolation.
+Passing Dusk's whole environment was rejected because it restores ambient GitHub, MCP, and encryption credentials; teaching one plugin to synthesize a Kubernetes address was rejected because it replaces the client library's in-cluster contract and leaves every other Kubernetes client broken the same way.
