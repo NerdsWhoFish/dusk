@@ -158,3 +158,19 @@ The tail now names the kinds that carry actions, in one sentence, and only when 
 - **Alphabetical** was rejected because it is not an ordering, it is the absence of one, and it puts the answer at the mercy of what a kind is called.
 - **Count alone** was rejected because it is what produced the complaint. A plugin emitting four hundred airports outranks everything an operator declared by hand, and the count is a fact about a plugin's output rather than about what matters.
 - **Breadth first** was rejected here and not on its merits. [ADR-0050](0050-what-the-context-budget-buys-first.md) already records it as the better shape for an agent that wants to know what exists more than what it says, and naming what an overflow dropped buys most of that for one line of change. It stays available, it is still a change to one loop, and it is a larger decision than this one, because it changes what every section does and not just the inventory.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-18: every section names what it dropped, not only the inventory
+
+"Nothing is dropped without being named" was written as a rule and built for one section.
+
+The inventory called `names(dropped)`. The two pinned-note sections and the declared-refs section printed `len(dropped)` and stopped, so an agent was told `2 more pinned note(s) are not listed` and given nothing to ask for.
+
+The reasoning this ADR already records is the reasoning against that: *a count cannot say `service`*. A count cannot say `.dusk/gotcha-5b1bcd61.md` either, and the case is worse, because an id is not merely a better label. It is the argument `note` takes. [ADR-0050](0050-what-the-context-budget-buys-first.md) justifies the named tier as "a note an agent knows exists is one it can ask for", and a counted note was one the agent knew existed and **could not** ask for. Until `pinned` became a working read filter on the same day, there was no way to recover them at all.
+
+All four sections now name what they dropped. Nothing new was needed: `reserve` already sets aside the longest overflow line a section could print, and `listed` already caps it at twelve names with the rest counted behind them, because that room is reserved whether or not the line ever prints. A note's and a ref's `name` is backticked, since an overflow naming one is handing over an identifier to paste back.
+
+The gap survived because the rule was tested where it was implemented. `TestADR0057_TheOverflowNamesTheKindsItLeftOut` asserts it of the inventory and nothing asserted it of the sections that mattered more.
