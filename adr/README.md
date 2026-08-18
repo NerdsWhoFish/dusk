@@ -85,6 +85,7 @@ That is what stops the same argument happening again in six months.
 | [0073](0073-integrations-answer-operator-questions.md) | Integrations answer operator questions, not a vendor checklist | Prefer shared protocols when they preserve the answer, use vendor APIs when they do not, and call an integration supported only after an installable release and real check |
 | [0074](0074-a-result-is-whole-in-whichever-half-a-client-reads.md) | A result is whole in whichever half a client reads | ADR-0071 called Markdown primary and a real client reads only structured content, so `dusk_context` repeats its rendered body as `data.context` rather than answering `ok` with the pinned notes discarded |
 | [0075](0075-a-read-can-ask-for-the-next-page-and-for-the-unpinned.md) | A read can ask for the next page, and for the unpinned | `note` and `search` take `offset` and name the next one, because raising a limit re-sends the page already read; `pinned` becomes a tri-state read filter instead of being silently dropped behind a pinned-first ordering that mimics it |
+| [0076](0076-the-context-carries-the-manual-for-the-tools-it-names.md) | The context carries the manual for the tools it names | `dusk_context` gains one manual block listing only the tools this deployment registered and the note kinds with their live counts, because an agent concluded Dusk could not record a decision when `decision` was a note kind nothing ever named; removing the repetition it replaces paid for most of it |
 
 ## Writing one
 

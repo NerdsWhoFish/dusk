@@ -176,14 +176,19 @@ Full rules, roles and their consequences: [`docs/kinds.md`](kinds.md).
 ## What `dusk_context` spends its budget on
 
 The context has a hard byte ceiling, because every session pays for it whether or not it ever touches Dusk ([ADR-0014](../adr/0014-agent-context-injection.md)).
-It carries four sections, and pinning is how something earns a place in the two that matter most.
+It carries four budgeted sections plus a fixed manual, and pinning is how something earns a place in the two that matter most.
 
 | Section | What it is |
 | --- | --- |
-| Pinned, about this repository | Notes somebody pinned that attach to something this repository declares |
+| Pinned notes, about this repository | Notes somebody pinned that attach to something this repository declares |
 | What this repository declares | The refs it owns |
-| Pinned, across the estate | Everything else pinned |
+| Pinned notes, across the estate | Everything else pinned |
 | What this operator has | Every ref, grouped by kind, listed once however many sources declared it |
+| Working with this catalog | The manual: the calls, the ref and note-id shapes, the proof rule, and the note kinds |
+
+**The manual names only the tools this deployment registered**, on the same conditions the registration uses, so it can never send an agent at a tool that is not there ([ADR-0076](../adr/0076-the-context-carries-the-manual-for-the-tools-it-names.md)).
+It lists the note kinds with their live counts, because the vocabulary is data: an agent once concluded Dusk could not record an architecture decision, when `decision` was a note kind holding nothing that no context, instruction or tool description had ever named.
+A convention is stated there once rather than on every line that depends on it, which is what pays for the block.
 
 Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 Written knowledge wins that contest because a ref left out is one `search` away and a gotcha left out is reachable by nothing.

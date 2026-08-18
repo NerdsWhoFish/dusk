@@ -142,7 +142,9 @@ type Options struct {
 // session before any work happens.
 const instructions = `Dusk is the internal developer platform, catalog and operational memory shared by one homelabber and their agents.
 
-Call dusk_context once at the start of a session, with the current owner/name repository when known. Use search before guessing; pass returned kind:namespace/name refs to get. Use changes to judge freshness, drift for maintenance work, and note for knowledge worth keeping. Get lists the enabled actions for a thing and the proof required before changing it. Absence means nobody declared or observed something, not that it cannot exist.`
+Call dusk_context once at the start of a session, passing the current owner/name repository when known. It carries what is pinned worth knowing, what this operator has, and the manual for every tool here, so it is the call that makes the rest usable.
+
+Until then: search finds anything by a word in it, and its kind:namespace/name refs feed get. Knowledge of every sort is a note told apart only by kind, so a decision, an incident and a runbook all go through note rather than a tool of their own. Absence means nobody declared or observed something, never that it cannot exist.`
 
 // Server is the MCP surface over the catalog.
 type Server struct {

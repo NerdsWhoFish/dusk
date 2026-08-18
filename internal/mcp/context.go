@@ -82,7 +82,7 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 		return failure("catalog_read_failed", err), nil, nil
 	}
 
-	tail, err := s.tail(ctx, held)
+	tail, err := s.tail(ctx, held, vocabulary)
 	if err != nil {
 		return failure("catalog_read_failed", err), nil, nil
 	}
@@ -271,18 +271,17 @@ func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere
 // the order they are paid for.
 func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, held estate) (reading, priority []*section) {
 	notesHere := &section{
-		heading: "\n## Pinned, about this repository\n\n",
+		heading: "\n## Pinned notes, about this repository\n\n",
 		items:   noteItems(here),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("%d more pinned note(s) about this repository did not fit. "+
-				"Ask `note` with this repository's refs for them.\n\n", len(dropped))
+			return fmt.Sprintf("\n%d more pinned note(s) about this repository are not listed.\n", len(dropped))
 		},
 	}
 
 	owned := &section{
 		heading: fmt.Sprintf("\n## What this repository declares (%d)\n\n", len(declared)),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("%d more it declares are not listed. `search` finds them by name.\n\n", len(dropped))
+			return fmt.Sprintf("\n%d more it declares are not listed.\n", len(dropped))
 		},
 	}
 	for _, ref := range declared {
@@ -291,10 +290,10 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 	}
 
 	notesElsewhere := &section{
-		heading: "\n## Pinned, across the estate\n\n",
+		heading: "\n## Pinned notes, across the estate\n\n",
 		items:   noteItems(elsewhere),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("%d more pinned note(s) did not fit. Ask `note` for them.\n\n", len(dropped))
+			return fmt.Sprintf("\n%d more pinned note(s) are not listed.\n", len(dropped))
 		},
 	}
 
@@ -304,14 +303,14 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 	inventory := &section{
 		heading: fmt.Sprintf("\n## What this operator has (%d)\n\n", held.total),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("Kinds not listed: %s. `search` finds anything by name.\n\n", names(dropped))
+			return fmt.Sprintf("\nOther kinds: %s.\n", names(dropped))
 		},
 	}
 	for _, group := range held.kinds {
 		inventory.items = append(inventory.items, item{
 			name:  fmt.Sprintf("%s (%d)", group.kind, len(group.refs)),
-			full:  fmt.Sprintf("**%s** (%d): %s\n\n", group.kind, len(group.refs), strings.Join(group.refs, ", ")),
-			short: fmt.Sprintf("**%s** (%d): names not listed, `search` finds them\n\n", group.kind, len(group.refs)),
+			full:  fmt.Sprintf("- **%s** (%d): %s\n", group.kind, len(group.refs), strings.Join(group.refs, ", ")),
+			short: fmt.Sprintf("- **%s** (%d)\n", group.kind, len(group.refs)),
 		})
 	}
 
@@ -349,9 +348,10 @@ func header(root, repository string, declared, total int) string {
 // tail is the fixed closing: what can be done, how much reality supports, and
 // what silence means. All are reserved before anything is spent, because the
 // sentence that stops an agent reading absence as proof is the worst to lose.
-func (s *Server) tail(ctx context.Context, held estate) (string, error) {
+func (s *Server) tail(ctx context.Context, held estate, vocabulary []vocab.Kind) (string, error) {
 	var out strings.Builder
 
+	out.WriteString(s.manual(vocabulary))
 	out.WriteString(s.actionable(held))
 
 	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{}, s.viewer())
@@ -369,13 +369,58 @@ func (s *Server) tail(ctx context.Context, held estate) (string, error) {
 			len(drifts), notes)
 	}
 
-	out.WriteString("\nA note's id is its path, of the form `.dusk/<kind>-<hash>.md`. " +
-		"Pass one to `note` as `id` to read it whole; that read returns the `proof` its replacement needs. " +
-		"`note` pages with `limit` and `offset`, and filters on `pinned`.\n")
-
 	out.WriteString("\nAsk `search` before assuming something is not here. " +
 		"The catalog only knows what a repository wrote down, so absence means nobody documented it, not that it does not exist.\n")
 	return out.String(), nil
+}
+
+// manual is ADR-0014's "interaction manual" half, which had decayed into
+// sentences scattered through the other sections. One block, because a fact
+// restated per item is one a reader skips and pays for on every line.
+func (s *Server) manual(vocabulary []vocab.Kind) string {
+	var out strings.Builder
+
+	out.WriteString("\n## Working with this catalog\n\n" +
+		"Refs are `kind:namespace/name` and feed straight back into `get`. " +
+		"A note's id is its path, `.dusk/<kind>-<hash>.md`. " +
+		"A note listed above as a single line was named rather than printed: pass its id to `note` as `id` to read it whole. " +
+		"Every read of something writable returns a `proof` token, and the write that follows requires it.\n\n" +
+		"| Call | For |\n| --- | --- |\n" +
+		"| `search` | Find anything by name or any word in it. Start here, and before concluding something is absent |\n" +
+		"| `get` | One entity whole: description, attributes, relations, attached notes, and the actions it offers |\n" +
+		"| `neighbors` | What points at a thing, and so what breaks if it goes away |\n" +
+		"| `note` | Read or write knowledge. Filters on `kind`, `status`, `ref` and `pinned`; pages with `limit` and `offset` |\n" +
+		"| `changes` | What Dusk last read from each repository, for telling a stale answer from a missing one |\n" +
+		"| `drift` | Where the catalog and reality disagree |\n" +
+		"| `kinds` | The vocabulary, so the next kind is not a misspelling of one that exists |\n")
+
+	// Only what this deployment registered, because a manual naming a tool the
+	// server never added sends an agent at something that is not there
+	// (ADR-0057). The conditions are the registration conditions.
+	if s.opts.Writer != nil && s.opts.Tokens != nil {
+		out.WriteString("| `declare`, `relate` | Write an entity, or one outbound edge between two |\n")
+	}
+	if s.opts.Plugins != nil {
+		out.WriteString("| `invoke` | Run an action that a `get` offered |\n" +
+			"| `configure` | Read or set a plugin's non-sensitive configuration |\n")
+	}
+
+	out.WriteString("\n**Knowledge is kept as notes, and the kind is the only thing that distinguishes one sort from another.** " +
+		"There is no separate tool for any of them: an architecture decision is `note(kind: \"decision\")`, " +
+		"an outage writeup is `note(kind: \"incident\")`. A kind showing zero has simply never been written.\n\n")
+	for _, role := range vocab.Roles(vocab.Note) {
+		kinds := vocab.WithRole(vocabulary, role)
+		if len(kinds) == 0 {
+			continue
+		}
+		named := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			named = append(named, fmt.Sprintf("`%s` (%d)", kind.Name, kind.Count))
+		}
+		fmt.Fprintf(&out, "- **%s**: %s\n", role, strings.Join(named, ", "))
+	}
+
+	return out.String()
 }
 
 // actionable is the one sentence saying the catalog does things as well as
@@ -558,21 +603,54 @@ func noteItems(notes []*duskv1alpha1.Note) []item {
 	items := make([]item, 0, len(notes))
 	for _, note := range notes {
 		items = append(items, item{
-			full: renderNote(note),
-			short: fmt.Sprintf("**%s** · `%s`: %s (not shown; ask `note` for it)\n\n",
-				note.GetKind(), note.GetId(), firstLine(note.GetBody())),
+			name:  note.GetId(),
+			full:  demoteHeadings(renderNote(note)),
+			short: fmt.Sprintf("- **%s** `%s` — %s\n", note.GetKind(), note.GetId(), firstLine(note.GetBody())),
 		})
 	}
 	return items
 }
 
-// firstLine stands in for a title. ADR-0031 makes a note's id its path and
-// gives it no title, so its opening line is the closest thing it has to one.
+// demoteHeadings sinks a note's headings below the section it prints under, so
+// one long note does not read as several sections. Context only: `note` renders
+// a body an agent can write back, and a shifted heading would be committed.
+func demoteHeadings(body string) string {
+	var out strings.Builder
+	fenced := false
+
+	for line := range strings.SplitSeq(body, "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		switch {
+		case strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~"):
+			fenced = !fenced
+		case !fenced && strings.HasPrefix(trimmed, "#"):
+			// An ATX heading needs a space after its hashes, and there has to
+			// be room left under h6.
+			level := len(trimmed) - len(strings.TrimLeft(trimmed, "#"))
+			if level+contextHeadingDepth <= 6 && strings.HasPrefix(trimmed[level:], " ") {
+				line = strings.Repeat("#", contextHeadingDepth) + trimmed
+			}
+		}
+		out.WriteString(line)
+		out.WriteString("\n")
+	}
+
+	return strings.TrimSuffix(out.String(), "\n")
+}
+
+// contextHeadingDepth is how far a note's headings move: its `#` lands below
+// the `##` its section heading uses.
+const contextHeadingDepth = 2
+
+// firstLine stands in for a title, because ADR-0031 gives a note none. The
+// heading markers come off: the line lands inside a list item, where a stray
+// `#` reads as broken markdown rather than as structure.
 func firstLine(body string) string {
 	line := strings.TrimSpace(body)
 	if cut := strings.IndexByte(line, '\n'); cut >= 0 {
 		line = strings.TrimSpace(line[:cut])
 	}
+	line = strings.TrimSpace(strings.TrimLeft(line, "#"))
 
 	runes := []rune(line)
 	if len(runes) <= noteSummary {
