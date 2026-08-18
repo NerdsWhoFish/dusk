@@ -14,6 +14,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // offering is a plugin manager that offers one action and records what was
@@ -26,9 +27,11 @@ type offering struct {
 	outcome *plugin.Outcome
 	err     error
 
-	settings   map[string]any
-	fields     []plugin.Field
-	configured map[string]any
+	settings     map[string]any
+	fields       []plugin.Field
+	configured   map[string]any
+	statusID     string
+	statusHandle string
 }
 
 func (o *offering) Actions(string) []plugin.Action       { return o.actions }
@@ -44,11 +47,16 @@ func (o *offering) Preview(ctx context.Context, request plugin.Request) (*plugin
 	return o.Invoke(ctx, request)
 }
 
-func (o *offering) Settings(string, string) (map[string]any, []plugin.Field, error) {
-	return o.settings, o.fields, nil
+func (o *offering) Status(_ context.Context, id, handle string) (*plugin.Outcome, error) {
+	o.statusID, o.statusHandle = id, handle
+	return o.outcome, o.err
 }
 
-func (o *offering) Configure(_ context.Context, _, _ string, settings map[string]any) error {
+func (o *offering) Settings(string, string) (map[string]any, []plugin.Field, string, error) {
+	return o.settings, o.fields, "v1", nil
+}
+
+func (o *offering) Configure(_ context.Context, _, _ string, settings map[string]any, _ string) error {
 	o.configured = settings
 	return nil
 }
@@ -63,7 +71,7 @@ func acting(t *testing.T, plugins mcp.Plugins) *acted {
 
 	idx := newIndex(t)
 	return &acted{
-		session: serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Plugins: plugins})),
+		session: serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Plugins: plugins, Tokens: &proof.Store{}})),
 		index:   idx,
 	}
 }
@@ -129,7 +137,8 @@ func TestInvokeCarriesEverythingTheActionNeeds(t *testing.T) {
 	body := call(t, acting.session, "invoke", map[string]any{
 		"ref": "flight:airtrail/one", "action": "delete_flight",
 		"proof": "token-1", "confirm": true,
-		"params": map[string]any{"reason": "duplicate"},
+		"idempotency_key": "remove-one",
+		"params":          map[string]any{"reason": "duplicate"},
 	})
 
 	if plugins.asked.Ref != "flight:airtrail/one" || plugins.asked.Action != "delete_flight" {
@@ -138,11 +147,25 @@ func TestInvokeCarriesEverythingTheActionNeeds(t *testing.T) {
 	if plugins.asked.Proof != "token-1" || !plugins.asked.Confirm {
 		t.Fatalf("the proof token and the confirmation were dropped: %+v", plugins.asked)
 	}
+	if plugins.asked.IdempotencyKey != "remove-one" {
+		t.Fatalf("the idempotency key was dropped: %+v", plugins.asked)
+	}
 	if plugins.asked.Params["reason"] != "duplicate" {
 		t.Fatalf("the parameters were dropped: %+v", plugins.asked.Params)
 	}
 	if !strings.Contains(body, "removed it") {
 		t.Fatalf("the answer should say what happened:\n%s", body)
+	}
+}
+
+func TestInvokePollsAnAsynchronousHandle(t *testing.T) {
+	plugins := &offering{outcome: &plugin.Outcome{Plugin: "slow", Handle: "job-1", Done: true, OK: true, Message: "finished"}}
+	body := call(t, acting(t, plugins).session, "invoke", map[string]any{"plugin": "slow", "handle": "job-1"})
+	if plugins.statusID != "slow" || plugins.statusHandle != "job-1" {
+		t.Fatalf("status request was dropped: %q %q", plugins.statusID, plugins.statusHandle)
+	}
+	if !strings.Contains(body, "finished") {
+		t.Fatalf("poll result was not rendered:\n%s", body)
 	}
 }
 
@@ -241,9 +264,12 @@ func TestConfigureRefusesASensitiveField(t *testing.T) {
 	}
 
 	acting := acting(t, plugins)
+	read := call(t, acting.session, "configure", map[string]any{"plugin": "airtrail"})
 	body := call(t, acting.session, "configure", map[string]any{
 		"plugin":   "airtrail",
 		"settings": map[string]any{"api_key": "s3cret"},
+		"version":  "v1",
+		"proof":    tokenFrom(t, read),
 	})
 
 	if plugins.configured != nil {
@@ -266,9 +292,12 @@ func TestConfigureMergesOverWhatIsAlreadyThere(t *testing.T) {
 	}
 
 	acting := acting(t, plugins)
+	read := call(t, acting.session, "configure", map[string]any{"plugin": "airtrail"})
 	call(t, acting.session, "configure", map[string]any{
 		"plugin":   "airtrail",
 		"settings": map[string]any{"namespace": "flights"},
+		"version":  "v1",
+		"proof":    tokenFrom(t, read),
 	})
 
 	if plugins.configured["namespace"] != "flights" {

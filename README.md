@@ -37,7 +37,8 @@ Together, the catalog, memory, and actions are the platform.
 
 ![The plugins page: each plugin with its version and an install button, above the sentence that a plugin runs as a subprocess with Dusk's permissions](docs/images/plugins.png)
 
-A plugin is installed from a release in an allowlisted organisation, with its checksum verified before anything runs. That account list is the trust boundary, which is why the page says what installing one means rather than asking a question nobody reads ([ADR-0020](adr/0020-plugin-ui.md), [ADR-0042](adr/0042-installing-plugins.md)).
+A plugin is installed from a release in an allowlisted organisation, with its checksum verified before anything runs.
+That account list is the code trust boundary, but a plugin does not inherit Dusk's deployment environment: it receives only its declared configuration, its private socket credential, and a small runtime allowlist ([ADR-0020](adr/0020-plugin-ui.md), [ADR-0042](adr/0042-installing-plugins.md)).
 
 ## Documentation
 

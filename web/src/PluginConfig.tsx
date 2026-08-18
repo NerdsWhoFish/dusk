@@ -15,6 +15,8 @@ export function ConfigForm({
 }) {
   const current = instance ? (offer.instances?.[instance] ?? {}) : (offer.config ?? {});
   const set = new Set(offer.set?.[instance ?? ""] ?? []);
+  const version = offer.config_versions?.[instance ?? ""] ?? "";
+  const proof = offer.config_proofs?.[instance ?? ""] ?? "";
   const [values, setValues] = useState<PluginConfig>(current);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -28,7 +30,7 @@ export function ConfigForm({
     setSaving(true);
     setProblem(undefined);
     try {
-      await api.configure(offer.id, values, instance);
+      await api.configure(offer.id, values, version, proof, instance);
       onSaved();
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));

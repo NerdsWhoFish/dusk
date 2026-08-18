@@ -2,6 +2,10 @@ package plugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -90,6 +94,10 @@ type Manager struct {
 	// preserves a record snapshot, so letting two overlap silently loses one.
 	ops sync.Mutex
 
+	// invokes serializes the small window from checking an idempotency receipt
+	// through recording it. Without it, simultaneous retries can both miss.
+	invokes sync.Mutex
+
 	mu         sync.Mutex
 	running    map[string]*Running
 	supervised map[string]*supervision
@@ -149,6 +157,11 @@ type Offer struct {
 	// empty key being the plugin's own configuration. The names, never the
 	// values: a write-only field still has to be able to say it is filled in.
 	Set map[string][]string `json:"set,omitempty"`
+
+	// ConfigVersions are optimistic concurrency values by instance, with the
+	// empty key naming the plugin's own configuration.
+	ConfigVersions map[string]string `json:"config_versions,omitempty"`
+	ConfigProofs   map[string]string `json:"config_proofs,omitempty"`
 }
 
 // Field is one setting on a plugin's configuration form.
@@ -271,10 +284,23 @@ func (m *Manager) describeInstalled(offer *Offer, record Installed, latest strin
 	offer.Config = record.Config
 	offer.Instances = record.Instances
 	offer.Set = m.setSecrets(record)
+	offer.ConfigVersions = m.configVersions(record)
 
 	// Set for an installed plugin whether or not it is up, because a plugin
 	// that will not start is exactly the one whose process needs describing.
 	offer.Process = m.process(record.ID)
+}
+
+func (m *Manager) configVersions(record Installed) map[string]string {
+	secrets, err := m.Store.ReadSecrets(record.ID)
+	if err != nil {
+		return nil
+	}
+	versions := map[string]string{"": configurationVersion(record.Config, secrets.For(""))}
+	for instance, config := range record.Instances {
+		versions[instance] = configurationVersion(config, secrets.For(instance))
+	}
+	return versions
 }
 
 // setSecrets names which sensitive fields hold a value. Without it a write-only
@@ -424,28 +450,32 @@ func (m *Manager) Uninstall(id string) error {
 // Settings is a plugin's non-sensitive configuration and the fields it
 // declares, which is everything a caller needs to change one of them without
 // having to know anything about the plugin.
-func (m *Manager) Settings(id, instance string) (map[string]any, []Field, error) {
+func (m *Manager) Settings(id, instance string) (map[string]any, []Field, string, error) {
 	record, err := m.Store.Read(id)
 	if err != nil {
-		return nil, nil, fmt.Errorf("plugin: %q is not installed", id)
+		return nil, nil, "", fmt.Errorf("plugin: %q is not installed", id)
 	}
 
 	described, running := m.Describe(id)
 	if !running {
-		return nil, nil, fmt.Errorf("plugin: %s is not running, so what it can be configured with is not known", id)
+		return nil, nil, "", fmt.Errorf("plugin: %s is not running, so what it can be configured with is not known", id)
 	}
 
 	settings := record.Config
 	if instance != "" {
 		settings = record.Instances[instance]
 	}
-	return settings, fieldsOf(described), nil
+	secrets, err := m.Store.ReadSecrets(id)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return settings, fieldsOf(described), configurationVersion(settings, secrets.For(instance)), nil
 }
 
 // Configure saves one of a plugin's configurations and restarts it with it.
 // Empty names the plugin's own; a named instance is how one plugin observes a
 // second source without being installed twice.
-func (m *Manager) Configure(ctx context.Context, id, instance string, config map[string]any) error {
+func (m *Manager) Configure(ctx context.Context, id, instance string, config map[string]any, expectedVersion string) error {
 	m.ops.Lock()
 	defer m.ops.Unlock()
 
@@ -466,34 +496,98 @@ func (m *Manager) Configure(ctx context.Context, id, instance string, config map
 	if err != nil {
 		return err
 	}
+	current := record.Config
+	if instance != "" {
+		current = record.Instances[instance]
+	}
+	version := configurationVersion(current, secrets.For(instance))
+	if expectedVersion == "" || expectedVersion != version {
+		return fmt.Errorf("plugin: configuration for %s changed after it was read; read it again before saving", id)
+	}
 
 	plain, sealed := split(config, sensitiveOf(described), secrets.For(instance))
+	candidate, candidateSecrets := configuredCandidate(*record, secrets, instance, plain, sealed)
+	return m.selectConfiguration(ctx, id, candidate, candidateSecrets, secrets)
+}
 
-	// Stopped before the record changes, so the instances being removed from
-	// the rotation are the ones that were added to it.
-	m.stop(id)
-
+func configuredCandidate(record Installed, secrets *Secrets, instance string, plain map[string]any, sealed map[string]secret.String) (Installed, *Secrets) {
+	candidate := cloneInstalled(record)
+	candidateSecrets := cloneSecrets(secrets)
 	if instance == "" {
-		record.Config = plain
-		secrets.Config = sealed
-	} else {
-		if record.Instances == nil {
-			record.Instances = map[string]map[string]any{}
+		candidate.Config = plain
+		candidateSecrets.Config = sealed
+		return candidate, candidateSecrets
+	}
+	if candidate.Instances == nil {
+		candidate.Instances = map[string]map[string]any{}
+	}
+	if candidateSecrets.Instances == nil {
+		candidateSecrets.Instances = map[string]map[string]secret.String{}
+	}
+	candidate.Instances[instance] = plain
+	candidateSecrets.Instances[instance] = sealed
+	return candidate, candidateSecrets
+}
+
+func (m *Manager) selectConfiguration(ctx context.Context, id string, candidate Installed, candidateSecrets, previousSecrets *Secrets) error {
+	// Prove the complete candidate before stopping the known-good process or
+	// selecting either half of its on-disk configuration.
+	candidateProcess, err := m.prepareWithSecrets(ctx, candidate, candidateSecrets, m.Store.BinaryFor(candidate), "candidate-"+newID())
+	if err != nil {
+		return fmt.Errorf("plugin: configuration for %s was not selected because its candidate would not start: %w", id, err)
+	}
+	if err := m.Store.WriteSecrets(id, candidateSecrets); err != nil {
+		candidateProcess.Stop()
+		return err
+	}
+	if err := m.Store.Write(candidate); err != nil {
+		candidateProcess.Stop()
+		if rollbackErr := m.Store.WriteSecrets(id, previousSecrets); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("plugin: restore the previous secrets: %w", rollbackErr))
 		}
-		if secrets.Instances == nil {
-			secrets.Instances = map[string]map[string]secret.String{}
-		}
-		record.Instances[instance] = plain
-		secrets.Instances[instance] = sealed
+		return err
 	}
 
-	if err := m.Store.WriteSecrets(id, secrets); err != nil {
-		return err
+	m.stop(id)
+	m.adopt(ctx, candidate, candidateProcess, candidateSecrets)
+	return nil
+}
+
+func configurationVersion(plain map[string]any, hidden map[string]secret.String) string {
+	combined := maps.Clone(plain)
+	if combined == nil {
+		combined = map[string]any{}
 	}
-	if err := m.Store.Write(*record); err != nil {
-		return err
+	for name, value := range hidden {
+		combined[name] = value.Reveal()
 	}
-	return m.launch(ctx, *record)
+	encoded, _ := json.Marshal(combined)
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+func cloneInstalled(record Installed) Installed {
+	cloned := record
+	cloned.Config = maps.Clone(record.Config)
+	cloned.Enabled = slices.Clone(record.Enabled)
+	if record.Instances != nil {
+		cloned.Instances = make(map[string]map[string]any, len(record.Instances))
+		for name, config := range record.Instances {
+			cloned.Instances[name] = maps.Clone(config)
+		}
+	}
+	return cloned
+}
+
+func cloneSecrets(stored *Secrets) *Secrets {
+	cloned := &Secrets{Config: maps.Clone(stored.Config)}
+	if stored.Instances != nil {
+		cloned.Instances = make(map[string]map[string]secret.String, len(stored.Instances))
+		for name, config := range stored.Instances {
+			cloned.Instances[name] = maps.Clone(config)
+		}
+	}
+	return cloned
 }
 
 // Describe returns what a running plugin says about itself, which is where the
@@ -598,15 +692,19 @@ func (m *Manager) prepare(ctx context.Context, record Installed, binary, socketI
 	if err != nil {
 		return nil, nil, err
 	}
+	running, err := m.prepareWithSecrets(ctx, record, secrets, binary, socketID)
+	return running, secrets, err
+}
 
+func (m *Manager) prepareWithSecrets(ctx context.Context, record Installed, secrets *Secrets, binary, socketID string) (*Running, error) {
 	config, err := configured(record.Config, secrets.For(""))
 	if err != nil {
-		return nil, nil, fmt.Errorf("plugin: %s has unusable configuration: %w", record.ID, err)
+		return nil, fmt.Errorf("plugin: %s has unusable configuration: %w", record.ID, err)
 	}
 
 	dir, err := m.socketDir()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	running, err := Start(ctx, Exec{
@@ -614,9 +712,9 @@ func (m *Manager) prepare(ctx context.Context, record Installed, binary, socketI
 		Config: config, Log: m.log(), Kept: m.printed(record.ID),
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return running, secrets, nil
+	return running, nil
 }
 
 func (m *Manager) adopt(ctx context.Context, record Installed, running *Running, secrets *Secrets) {

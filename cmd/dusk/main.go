@@ -151,8 +151,11 @@ func serve(parent context.Context) error {
 	// (ADR-0040).
 	observers := ingest.NewScheduler(idx, log, time.Now)
 
-	tokens := &proof.Store{}
-	ran := &events.Log{Slog: log}
+	tokens := &proof.Store{TTL: cfg.ProofTTL}
+	ran, err := events.Open(filepath.Join(cfg.DataDir, "actions.json"), log)
+	if err != nil {
+		return err
+	}
 
 	plugins := &plugin.Manager{
 		Store:   &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins"), Master: master},

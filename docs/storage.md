@@ -5,6 +5,10 @@ The index is the materialized entity graph: SQLite, one file, partitioned by rep
 It is **derived and disposable**.
 Deleting it loses nothing that reconciling from git cannot rebuild, which is what makes `AutoMigrate` safe here and a bad migration answerable by removing the file.
 
+`actions.json` beside it is deliberately different.
+That bounded journal holds recent action events, idempotency receipts, and asynchronous handle links, none of which Git can rebuild.
+Deleting it can make Dusk forget that a mutation already ran, so it belongs in backups and a malformed journal stops startup rather than being discarded ([ADR-0070](../adr/0070-mutations-have-durable-retry-identity.md)).
+
 Settled in [ADR-0001](../adr/0001-git-as-source-of-truth.md) and [ADR-0008](../adr/0008-storage.md), implemented in `internal/index`.
 
 ## Two things are called a ref

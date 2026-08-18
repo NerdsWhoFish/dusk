@@ -100,6 +100,7 @@ export type Outcome = {
   class: string;
   done: boolean;
   ok: boolean;
+  unknown?: boolean;
   handle?: string;
   message: string;
   detail?: Record<string, unknown>;
@@ -152,7 +153,7 @@ export type Event = {
   ref?: string;
   action: string;
   actor?: string;
-  status: "started" | "succeeded" | "failed" | "denied" | "unknown";
+  status: "started" | "succeeded" | "failed" | "denied" | "waiting" | "unknown";
   started_at?: string;
   finished_at?: string;
   message?: string;
@@ -366,6 +367,8 @@ export type PluginOffer = {
   // set names which sensitive fields hold a value, by instance, with "" being
   // the plugin's own. The names, never the values.
   set?: Record<string, string[]>;
+  config_versions?: Record<string, string>;
+  config_proofs?: Record<string, string>;
 };
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -404,12 +407,18 @@ export const api = {
     post<{ restarted: string }>(`/plugins/${encodeURIComponent(id)}/restart`),
   forget: (scope: string) =>
     post<{ forgot: string }>("/observations/forget", { scope }),
-  configure: (id: string, config: PluginConfig, instance?: string) =>
+  configure: (
+    id: string,
+    config: PluginConfig,
+    version: string,
+    proof: string,
+    instance?: string,
+  ) =>
     post<{ configured: string }>(
       instance
         ? `/plugins/${encodeURIComponent(id)}/config/${encodeURIComponent(instance)}`
         : `/plugins/${encodeURIComponent(id)}/config`,
-      config,
+      { settings: config, version, proof },
     ),
   home: () => get<Home>("/home"),
   drift: () => get<{ drift: Drift[] }>("/drift"),
@@ -461,4 +470,5 @@ export type Invocation = {
   confirm?: boolean;
   preview?: boolean;
   elicited?: Answered;
+  idempotency_key?: string;
 };

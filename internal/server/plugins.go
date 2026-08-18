@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // Plugins is the slice of the plugin manager the HTTP surface needs, declared
@@ -18,7 +19,7 @@ type Plugins interface {
 	Checked() time.Time
 	Install(ctx context.Context, id string) (*plugin.Installed, error)
 	Uninstall(id string) error
-	Configure(ctx context.Context, id, instance string, config map[string]any) error
+	Configure(ctx context.Context, id, instance string, config map[string]any, expectedVersion string) error
 
 	// Restart is the way back from a plugin the supervisor gave up on, and the
 	// only one: configuring a plugin needs it running (ADR-0054).
@@ -83,6 +84,7 @@ func (s *Server) handleAPIPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 
 	offers, err := s.plugins.Available(r.Context())
+	s.protectConfigurations(offers)
 
 	// The error rides alongside the offers rather than replacing them: a rate
 	// limit must not hide the plugins somebody has installed and is running.
@@ -91,6 +93,20 @@ func (s *Server) handleAPIPlugins(w http.ResponseWriter, r *http.Request) {
 		answer["problem"] = err.Error()
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+func (s *Server) protectConfigurations(offers []plugin.Offer) {
+	if s.tokens == nil {
+		return
+	}
+	for i := range offers {
+		offer := &offers[i]
+		offer.ConfigProofs = map[string]string{}
+		for instance, version := range offer.ConfigVersions {
+			subject := proof.Configuration(offer.ID, instance)
+			offer.ConfigProofs[instance] = s.tokens.Issue(proof.FromConfigure, map[string]string{subject.Ref: version}).ID
+		}
+	}
 }
 
 // handleAPIRefresh answers POST /api/plugins/refresh by asking GitHub now.
@@ -107,6 +123,7 @@ func (s *Server) handleAPIRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.protectConfigurations(offers)
 	writeJSON(w, http.StatusOK, map[string]any{"plugins": offers, "checked": s.plugins.Checked()})
 }
 
@@ -168,14 +185,26 @@ func (s *Server) handleAPIConfigure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var config map[string]any
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&config); err != nil {
+	var body struct {
+		Settings map[string]any `json:"settings"`
+		Version  string         `json:"version"`
+		Proof    string         `json:"proof"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
 		http.Error(w, `{"error":"that configuration could not be read"}`, http.StatusBadRequest)
 		return
 	}
 
 	id, instance := r.PathValue("id"), r.PathValue("instance")
-	if err := s.plugins.Configure(r.Context(), id, instance, config); err != nil {
+	if s.tokens == nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "configuration writes need a proof store"})
+		return
+	}
+	if err := s.tokens.AuthorizeUpdateFrom(body.Proof, proof.Configuration(id, instance), body.Version); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+		return
+	}
+	if err := s.plugins.Configure(r.Context(), id, instance, body.Settings, body.Version); err != nil {
 		writeError(w, err)
 		return
 	}

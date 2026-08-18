@@ -4,6 +4,13 @@
 
 A plugin is a subprocess ([ADR-0039](../adr/0039-one-plugin-transport.md)), and Dusk keeps it up ([ADR-0055](../adr/0055-supervising-plugin-processes.md)).
 
+It does **not** inherit Dusk's process environment.
+Dusk passes the plugin's private socket and token plus `PATH`, `TMPDIR`, `TZ`, `LANG`, `SSL_CERT_FILE`, and `SSL_CERT_DIR` when those runtime settings exist.
+GitHub credentials, the MCP token, the encryption key, and arbitrary deployment secrets are not ambient plugin configuration; declared settings reach only their plugin over its private socket.
+
+This prevents accidental credential inheritance, not a hostile-code sandbox.
+A plugin still runs as Dusk's operating-system user with its filesystem and network reach, so the allowlisted publishing organisations remain the code trust boundary.
+
 | Phase | What it means | What Dusk is doing |
 | --- | --- | --- |
 | `running` | The process is serving its socket | Asking it to observe on its interval |
@@ -19,8 +26,8 @@ That is not politeness.
 An observation is complete by contract, so an empty one deletes everything that plugin had observed ([ADR-0011](../adr/0011-ingester-scheduling.md)), and a restart must never look like a source that went quiet.
 A run that fails keeps what the catalog had, and the entity goes visibly stale instead.
 
-An action interrupted by its plugin dying is told so, and a **mutating** one is told its outcome is not known: the process that could have said whether the change landed is the one that went away.
-Treat that as "find out", never as "it did not happen".
+An action interrupted by its plugin dying is told so, and a **mutating** one has an `unknown` outcome: the process that could have said whether the change landed is the one that went away.
+Treat that as "find out", never as "it did not happen" or permission to retry under a new idempotency key.
 
 What the plugin printed before it died survives into the process that replaces it, marked `=` in its output, which is usually where the reason is.
 

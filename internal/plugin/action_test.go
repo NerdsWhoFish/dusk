@@ -129,7 +129,7 @@ func TestADR0015_AMutatingActionNeedsProofOfTheReadItNames(t *testing.T) {
 	}
 
 	if _, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: ref, Action: "poke", Proof: read(tokens, ref, "v1"),
+		Ref: ref, Action: "poke", Proof: read(tokens, ref, "v1"), IdempotencyKey: "current-proof",
 	}); err != nil {
 		t.Fatalf("expected a current token to be accepted, got %v", err)
 	}
@@ -160,7 +160,7 @@ func TestADR0015_ADestructiveActionNeedsThisRunConfirmed(t *testing.T) {
 	}
 
 	outcome, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: ref, Action: "poke", Proof: read(tokens, ref, "v1"), Confirm: true,
+		Ref: ref, Action: "poke", Proof: read(tokens, ref, "v1"), Confirm: true, IdempotencyKey: "confirmed",
 	})
 	if err != nil {
 		t.Fatalf("expected a confirmed run to go ahead, got %v", err)
@@ -306,10 +306,10 @@ func TestAnActionRunsAgainstTheInstanceThatObservedTheEntity(t *testing.T) {
 		Actions: []standInAction{{Name: "poke", Class: readOnly, Kinds: []string{"widget"}}},
 	}, observed)
 
-	if err := manager.Configure(t.Context(), "many", "", map[string]any{"cluster": "production"}); err != nil {
+	if err := configurePlugin(t, manager, "many", "", map[string]any{"cluster": "production"}); err != nil {
 		t.Fatalf("configure: %v", err)
 	}
-	if err := manager.Configure(t.Context(), "many", "staging", map[string]any{"cluster": "staging"}); err != nil {
+	if err := configurePlugin(t, manager, "many", "staging", map[string]any{"cluster": "staging"}); err != nil {
 		t.Fatalf("configure the instance: %v", err)
 	}
 
@@ -452,13 +452,53 @@ func TestAMutatingActionAsksItsInstanceToLookAgain(t *testing.T) {
 
 	ref := "widget:refresh/one"
 	if _, err := manager.Invoke(t.Context(), plugin.Request{
-		Ref: ref, Action: "poke", Proof: read(tokens, ref, "v1"),
+		Ref: ref, Action: "poke", Proof: read(tokens, ref, "v1"), IdempotencyKey: "refresh",
 	}); err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
 
 	if !rotation.wasDue("plugin:refresh") {
 		t.Fatal("expected the observing instance to be asked to look again")
+	}
+}
+
+func TestAMutatingActionIsIdempotentAcrossRetries(t *testing.T) {
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:once"}}
+	manager, tokens, log, _ := acting(t, oneAction("once", mutating), observed)
+	ref := "widget:once/one"
+	request := plugin.Request{
+		Ref: ref, Action: "poke", Params: map[string]any{"value": "one"},
+		Proof: read(tokens, ref, "v1"), IdempotencyKey: "one-intended-change",
+	}
+	first, err := manager.Invoke(t.Context(), request)
+	if err != nil {
+		t.Fatalf("first invocation: %v", err)
+	}
+	request.Proof = read(tokens, ref, "v1")
+	second, err := manager.Invoke(t.Context(), request)
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if first.Event != second.Event || len(log.Recent(0)) != 1 {
+		t.Fatalf("retry ran twice: first %q, second %q, events %d", first.Event, second.Event, len(log.Recent(0)))
+	}
+
+	request.Params["value"] = "different"
+	if _, err := manager.Invoke(t.Context(), request); err == nil || !strings.Contains(err.Error(), "different action") {
+		t.Fatalf("reusing the key for another request was not refused: %v", err)
+	}
+}
+
+func TestAPluginDoesNotInheritDusksEnvironment(t *testing.T) {
+	t.Setenv("DUSK_TEST_SHOULD_NOT_LEAK", "deployment-secret")
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:isolated"}}
+	manager, _, _, _ := acting(t, oneAction("isolated", readOnly), observed)
+	outcome, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:isolated/one", Action: "poke"})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if leaked := outcome.Detail["leaked"]; leaked != "" {
+		t.Fatalf("plugin inherited a Dusk environment value: %v", leaked)
 	}
 }
 

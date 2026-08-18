@@ -276,7 +276,7 @@ func TestADR0055_AnActionInterruptedByTheProcessSaysSo(t *testing.T) {
 			name:  "a mutation says the outcome is not known",
 			id:    "mutator",
 			class: mutating,
-			says:  []string{"is not running", "not known"},
+			says:  []string{"is not running", "unknown"},
 		},
 	}
 
@@ -288,15 +288,21 @@ func TestADR0055_AnActionInterruptedByTheProcessSaysSo(t *testing.T) {
 			request := plugin.Request{Ref: ref, Action: "poke"}
 			if test.class != readOnly {
 				request.Proof = read(manager.Proof, ref, "v1")
+				request.IdempotencyKey = "interrupted"
 			}
 
-			_, err := manager.Invoke(t.Context(), request)
-			if err == nil {
-				t.Fatal("the plugin killed its own process, so the invocation cannot have succeeded")
+			outcome, err := manager.Invoke(t.Context(), request)
+			message := ""
+			if err != nil {
+				message = err.Error()
+			} else if outcome != nil && outcome.Unknown {
+				message = outcome.Message
+			} else {
+				t.Fatal("the plugin killed its own process, so the invocation must fail or be unknown")
 			}
 			for _, want := range test.says {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("the failure should mention %q, got %q", want, err)
+				if !strings.Contains(message, want) {
+					t.Errorf("the outcome should mention %q, got %q", want, message)
 				}
 			}
 		})
@@ -327,7 +333,7 @@ func TestADR0055_ADeliberateStopIsNotACrash(t *testing.T) {
 		spec.Fields = []string{"cluster"}
 		manager, _ := supervised(t, spec, quick(5))
 
-		if err := manager.Configure(t.Context(), "settled", "", map[string]any{"cluster": "one"}); err != nil {
+		if err := configurePlugin(t, manager, "settled", "", map[string]any{"cluster": "one"}); err != nil {
 			t.Fatalf("Configure: %v", err)
 		}
 

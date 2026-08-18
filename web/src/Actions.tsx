@@ -82,6 +82,9 @@ function ActionCard({
         plugin: action.plugin,
         ...extra,
       };
+      if (action.class !== "read_only" && !body.preview && !body.idempotency_key) {
+        body.idempotency_key = crypto.randomUUID();
+      }
       setResuming(body);
       const answer = entityRef
         ? await api.invoke(entityRef, action.name, body)

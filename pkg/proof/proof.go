@@ -39,6 +39,9 @@ const (
 	// FromKinds is reading the vocabulary. Extending one you have not read is
 	// how `svc` gets invented next to `service` (ADR-0048).
 	FromKinds Origin = "kinds"
+
+	// FromConfigure is reading a plugin configuration before replacing it.
+	FromConfigure Origin = "configure"
 )
 
 // Call renders the invocation that re-reads ref, which is what a rejection
@@ -50,6 +53,8 @@ func (o Origin) Call(ref string) string {
 		return fmt.Sprintf("note(id: %q)", ref)
 	case FromKinds, FromPage:
 		return string(o) + "()"
+	case FromConfigure:
+		return "configure()"
 	case FromSearch, FromNeighbors:
 		return fmt.Sprintf("%s(%q)", o, ref)
 	default:
@@ -79,6 +84,11 @@ func Portal(path string) Subject { return Subject{Ref: path, Read: FromPage} }
 
 // Vocabulary is the minted kinds at path, re-read by kinds.
 func Vocabulary(path string) Subject { return Subject{Ref: path, Read: FromKinds} }
+
+// Configuration is one plugin instance's settings, re-read by configure.
+func Configuration(plugin, instance string) Subject {
+	return Subject{Ref: "plugin-config:" + plugin + ":" + instance, Read: FromConfigure}
+}
 
 // fix is the call that recovers from a rejection against this subject.
 func (s Subject) fix() string { return s.Read.Call(s.Ref) }

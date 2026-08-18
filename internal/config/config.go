@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/NerdsWhoFish/dusk/pkg/secret"
 	"github.com/NerdsWhoFish/dusk/pkg/vault"
@@ -73,6 +74,10 @@ type Config struct {
 	// repositories Dusk will offer and run. Adding one is the security
 	// decision, because a plugin runs with Dusk's permissions (ADR-0042).
 	PluginOrgs []string
+
+	// ProofTTL is the longest an abandoned read-before-write token remains
+	// spendable. Version checks still invalidate it as soon as content changes.
+	ProofTTL time.Duration
 }
 
 // ConfigRepositoryParts splits the config repository into owner and name.
@@ -112,6 +117,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		TrustedNetwork:   strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
 		ConfigRepository: strings.Trim(strings.TrimSpace(getenv("DUSK_CONFIG_REPOSITORY")), "/"),
 		PluginOrgs:       splitAccounts(getenv("DUSK_PLUGIN_ORGS")),
+		ProofTTL:         proofTTL(getenv("DUSK_PROOF_TTL")),
 
 		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
 		ShowObservedToEveryone: strings.EqualFold(
@@ -129,11 +135,25 @@ func Load(getenv func(string) string) (*Config, error) {
 	problems = append(problems, c.readAgentAccess()...)
 	problems = append(problems, c.readConfigRepository()...)
 	problems = append(problems, c.readOAuth()...)
+	if c.ProofTTL <= 0 {
+		problems = append(problems, errors.New("DUSK_PROOF_TTL must be a positive Go duration such as 15m or 2h"))
+	}
 
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
 	}
 	return c, nil
+}
+
+func proofTTL(raw string) time.Duration {
+	if strings.TrimSpace(raw) == "" {
+		return time.Hour
+	}
+	duration, err := time.ParseDuration(raw)
+	if err != nil || duration <= 0 {
+		return -1
+	}
+	return duration
 }
 
 // readHosts validates the two hostnames, defaulting the public one to the

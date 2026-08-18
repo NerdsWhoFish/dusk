@@ -23,6 +23,7 @@ type invocation struct {
 	Plugin  string         `json:"plugin,omitempty"`
 	Confirm bool           `json:"confirm,omitempty"`
 	Preview bool           `json:"preview,omitempty"`
+	Key     string         `json:"idempotency_key,omitempty"`
 
 	// Elicited answers a question a previous invocation returned, which is how
 	// the browser resumes an action rather than starting it again (ADR-0046).
@@ -53,14 +54,15 @@ func (s *Server) handleAPIInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invoke(w, r, plugin.Request{
-		Ref:     r.PathValue("ref"),
-		Action:  r.PathValue("action"),
-		Plugin:  body.Plugin,
-		Params:  body.Params,
-		Proof:   body.Proof,
-		Confirm: body.Confirm,
-		Preview: body.Preview,
-		Actor:   s.actor(r),
+		Ref:            r.PathValue("ref"),
+		Action:         r.PathValue("action"),
+		Plugin:         body.Plugin,
+		Params:         body.Params,
+		Proof:          body.Proof,
+		Confirm:        body.Confirm,
+		Preview:        body.Preview,
+		Actor:          s.actor(r),
+		IdempotencyKey: body.Key,
 
 		CanResume: true,
 		Elicited:  body.Elicited,
@@ -80,13 +82,14 @@ func (s *Server) handleAPIPluginInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invoke(w, r, plugin.Request{
-		Action:  r.PathValue("action"),
-		Plugin:  r.PathValue("id"),
-		Params:  body.Params,
-		Proof:   body.Proof,
-		Confirm: body.Confirm,
-		Preview: body.Preview,
-		Actor:   s.actor(r),
+		Action:         r.PathValue("action"),
+		Plugin:         r.PathValue("id"),
+		Params:         body.Params,
+		Proof:          body.Proof,
+		Confirm:        body.Confirm,
+		Preview:        body.Preview,
+		Actor:          s.actor(r),
+		IdempotencyKey: body.Key,
 
 		CanResume: true,
 		Elicited:  body.Elicited,

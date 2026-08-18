@@ -3,6 +3,9 @@ package plugin
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -47,6 +50,10 @@ type Request struct {
 
 	// Preview asks what would happen instead of doing it.
 	Preview bool
+
+	// IdempotencyKey identifies one intended mutation across transport retries.
+	// Read-only actions and previews do not need one.
+	IdempotencyKey string
 
 	// Elicit answers a plugin asking the human something mid-action. Only a
 	// surface with somebody attached sets it; the rest leave it nil and the
@@ -117,6 +124,10 @@ type Outcome struct {
 	Done bool `json:"done"`
 	OK   bool `json:"ok"`
 
+	// Unknown means the connection was lost after a mutation began and neither
+	// Dusk nor the plugin can prove whether it landed.
+	Unknown bool `json:"unknown,omitempty"`
+
 	// Handle polls an asynchronous action through Status.
 	Handle string `json:"handle,omitempty"`
 
@@ -143,6 +154,11 @@ type Outcome struct {
 // ErrNeedsApproval refuses a run that has not been agreed to. It is a distinct
 // error so a caller can offer the confirmation rather than reporting a failure.
 var ErrNeedsApproval = errors.New("plugin: this action has not been approved for this run")
+
+// ErrOutcomeUnknown marks a mutation whose process disappeared before it
+// answered. It is neither success nor failure and must not be retried under a
+// new idempotency key without first checking reality.
+var ErrOutcomeUnknown = errors.New("plugin: mutation outcome is unknown")
 
 // Preview says what an action would do without doing it. It needs no proof
 // token: previewing is not mutating, so the read-before-write gate does not
@@ -208,6 +224,17 @@ func (m *Manager) preview(ctx context.Context, target chosen, request Request) (
 
 // Invoke runs an action, and then whatever it asks Dusk to run after it.
 func (m *Manager) Invoke(ctx context.Context, request Request) (*Outcome, error) {
+	m.invokes.Lock()
+	defer m.invokes.Unlock()
+
+	fingerprint, err := requestFingerprint(request)
+	if err != nil {
+		return nil, err
+	}
+	if remembered, used, err := m.recalled(request.IdempotencyKey, fingerprint); err != nil || used {
+		return remembered, err
+	}
+
 	target, err := m.resolve(ctx, request)
 	if err != nil {
 		return nil, err
@@ -215,7 +242,81 @@ func (m *Manager) Invoke(ctx context.Context, request Request) (*Outcome, error)
 	if err := m.permit(ctx, *target, request); err != nil {
 		return nil, err
 	}
-	return m.run(ctx, *target, request, newID(), 0)
+	if err := m.reserveMutation(request, *target, fingerprint); err != nil {
+		return nil, err
+	}
+	outcome, err := m.run(ctx, *target, request, newID(), 0)
+	return m.finishInvocation(request.IdempotencyKey, fingerprint, outcome, err)
+}
+
+func (m *Manager) recalled(key, fingerprint string) (*Outcome, bool, error) {
+	encoded, used, err := m.Events.Recall(key, fingerprint)
+	if err != nil || !used {
+		return nil, used, err
+	}
+	var remembered Outcome
+	if err := json.Unmarshal(encoded, &remembered); err != nil {
+		return nil, true, fmt.Errorf("plugin: restore idempotent result: %w", err)
+	}
+	return &remembered, true, nil
+}
+
+func (m *Manager) reserveMutation(request Request, target chosen, fingerprint string) error {
+	if !mutates(target.action.Class) {
+		return nil
+	}
+	if strings.TrimSpace(request.IdempotencyKey) == "" {
+		return fmt.Errorf("plugin: %s changes something and needs an idempotency key so a lost reply cannot repeat it", target.action.Name)
+	}
+	if m.Events == nil {
+		return fmt.Errorf("plugin: %s changes something but no durable action log is configured", target.action.Name)
+	}
+	reserved := &Outcome{
+		Plugin: target.running.ID, Action: target.action.Name, Ref: request.Ref,
+		Class: target.action.Class, Done: true, Unknown: true,
+		Message: "the mutation was admitted, but no durable result was recorded; check reality before retrying",
+	}
+	encoded, err := json.Marshal(reserved)
+	if err != nil {
+		return fmt.Errorf("plugin: reserve idempotency key: %w", err)
+	}
+	if err := m.Events.Remember(request.IdempotencyKey, fingerprint, encoded); err != nil {
+		return fmt.Errorf("plugin: reserve idempotency key before running: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) finishInvocation(key, fingerprint string, outcome *Outcome, runErr error) (*Outcome, error) {
+	if outcome != nil && outcome.Ask != nil {
+		if err := m.Events.Forget(key); err != nil {
+			return nil, err
+		}
+		return outcome, runErr
+	}
+	if runErr != nil || key == "" {
+		return outcome, runErr
+	}
+	encoded, err := json.Marshal(outcome)
+	if err != nil {
+		return nil, fmt.Errorf("plugin: record idempotent result: %w", err)
+	}
+	if err := m.Events.Remember(key, fingerprint, encoded); err != nil {
+		return nil, err
+	}
+	return outcome, nil
+}
+
+func requestFingerprint(request Request) (string, error) {
+	stable := struct {
+		Ref, Action, Plugin, Actor string
+		Params                     map[string]any
+	}{request.Ref, request.Action, request.Plugin, request.Actor, request.Params}
+	encoded, err := json.Marshal(stable)
+	if err != nil {
+		return "", fmt.Errorf("plugin: fingerprint invocation: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // permit is every reason a resolved action may still not run.
@@ -309,7 +410,9 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 	}
 
 	event := events.Started(newID(), chain, target.running.ID, request.Ref, target.action.Name, request.Actor, m.now())
-	m.Events.Emit(event)
+	if err := m.Events.Emit(event); err != nil {
+		return nil, fmt.Errorf("plugin: record action before running it: %w", err)
+	}
 
 	answer, err := m.converse(ctx, target, request, &duskv1alpha1.InvokeRequest{
 		Ref:        request.Ref,
@@ -319,29 +422,44 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 		Config:     config,
 	})
 	if err != nil {
-		err = interrupted(target, err)
-		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_FAILED, err.Error(), nil, m.now()))
-		return nil, fmt.Errorf("plugin: %s could not run %s: %w", target.running.ID, target.action.Name, err)
+		return m.invocationError(event, target, request, chain, err)
 	}
 
-	// A question means the action has not run. It is not a failure and it is
-	// not a result, so it is settled as its own thing and nothing composes.
 	if ask := answer.GetElicit(); ask != nil {
-		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_WAITING,
-			"waiting on "+ask.GetPrompt(), nil, m.now()))
+		return m.waitingOutcome(event, target, request, chain, ask), nil
+	}
+	return m.completedOutcome(ctx, event, target, request, answer, chain, depth)
+}
+
+func (m *Manager) invocationError(event *duskv1alpha1.Event, target chosen, request Request, chain string, callErr error) (*Outcome, error) {
+	callErr = interrupted(target, callErr)
+	if errors.Is(callErr, ErrOutcomeUnknown) {
+		_ = m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_UNSPECIFIED, callErr.Error(), nil, m.now()))
 		return &Outcome{
 			Event: event.GetId(), Chain: chain, Plugin: target.running.ID,
 			Action: target.action.Name, Ref: request.Ref, Class: target.action.Class,
-			Done: false, OK: true,
-			Message: ask.GetPrompt(),
-			Ask: &Ask{
-				Prompt: ask.GetPrompt(),
-				Schema: ask.GetSchema().AsMap(),
-				Token:  ask.GetToken(),
-			},
+			Done: true, Unknown: true, Message: callErr.Error(),
 		}, nil
 	}
+	_ = m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_FAILED, callErr.Error(), nil, m.now()))
+	return nil, fmt.Errorf("plugin: %s could not run %s: %w", target.running.ID, target.action.Name, callErr)
+}
 
+// A question means the action has not run. It is not a failure and it is not
+// a result, so it is settled as its own thing and nothing composes.
+func (m *Manager) waitingOutcome(event *duskv1alpha1.Event, target chosen, request Request, chain string, ask *duskv1alpha1.Elicit) *Outcome {
+	_ = m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_WAITING,
+		"waiting on "+ask.GetPrompt(), nil, m.now()))
+	return &Outcome{
+		Event: event.GetId(), Chain: chain, Plugin: target.running.ID,
+		Action: target.action.Name, Ref: request.Ref, Class: target.action.Class,
+		Done: false, OK: true,
+		Message: ask.GetPrompt(),
+		Ask:     &Ask{Prompt: ask.GetPrompt(), Schema: ask.GetSchema().AsMap(), Token: ask.GetToken()},
+	}
+}
+
+func (m *Manager) completedOutcome(ctx context.Context, event *duskv1alpha1.Event, target chosen, request Request, answer *duskv1alpha1.InvokeResponse, chain string, depth int) (*Outcome, error) {
 	outcome := &Outcome{
 		Event:   event.GetId(),
 		Chain:   chain,
@@ -358,12 +476,18 @@ func (m *Manager) run(ctx context.Context, target chosen, request Request, chain
 	if detail := answer.GetDetail(); detail != nil {
 		outcome.Detail = detail.AsMap()
 	}
+	if !outcome.Done && outcome.Handle != "" {
+		if err := m.Events.LinkHandle(outcome.Plugin, outcome.Handle, outcome.Event, mutates(outcome.Class)); err != nil {
+			return nil, fmt.Errorf("plugin: record asynchronous handle: %w", err)
+		}
+		return outcome, nil
+	}
 
 	status := duskv1alpha1.EventStatus_EVENT_STATUS_SUCCEEDED
 	if !answer.GetOk() {
 		status = duskv1alpha1.EventStatus_EVENT_STATUS_FAILED
 	}
-	m.Events.Settle(events.Finish(event, status, answer.GetMessage(), answer.GetDetail(), m.now()))
+	_ = m.Events.Settle(events.Finish(event, status, answer.GetMessage(), answer.GetDetail(), m.now()))
 
 	if !answer.GetOk() {
 		return outcome, nil
@@ -405,8 +529,8 @@ func interrupted(target chosen, err error) error {
 	case !mutates(target.action.Class):
 		return gone
 	default:
-		return fmt.Errorf("%w, so whether %s took effect is not known: nothing survived to say",
-			gone, target.action.Name)
+		return fmt.Errorf("%w: %w, so whether %s took effect is not known: nothing survived to say",
+			ErrOutcomeUnknown, gone, target.action.Name)
 	}
 }
 
@@ -520,7 +644,7 @@ func (m *Manager) compose(ctx context.Context, from chosen, request Request, ste
 func (m *Manager) step(ctx context.Context, from chosen, request Request, step *duskv1alpha1.Next, chain string, depth int) Outcome {
 	refused := func(message string) Outcome {
 		event := events.Started(newID(), chain, from.running.ID, step.GetRef(), step.GetAction(), request.Actor, m.now())
-		m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_DENIED, message, nil, m.now()))
+		_ = m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_DENIED, message, nil, m.now()))
 		return Outcome{Event: event.GetId(), Chain: chain, Action: step.GetAction(), Ref: step.GetRef(), Done: true, Message: message}
 	}
 
@@ -559,15 +683,17 @@ func (m *Manager) step(ctx context.Context, from chosen, request Request, step *
 
 // Status polls an asynchronous invocation.
 func (m *Manager) Status(ctx context.Context, id, handle string) (*Outcome, error) {
+	eventID, mutating, linked := m.Events.Handle(id, handle)
 	m.mu.Lock()
 	running, ok := m.running[id]
 	m.mu.Unlock()
 
 	if !ok {
-		return nil, fmt.Errorf("plugin: %s is not running, so %s cannot be polled", id, handle)
+		return m.unpollable(id, handle, eventID, mutating, linked,
+			fmt.Errorf("plugin: %s is not running", id))
 	}
 	if err := running.up(); err != nil {
-		return nil, fmt.Errorf("%w, so %s cannot be polled and its outcome is not recoverable", err, handle)
+		return m.unpollable(id, handle, eventID, mutating, linked, err)
 	}
 
 	answer, err := running.client.Status(ctx, &duskv1alpha1.StatusRequest{Handle: handle})
@@ -576,6 +702,7 @@ func (m *Manager) Status(ctx context.Context, id, handle string) (*Outcome, erro
 	}
 
 	outcome := &Outcome{
+		Event:   eventID,
 		Plugin:  id,
 		Handle:  handle,
 		Done:    answer.GetDone(),
@@ -585,7 +712,28 @@ func (m *Manager) Status(ctx context.Context, id, handle string) (*Outcome, erro
 	if detail := answer.GetDetail(); detail != nil {
 		outcome.Detail = detail.AsMap()
 	}
+	if outcome.Done && linked {
+		status := duskv1alpha1.EventStatus_EVENT_STATUS_SUCCEEDED
+		if !outcome.OK {
+			status = duskv1alpha1.EventStatus_EVENT_STATUS_FAILED
+		}
+		if event, ok := m.Events.Find(eventID); ok {
+			_ = m.Events.Settle(events.Finish(event, status, outcome.Message, answer.GetDetail(), m.now()))
+		}
+	}
 	return outcome, nil
+}
+
+func (m *Manager) unpollable(id, value, eventID string, mutating, linked bool, cause error) (*Outcome, error) {
+	message := fmt.Sprintf("%v, so %s cannot be polled", cause, value)
+	if !linked || !mutating {
+		return nil, errors.New(message)
+	}
+	message += " and whether the mutation completed is unknown"
+	if event, ok := m.Events.Find(eventID); ok {
+		_ = m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_UNSPECIFIED, message, nil, m.now()))
+	}
+	return &Outcome{Event: eventID, Plugin: id, Handle: value, Done: true, Unknown: true, Message: message}, nil
 }
 
 func (m *Manager) reobserve(target chosen) {

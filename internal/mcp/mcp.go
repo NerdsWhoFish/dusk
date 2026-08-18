@@ -237,7 +237,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	if s.opts.Plugins != nil {
 		sdk.AddTool(server, &sdk.Tool{
 			Name:        "invoke",
-			Description: "Do something to an entity, from the actions get listed for it. Anything that changes something needs the proof token from the read it names, and anything destructive needs confirm. Pass preview to see what would happen instead.",
+			Description: "Do something to an entity, from the actions get listed for it, or poll an asynchronous run by passing its plugin and handle. Anything that changes something needs the proof token from the read it names and a unique idempotency_key; reuse that key if a reply is lost. Anything destructive also needs confirm. Pass preview to see what would happen instead.",
 		}, s.invoke)
 
 		sdk.AddTool(server, &sdk.Tool{

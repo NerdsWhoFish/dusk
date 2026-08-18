@@ -25,6 +25,15 @@ import (
 	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
+func configurePlugin(t *testing.T, manager *plugin.Manager, id, instance string, config map[string]any) error {
+	t.Helper()
+	_, _, version, err := manager.Settings(id, instance)
+	if err != nil {
+		return err
+	}
+	return manager.Configure(t.Context(), id, instance, config, version)
+}
+
 // standInEnv makes this test binary serve as a plugin instead of running tests.
 const standInEnv = "DUSK_TEST_PLUGIN"
 
@@ -314,6 +323,7 @@ func detailOf(request *duskv1alpha1.InvokeRequest) *structpb.Struct {
 		"proof":  request.GetProofToken(),
 		"config": request.GetConfig().AsMap(),
 		"params": request.GetParams().AsMap(),
+		"leaked": os.Getenv("DUSK_TEST_SHOULD_NOT_LEAK"),
 	})
 	if err != nil {
 		return nil

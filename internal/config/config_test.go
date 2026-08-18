@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/pkg/secret"
@@ -12,6 +13,29 @@ import (
 
 func env(kv map[string]string) func(string) string {
 	return func(k string) string { return kv[k] }
+}
+
+func TestProofTTLIsConfigurableAndValidated(t *testing.T) {
+	base := map[string]string{
+		"DUSK_PRIVATE_HOST":   "https://dusk.example.com",
+		"DUSK_ENCRYPTION_KEY": validKey(t),
+	}
+	cfg, err := config.Load(env(base))
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if cfg.ProofTTL != time.Hour {
+		t.Fatalf("default proof TTL = %s, want 1h", cfg.ProofTTL)
+	}
+	base["DUSK_PROOF_TTL"] = "15m"
+	cfg, err = config.Load(env(base))
+	if err != nil || cfg.ProofTTL != 15*time.Minute {
+		t.Fatalf("configured proof TTL = %s, %v", cfg.ProofTTL, err)
+	}
+	base["DUSK_PROOF_TTL"] = "eventually"
+	if _, err := config.Load(env(base)); err == nil || !strings.Contains(err.Error(), "DUSK_PROOF_TTL") {
+		t.Fatalf("invalid proof TTL was not refused: %v", err)
+	}
 }
 
 func validKey(t *testing.T) string {

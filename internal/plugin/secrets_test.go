@@ -28,7 +28,7 @@ func configuredPlugin(t *testing.T, id string, config map[string]any) (*plugin.M
 	manager.Restore(t.Context())
 	t.Cleanup(manager.Stop)
 
-	if err := manager.Configure(t.Context(), id, "", config); err != nil {
+	if err := configurePlugin(t, manager, id, "", config); err != nil {
 		t.Fatalf("configure: %v", err)
 	}
 	return manager, rotation
@@ -106,7 +106,7 @@ func TestASensitiveFieldSubmittedEmptyKeepsWhatIsStored(t *testing.T) {
 	})
 
 	// What a write-only form submits when the field was not retyped.
-	if err := manager.Configure(t.Context(), "kept", "", map[string]any{
+	if err := configurePlugin(t, manager, "kept", "", map[string]any{
 		"base_url": "https://two.example.com",
 		"api_key":  "",
 	}); err != nil {
@@ -122,13 +122,34 @@ func TestASensitiveFieldSubmittedEmptyKeepsWhatIsStored(t *testing.T) {
 	}
 }
 
+func TestAStaleConfigurationVersionCannotOverwriteANewerEdit(t *testing.T) {
+	manager, _ := configuredPlugin(t, "versioned", map[string]any{"base_url": "https://one.example.com"})
+	_, _, stale, err := manager.Settings("versioned", "")
+	if err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if err := configurePlugin(t, manager, "versioned", "", map[string]any{"base_url": "https://two.example.com"}); err != nil {
+		t.Fatalf("newer edit: %v", err)
+	}
+	if err := manager.Configure(t.Context(), "versioned", "", map[string]any{"base_url": "https://stale.example.com"}, stale); err == nil || !strings.Contains(err.Error(), "changed after it was read") {
+		t.Fatalf("stale edit was not refused: %v", err)
+	}
+	settings, _, _, err := manager.Settings("versioned", "")
+	if err != nil {
+		t.Fatalf("settings after refusal: %v", err)
+	}
+	if settings["base_url"] != "https://two.example.com" {
+		t.Fatalf("stale edit overwrote the newer value: %v", settings)
+	}
+}
+
 func TestASensitiveFieldSubmittedNullIsForgotten(t *testing.T) {
 	manager, rotation := configuredPlugin(t, "forgotten", map[string]any{
 		"base_url": "https://example.com",
 		"api_key":  "s3cret-value",
 	})
 
-	if err := manager.Configure(t.Context(), "forgotten", "", map[string]any{
+	if err := configurePlugin(t, manager, "forgotten", "", map[string]any{
 		"base_url": "https://example.com",
 		"api_key":  nil,
 	}); err != nil {
@@ -193,7 +214,7 @@ func TestConfiguringAPluginThatIsNotRunningSaysWhy(t *testing.T) {
 	manager, _ := manager(t)
 	install(t, manager.Store, standIn{ID: "stopped", Fields: []string{"api_key"}, Sensitive: []string{"api_key"}})
 
-	err := manager.Configure(context.Background(), "stopped", "", map[string]any{"api_key": "x"})
+	err := manager.Configure(context.Background(), "stopped", "", map[string]any{"api_key": "x"}, "unread")
 	if err == nil {
 		t.Fatal("expected configuring a stopped plugin to be refused rather than guessed at")
 	}

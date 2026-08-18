@@ -31,7 +31,8 @@ Dusk serves streamable HTTP at `/mcp` on the private host.
 | Setting | Effect |
 | --- | --- |
 | `DUSK_MCP_TOKEN` | Require that bearer token. Compared in constant time |
-| `DUSK_TRUSTED_NETWORK=true` | Serve it unauthenticated |
+| `DUSK_TRUSTED_NETWORK=true` | Serve it unauthenticated. Every host that can reach `/mcp` may read the estate, obtain proofs, and invoke enabled mutations as the operator |
+| `DUSK_PROOF_TTL` | How long an abandoned proof remains spendable, as a Go duration. Defaults to `1h`; current-version checks still invalidate it immediately when content changes |
 | Neither | `/mcp` answers 503 explaining how to turn it on |
 
 Setting both is an error rather than the stricter of the two, because two answers to "who may read this" is an unanswered question.
@@ -52,8 +53,8 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
 | `dusk_context(repository?)` | The operator's estate and what they pinned worth knowing, tailored to an exact `owner/name` repository |
-| `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
-| `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
+| `invoke(ref?, action?, params?, proof?, confirm?, preview?, idempotency_key?, plugin?, handle?)` | Do something from what `get` offered, or poll an asynchronous handle with `plugin` and `handle` |
+| `configure(plugin, settings?, instance?, version?, proof?)` | Read a plugin's non-sensitive configuration and its version/proof, or pass both back to change it |
 | `declare(ref, proof, …)` | Create, correct, decommission, reactivate, or remove an entity declaration |
 | `relate(from, to, type, proof, …)` | Add, correct, or withdraw one exact outbound relation |
 | `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
@@ -77,13 +78,31 @@ Discovery folds into `get`, because what can be done to a thing is part of the p
 
 The surface is therefore constant: a tenth plugin costs nothing, and an agent that has read an entity already knows what it can do to it.
 
-An action declares a class. Read-only needs nothing; mutating needs the proof token from the read it names; **destructive needs `confirm`**, and the refusal carries the preview, or says there is none. `preview` says what would happen without doing it.
+An action declares a class.
+Read-only needs nothing.
+Mutating needs the proof token from the read it names and a caller-chosen `idempotency_key`; retrying the same intended call reuses the same key.
+**Destructive also needs `confirm`**, and the refusal carries the preview, or says there is none.
+`preview` says what would happen without doing it.
+
+Dusk reserves a mutation's key in its durable local action journal before calling the plugin.
+The same key and request return the remembered answer, while using the key for a different request is refused.
+If the plugin disappears after a mutation begins, Dusk reports the result as **unknown**, never failed, because failure would claim the target did not change.
+
+An asynchronous result names its plugin and handle.
+Poll it with `invoke(plugin: "name", handle: "value")`; this settles the event that began the action rather than creating a second event.
 
 `get plugin:name` reads a plugin, and says how each action it offers is invoked rather than saying it once for all of them.
 An action that names kinds needs the ref of one, and only an action naming none takes the plugin and no ref.
 Telling an agent otherwise teaches a call `invoke` refuses.
 
 The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
+
+### Trusted-network mutation authority
+
+`DUSK_TRUSTED_NETWORK=true` removes authentication from the entire MCP surface, not just its reads.
+Proof tokens prevent blind and stale writes; they do not identify a person or turn an untrusted caller into a read-only one.
+Any process that can reach `/mcp` can read the catalog, receive fresh proof tokens, invoke every enabled action, and change plugin configuration.
+Use trusted-network mode only when network reachability itself is the operator boundary; otherwise set `DUSK_MCP_TOKEN`.
 
 ## What `search` matches
 

@@ -3,9 +3,8 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { Event } from "./api";
 
-// Events is what has been run. The buffer is bounded and in memory, so this is
-// "what just happened" rather than an audit trail: events are never written to
-// the index, which is disposable by contract (ADR-0015).
+// Events is what has been run. The bounded history and retry receipts are
+// durable even though the catalog index beside them is disposable.
 export function Events() {
   const [events, setEvents] = useState<Event[]>();
   const [problem, setProblem] = useState<string>();
@@ -37,7 +36,7 @@ export function Events() {
     return <div className="skeleton" style={{ height: "4rem" }} aria-hidden="true" />;
   }
   if (events.length === 0) {
-    return <p className="quiet">Nothing has been run since Dusk started.</p>;
+    return <p className="quiet">Nothing has been run yet.</p>;
   }
 
   return (

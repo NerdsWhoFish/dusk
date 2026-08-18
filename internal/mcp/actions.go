@@ -13,6 +13,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
 
 // Plugins is the slice of the plugin manager the agent surface needs, declared
@@ -22,23 +23,26 @@ type Plugins interface {
 	PluginActions(id string) []plugin.Action
 	Invoke(ctx context.Context, request plugin.Request) (*plugin.Outcome, error)
 	Preview(ctx context.Context, request plugin.Request) (*plugin.Outcome, error)
+	Status(ctx context.Context, id, handle string) (*plugin.Outcome, error)
 	Report() []plugin.Report
 
 	// Settings and Configure are the non-sensitive half of a plugin's
 	// configuration. Sensitive fields are never settable here: a secret passed
 	// as a tool argument is a secret written into a transcript (ADR-0041).
-	Settings(id, instance string) (map[string]any, []plugin.Field, error)
-	Configure(ctx context.Context, id, instance string, settings map[string]any) error
+	Settings(id, instance string) (map[string]any, []plugin.Field, string, error)
+	Configure(ctx context.Context, id, instance string, settings map[string]any, expectedVersion string) error
 }
 
 type invokeInput struct {
 	Ref     string         `json:"ref,omitempty" jsonschema:"the entity to act on, of the form kind:namespace/name. Omit only for an action that belongs to a plugin rather than to one thing"`
-	Action  string         `json:"action" jsonschema:"the action's name, as get reported it"`
+	Action  string         `json:"action,omitempty" jsonschema:"the action's name, as get reported it. Omit only when polling a handle"`
 	Params  map[string]any `json:"params,omitempty" jsonschema:"arguments matching the action's declared schema"`
 	Proof   string         `json:"proof,omitempty" jsonschema:"the proof token from the read the action names, required for anything that changes something"`
 	Plugin  string         `json:"plugin,omitempty" jsonschema:"which plugin serves it, needed only when several offer the same action or when there is no ref"`
 	Confirm bool           `json:"confirm,omitempty" jsonschema:"agree to this particular run, which anything destructive requires"`
 	Preview bool           `json:"preview,omitempty" jsonschema:"say what would happen instead of doing it"`
+	Handle  string         `json:"handle,omitempty" jsonschema:"an asynchronous handle returned by an earlier invocation. Pass it with plugin, and omit action, to poll that run"`
+	Key     string         `json:"idempotency_key,omitempty" jsonschema:"a caller-chosen unique key required for a mutating run. Reuse the same key when retrying a request whose reply was lost"`
 }
 
 // invoke is the one tool a plugin's capability arrives through. Installing a
@@ -89,11 +93,22 @@ func canElicit(session *sdk.ServerSession) bool {
 }
 
 func (s *Server) invoke(ctx context.Context, req *sdk.CallToolRequest, in invokeInput) (*sdk.CallToolResult, any, error) {
+	if in.Handle != "" {
+		if in.Plugin == "" {
+			return text("Polling an action needs the plugin returned with its handle."), nil, nil
+		}
+		outcome, err := s.opts.Plugins.Status(ctx, in.Plugin, in.Handle)
+		if err != nil {
+			return text(err.Error()), nil, nil
+		}
+		return text(renderOutcome(outcome)), nil, nil
+	}
 	request := plugin.Request{
 		Ref: in.Ref, Action: in.Action, Params: in.Params, Proof: in.Proof,
 		Plugin: in.Plugin, Confirm: in.Confirm, Preview: in.Preview,
-		Actor:  "agent",
-		Elicit: elicitor(req.Session),
+		Actor:          "agent",
+		Elicit:         elicitor(req.Session),
+		IdempotencyKey: in.Key,
 	}
 
 	run := s.opts.Plugins.Invoke
@@ -117,6 +132,8 @@ func verdictOf(outcome *plugin.Outcome) string {
 	switch {
 	case outcome.Previewed:
 		return "preview"
+	case outcome.Unknown:
+		return "unknown"
 	case !outcome.OK:
 		return "failed"
 	case !outcome.Done:
@@ -154,7 +171,7 @@ func renderOutcome(outcome *plugin.Outcome) string {
 		fmt.Fprintf(&out, "\n%s\n", outcome.Message)
 	}
 	if outcome.Handle != "" {
-		fmt.Fprintf(&out, "\nIt is still running. Poll it with the handle `%s`.\n", outcome.Handle)
+		fmt.Fprintf(&out, "\nIt is still running. Poll it with `invoke(plugin: %q, handle: %q)`.\n", outcome.Plugin, outcome.Handle)
 	}
 	if len(outcome.Detail) > 0 {
 		out.WriteString("\n")
@@ -403,45 +420,31 @@ type configureInput struct {
 	Plugin   string         `json:"plugin" jsonschema:"which plugin to configure"`
 	Settings map[string]any `json:"settings,omitempty" jsonschema:"the fields to set, merged over what is already there. Omit to read the current values"`
 	Instance string         `json:"instance,omitempty" jsonschema:"which of the plugin's configurations, omitted for its own"`
+	Version  string         `json:"version,omitempty" jsonschema:"the configuration version returned by the read, required when changing settings"`
+	Proof    string         `json:"proof,omitempty" jsonschema:"the proof token returned by reading this configuration, required when changing settings"`
 }
 
 // configure sets a plugin's non-sensitive configuration. A sensitive field is
 // refused rather than quietly dropped: passing a secret as a tool argument
 // writes it into the transcript, and encrypting it unwrites nothing (ADR-0041).
 func (s *Server) configure(ctx context.Context, _ *sdk.CallToolRequest, in configureInput) (*sdk.CallToolResult, any, error) {
-	current, fields, err := s.opts.Plugins.Settings(in.Plugin, in.Instance)
+	current, fields, version, err := s.opts.Plugins.Settings(in.Plugin, in.Instance)
 	if err != nil {
 		return text(err.Error()), nil, nil
 	}
 
 	if len(in.Settings) == 0 {
-		return text(renderSettings(in.Plugin, in.Instance, current, fields)), nil, nil
+		return text(renderSettings(in.Plugin, in.Instance, current, fields, version) + s.configurationProof(in.Plugin, in.Instance, version)), nil, nil
+	}
+	if s.opts.Tokens == nil {
+		return text("Plugin configuration writes are disabled because no proof store is configured."), nil, nil
+	}
+	if err := s.opts.Tokens.AuthorizeUpdateFrom(in.Proof, proof.Configuration(in.Plugin, in.Instance), version); err != nil {
+		return text(err.Error()), nil, nil
 	}
 
-	known := map[string]plugin.Field{}
-	for _, field := range fields {
-		known[field.Name] = field
-	}
-
-	var refused, unknown []string
-	for name := range in.Settings {
-		switch field, ok := known[name]; {
-		case !ok:
-			unknown = append(unknown, name)
-		case field.Sensitive:
-			refused = append(refused, name)
-		}
-	}
-	slices.Sort(refused)
-	slices.Sort(unknown)
-
-	if len(refused) > 0 {
-		return text(fmt.Sprintf("%s is entered in Dusk's own interface and nowhere else, because a secret passed as a tool argument is a secret written into this transcript. Everything else about %s can be set here.",
-			strings.Join(refused, " and "), in.Plugin)), nil, nil
-	}
-	if len(unknown) > 0 {
-		return text(fmt.Sprintf("%s declares no field named %s. It declares %s.",
-			in.Plugin, strings.Join(unknown, " or "), strings.Join(fieldNames(fields), ", "))), nil, nil
+	if problem := configurationProblem(in.Plugin, in.Settings, fields); problem != "" {
+		return text(problem), nil, nil
 	}
 
 	// Merged rather than replaced: an agent setting one field should not clear
@@ -452,13 +455,54 @@ func (s *Server) configure(ctx context.Context, _ *sdk.CallToolRequest, in confi
 	}
 	maps.Copy(merged, in.Settings)
 
-	if err := s.opts.Plugins.Configure(ctx, in.Plugin, in.Instance, merged); err != nil {
+	if err := s.opts.Plugins.Configure(ctx, in.Plugin, in.Instance, merged, in.Version); err != nil {
 		return text(err.Error()), nil, nil
 	}
-	return text(renderSettings(in.Plugin, in.Instance, merged, fields)), nil, nil
+	updated, fields, nextVersion, err := s.opts.Plugins.Settings(in.Plugin, in.Instance)
+	if err != nil {
+		return text(err.Error()), nil, nil
+	}
+	return text(renderSettings(in.Plugin, in.Instance, updated, fields, nextVersion) + s.configurationProof(in.Plugin, in.Instance, nextVersion)), nil, nil
 }
 
-func renderSettings(id, instance string, settings map[string]any, fields []plugin.Field) string {
+func configurationProblem(id string, settings map[string]any, fields []plugin.Field) string {
+	known := map[string]plugin.Field{}
+	for _, field := range fields {
+		known[field.Name] = field
+	}
+
+	var refused, unknown []string
+	for name := range settings {
+		field, ok := known[name]
+		if !ok {
+			unknown = append(unknown, name)
+		} else if field.Sensitive {
+			refused = append(refused, name)
+		}
+	}
+	slices.Sort(refused)
+	slices.Sort(unknown)
+	if len(refused) > 0 {
+		return fmt.Sprintf("%s is entered in Dusk's own interface and nowhere else, because a secret passed as a tool argument is a secret written into this transcript. Everything else about %s can be set here.",
+			strings.Join(refused, " and "), id)
+	}
+	if len(unknown) > 0 {
+		return fmt.Sprintf("%s declares no field named %s. It declares %s.",
+			id, strings.Join(unknown, " or "), strings.Join(fieldNames(fields), ", "))
+	}
+	return ""
+}
+
+func (s *Server) configurationProof(id, instance, version string) string {
+	if s.opts.Tokens == nil {
+		return ""
+	}
+	subject := proof.Configuration(id, instance)
+	token := s.opts.Tokens.Issue(proof.FromConfigure, map[string]string{subject.Ref: version})
+	return fmt.Sprintf("\n---\nConfiguration version `%s`. Proof token `%s`. Pass both back to change these settings.\n", version, token.ID)
+}
+
+func renderSettings(id, instance string, settings map[string]any, fields []plugin.Field, version string) string {
 	var out strings.Builder
 
 	named := id
