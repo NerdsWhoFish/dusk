@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NerdsWhoFish/dusk/internal/config"
+	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/server"
 	"github.com/NerdsWhoFish/dusk/internal/store"
@@ -78,7 +80,20 @@ type setup struct {
 	// mounted on it. Both nil is the default page with nothing to mount.
 	pages   server.Pages
 	plugins server.Plugins
+	control *fakeController
 }
+
+type fakeController struct {
+	synced chan struct{}
+}
+
+func (f *fakeController) Sync(context.Context) error {
+	f.synced <- struct{}{}
+	return nil
+}
+
+func (*fakeController) SyncPush(context.Context, controller.Push) error       { return nil }
+func (*fakeController) SyncPreview(context.Context, controller.Preview) error { return nil }
 
 func newServer(t *testing.T, cs *fakeStore, gh *fakeGitHub) http.Handler {
 	t.Helper()
@@ -126,6 +141,7 @@ func build(t *testing.T, s setup) http.Handler {
 		Catalog:     s.catalog,
 		Pages:       s.pages,
 		Plugins:     s.plugins,
+		Controller:  s.control,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -297,6 +313,17 @@ func TestSetupPagePostsToGitHub(t *testing.T) {
 			if !strings.Contains(body, externalURL+"/setup/callback") {
 				t.Error("manifest is missing the redirect URL")
 			}
+			manifest := manifestFrom(t, body)
+			setupURL, err := url.Parse(manifest.SetupURL)
+			if err != nil {
+				t.Fatalf("parse setup URL: %v", err)
+			}
+			if got := setupURL.Scheme + "://" + setupURL.Host + setupURL.Path; got != externalURL+"/setup/installed" {
+				t.Errorf("setup URL = %q, want the post-install page", manifest.SetupURL)
+			}
+			if setupURL.Query().Get("state") == "" {
+				t.Error("setup URL has no one-use state")
+			}
 		})
 	}
 }
@@ -427,11 +454,58 @@ func TestDonePageShowsTheInstallLink(t *testing.T) {
 	}
 }
 
+func TestInstallReturnStartsOneInitialSweep(t *testing.T) {
+	cs := &fakeStore{}
+	gh := &fakeGitHub{creds: githubCreds()}
+	control := &fakeController{synced: make(chan struct{}, 2)}
+	h := build(t, setup{store: cs, github: gh, control: control})
+
+	setupBody := get(t, h, "/setup").Body.String()
+	manifest := manifestFrom(t, setupBody)
+	state := stateFrom(t, setupBody)
+	callback := "/setup/callback?code=abc&state=" + url.QueryEscape(state)
+	if rec := get(t, h, callback); rec.Code != http.StatusSeeOther {
+		t.Fatalf("callback = %d, want 303", rec.Code)
+	}
+
+	installed, err := url.Parse(manifest.SetupURL)
+	if err != nil {
+		t.Fatalf("parse setup URL: %v", err)
+	}
+	rec := get(t, h, installed.RequestURI()+"&installation_id=123")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("installed page = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Get the first result") || !strings.Contains(rec.Body.String(), "dusk: v1alpha1") {
+		t.Error("installed page does not lead to a first catalog result")
+	}
+
+	select {
+	case <-control.synced:
+	case <-time.After(time.Second):
+		t.Fatal("post-install page did not start a sweep")
+	}
+
+	_ = get(t, h, installed.RequestURI())
+	select {
+	case <-control.synced:
+		t.Fatal("replaying the post-install URL started another sweep")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestInstallReturnBeforeRegistrationStartsOver(t *testing.T) {
+	rec := get(t, newServer(t, &fakeStore{}, &fakeGitHub{}), "/setup/installed?state=made-up")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/setup" {
+		t.Errorf("installed before registration = %d to %q, want 303 to /setup", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
 func TestSetupPagesNeverRenderSecrets(t *testing.T) {
 	cs := &fakeStore{creds: sampleCreds()}
 	h := newServer(t, cs, &fakeGitHub{})
 
-	for _, path := range []string{"/setup/done", "/setup"} {
+	for _, path := range []string{"/setup/done", "/setup/installed", "/setup"} {
 		t.Run(path, func(t *testing.T) {
 			body := get(t, h, path).Body.String()
 			for _, leak := range []string{"BEGIN TEST KEY", "hook-secret", "client-secret"} {

@@ -158,6 +158,13 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ github.sha }}
 
+      # This is deliberately after push: the release artifact itself has to
+      # start with a fresh non-root volume, serve setup, generate a key, and
+      # validate the examples. Re-running may overwrite this image tag until a
+      # release exists, and the failure cleanup below removes the git tag.
+      - name: Smoke test the published image
+        run: zsh scripts/onboarding-smoke.zsh "${IMAGE}:${{ steps.version.outputs.version }}"
+
       - name: Release ${{ steps.version.outputs.next }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

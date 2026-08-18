@@ -20,7 +20,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **The product names its user**: Dusk is the internal developer platform for homelabbers, built for one trusted operator and their agents. The README, design, CLI, setup flow, web metadata, GitHub App manifest, and MCP instructions all carry the same boundary. Backstage is a comparison rather than the roadmap, so enterprise identity, org charts, software factories, and compliance machinery do not become defaults by implication ([0027](../adr/0027-design-target.md)).
 - [x] **`v1alpha1` plugin contract**: `dusk-plugin-sdk`, entity/relation/note/observation, plugin service, actions, config fields ([0002](../adr/0002-plugin-protocol.md), [0007](../adr/0007-entity-schema.md), [0015](../adr/0015-plugin-actions-and-events.md), [0023](../adr/0023-plugin-configuration.md))
 - [x] **Conformance package**: batch validation, ref canonicalisation, config field validation ([0016](../adr/0016-plugin-sdk-repo.md))
-- [x] **Release pipeline**: multi-arch image to GHCR, dispatch with scope and bump, dry run before tagging, untag on failure ([0021](../adr/0021-release-tooling.md))
+- [x] **Release pipeline**: multi-arch image to GHCR, dispatch with scope and bump, dry run before tagging, untag on failure, and a clean-volume smoke test against the image after it is published but before the GitHub release exists ([0021](../adr/0021-release-tooling.md))
 - [x] **Helm chart**: `NerdsWhoFish/charts`, publishes itself ([0019](../adr/0019-chart-repo.md), [0024](../adr/0024-charts-publishes-charts.md))
 - [x] **CI**: lint, vet, no-cgo build, race tests on every PR and push ([0017](../adr/0017-engineering-policy.md))
 
@@ -31,11 +31,12 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Envelope encryption**: `pkg/vault`, seal, open, and master key rotation ([0022](../adr/0022-credential-encryption.md))
 - [x] **Boot configuration**: `internal/config`, fails closed without an encryption key ([0022](../adr/0022-credential-encryption.md))
 - [x] **Credential store**: `internal/store`, encrypted at rest, atomic writes ([0022](../adr/0022-credential-encryption.md))
-- [x] **Setup handlers**: first-boot detection, manifest POST page, callback with replay protection, install redirect
+- [x] **Setup handlers**: first-boot detection, manifest POST page, callback with replay protection, install redirect, and a one-use post-install return that starts the initial sweep without trusting GitHub's spoofable `installation_id` parameter ([0005](../adr/0005-github-app-and-access-modes.md))
 - [x] **`cmd/dusk`**: `serve`, `genkey`, structured logs, graceful shutdown
 - [x] **Least-privilege manifest**: permissions generated per chosen access mode ([0005](../adr/0005-github-app-and-access-modes.md))
 - [x] **Webhook receiver**: HMAC validation, replay rejection, body cap ([0006](../adr/0006-reconcile-triggering.md))
 - [x] **Verified against real GitHub**: an App was registered through the manifest flow, credentials exchanged and stored encrypted, and signed `ping` and `installation` deliveries were verified and accepted. The onboarding path is proven, not just tested.
+- [x] **Boring first install**: the published non-root container starts with a fresh named volume, the repository ships Compose and validated starter and homelab catalogs, and one guide covers containers, Helm, GitHub App setup, network access, configuration, backup, restore, upgrade, and rollback. The release workflow runs that path against the published image before creating the release.
 
 ## Core
 

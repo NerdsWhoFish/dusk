@@ -67,3 +67,15 @@ Cross-compilation uses `--platform=$BUILDPLATFORM` with `GOOS`/`GOARCH`, so Go c
 ### Rejected because
 
 - GoReleaser was rejected on fit rather than on quality. Nearly all of what it provides is for artifacts Dusk does not produce, and for the one artifact it does, it wraps the tool that would otherwise be called directly.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-18: smoke the published image before creating the release
+
+The dry run proves that both architectures build, but it cannot prove that the published image starts as its non-root user with a fresh volume or that the files a new operator copies are accepted by the binary they pulled.
+The release now pushes the candidate tag, pulls that exact artifact into a clean Docker environment, generates a key, validates both shipped examples, starts with a new named volume, and checks health, readiness, and setup before creating the GitHub release.
+
+This necessarily puts a mutable image tag in GHCR before the release is declared successful.
+The existing failure path deletes the git tag, and a retry is allowed to overwrite the unreleased image tag; deleting published image bytes is still rejected because it is a worse recovery than making the same version's retry replace them.

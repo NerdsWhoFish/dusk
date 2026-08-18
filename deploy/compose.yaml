@@ -1,0 +1,23 @@
+services:
+  dusk:
+    image: ${DUSK_IMAGE:-ghcr.io/nerdswhofish/dusk:latest}
+    restart: unless-stopped
+    read_only: true
+    ports:
+      - "${DUSK_BIND:-127.0.0.1:8080}:8080"
+    environment:
+      DUSK_PRIVATE_HOST: ${DUSK_PRIVATE_HOST:?set the URL you use to reach Dusk}
+      DUSK_PUBLIC_HOST: ${DUSK_PUBLIC_HOST:-}
+      DUSK_ENCRYPTION_KEY: ${DUSK_ENCRYPTION_KEY:?generate one with dusk genkey}
+      DUSK_MCP_TOKEN: ${DUSK_MCP_TOKEN:?set a token for people and agents}
+      DUSK_CONFIG_REPOSITORY: ${DUSK_CONFIG_REPOSITORY:-}
+      DUSK_ALLOWED_ACCOUNTS: ${DUSK_ALLOWED_ACCOUNTS:-}
+      DUSK_PLUGIN_ORGS: ${DUSK_PLUGIN_ORGS:-NerdsWhoFish}
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - dusk-data:/var/lib/dusk
+
+volumes:
+  dusk-data:
+    name: ${DUSK_VOLUME:-dusk-data}

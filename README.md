@@ -22,16 +22,33 @@ Dusk assumes the agents doing the work can also do the documenting, so the catal
 
 This is the catalog: the homepage is declared in `.dusk/home.md`, and every block is a query ([docs/pages.md](docs/pages.md)).
 
+## Quickstart
+
+Run the published container with the included Compose file, register the GitHub App in the browser, and install it on the repositories that make up the homelab.
+
+```zsh
+git clone https://github.com/NerdsWhoFish/dusk.git
+cd dusk
+export DUSK_PRIVATE_HOST=https://dusk.example.com
+export DUSK_ENCRYPTION_KEY="$(docker run --rm ghcr.io/nerdswhofish/dusk:latest genkey)"
+export DUSK_MCP_TOKEN="$(docker run --rm ghcr.io/nerdswhofish/dusk:latest genkey)"
+docker compose --file deploy/compose.yaml up --detach
+```
+
+Open `$DUSK_PRIVATE_HOST/setup`.
+The [getting-started guide](docs/getting-started.md) covers the GitHub App, Helm, network requirements, configuration, backup, restore, upgrade, and rollback.
+[`examples/starter/dusk.md`](examples/starter/dusk.md) produces the first catalog result; [`examples/homelab`](examples/homelab) is a realistic multi-entity starting point.
+
 ![An entity page for a checkout service: its ref, its description, a Gotchas section, and the notes attached to it rendered in full](docs/images/entity.png)
 
 This is the memory: an entity is one markdown file in the repository that owns it, and the notes an operator or agent attaches to it appear where they will need them.
 
 ## What makes it different
 
-- **You never fork it.** Run the binary, point it at a repo, it reconciles. No Node monorepo to own, no upgrade merge conflicts.
-- **Git is the source of truth.** Entities are markdown with frontmatter in the repos they describe. Agents read files directly, and agent writes are file edits, so review and history come for free.
-- **Pull requests are first class.** Any open PR renders as the catalog as it would be after merge, with a semantic diff of what actually changed.
-- **Plugins are subprocesses.** A plugin can be a shell script that prints JSON. Write one in any language.
+- You never fork it. Run the binary, point it at a repo, and it reconciles. No Node monorepo to own and no upgrade merge conflicts.
+- Git is the source of truth. Entities are markdown with frontmatter in the repos they describe. Agents read files directly, and agent writes are file edits, so review and history come for free.
+- Pull requests are first class. Any open PR renders as the catalog as it would be after merge, with a semantic diff of what actually changed.
+- Plugins are subprocesses. A plugin can be a shell script that prints JSON. Write one in any language.
 
 Together, the catalog, memory, and actions are the platform.
 
@@ -45,6 +62,7 @@ That account list is the code trust boundary, but a plugin does not inherit Dusk
 - [DESIGN.md](DESIGN.md) covers the architecture, the decisions, and the open questions.
 - [adr/](adr/) holds the decision records, including the alternatives that were rejected and why.
 - [docs/dusk-md.md](docs/dusk-md.md) is the reference for the `dusk.md` file a repository uses to join the catalog.
+- [docs/getting-started.md](docs/getting-started.md) covers first install, GitHub App setup, containers, Helm, networking, backup, restore, upgrade, and rollback.
 - [docs/reconcile.md](docs/reconcile.md) covers turning a repository into the graph, and `dusk validate` for checking a checkout locally.
 - [docs/mcp.md](docs/mcp.md) is the agent-facing surface: the tools, how to connect, and what is not built yet.
 - [docs/controller.md](docs/controller.md) covers what keeps the catalog current: discovery, the account allowlist, webhooks, the poll floor, and the API budget.

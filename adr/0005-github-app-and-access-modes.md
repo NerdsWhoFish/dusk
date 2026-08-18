@@ -87,3 +87,14 @@ The last rejected-options entry read "the setting most teams will actually live 
 
 Terminology only.
 The argument, that two write modes forces the larger ask, is unchanged.
+
+### 2026-08-18: return after installation and start the first sweep
+
+The manifest now carries a `setup_url`, so GitHub returns the operator to Dusk after the App is installed instead of ending the product flow on GitHub's installation page.
+That page explains how to produce the first catalog result and starts a sweep immediately, which matters for a poll-only deployment whose installation webhook cannot arrive.
+
+The URL carries the registration flow's unguessable state through a second, one-use stage.
+GitHub appends an `installation_id`, but GitHub documents that this parameter is spoofable, so it is never treated as authority to spend the installation's API budget.
+The post-install state is held in memory and expires with the manifest flow after an hour; a restart can lose the automatic sweep, but the poll floor still guarantees eventual reconciliation.
+
+This completes the one manual sequence the original decision intended: accept the App registration, install it on selected repositories, and return to a Dusk that is reading them.

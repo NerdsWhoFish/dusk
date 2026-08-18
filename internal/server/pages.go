@@ -111,6 +111,30 @@ repositories you want in the catalog.</p>
 you will have to register a new App.</p>
 {{template "foot"}}{{end}}
 
+{{define "installed"}}{{template "head"}}
+<h1>Dusk is connected</h1>
+<p class="sub">Dusk is reading the repositories you selected. A repository
+with a <code>dusk.md</code> becomes part of the catalog automatically.</p>
+
+<h2>Get the first result</h2>
+<p>Add this file at the root of one selected repository and push it:</p>
+<pre class="detail">---
+dusk: v1alpha1
+namespace: home
+kind: service
+name: home-assistant
+title: Home Assistant
+---
+
+The center of the smart home.</pre>
+<p class="hint">The installation webhook starts a read immediately. Dusk also
+starts one from this page, so a private, poll-only install does not wait for the
+daily safety sweep.</p>
+
+<a class="btn" href="/">Open the catalog</a>
+<a class="btn secondary" href="https://github.com/NerdsWhoFish/dusk/blob/main/docs/getting-started.md">Read the install guide</a>
+{{template "foot"}}{{end}}
+
 {{define "fail"}}{{template "head"}}
 <h1 class="err">{{.Title}}</h1>
 <p class="sub">Dusk stopped here rather than guessing.</p>

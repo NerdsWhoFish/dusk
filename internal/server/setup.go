@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 const stateTTL = time.Hour
 
 type pendingSetup struct {
-	mode    store.AccessMode
-	created time.Time
+	mode       store.AccessMode
+	created    time.Time
+	registered bool
 }
 
 // setupState holds in-flight setup attempts. It is deliberately in memory:
@@ -50,20 +52,35 @@ func (s *setupState) begin(mode store.AccessMode, now time.Time) (string, error)
 	return token, nil
 }
 
-// consume validates and removes a token, so a callback cannot be replayed.
+// consume validates a registration token and advances it to the install step,
+// so the callback cannot be replayed but GitHub can return once more after the
+// App is installed.
 func (s *setupState) consume(token string, now time.Time) (store.AccessMode, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	p, ok := s.pending[token]
-	if !ok {
+	if !ok || p.registered {
 		return "", false
 	}
-	delete(s.pending, token)
 	if now.Sub(p.created) > stateTTL {
+		delete(s.pending, token)
 		return "", false
 	}
+	p.registered = true
+	s.pending[token] = p
 	return p.mode, true
+}
+
+// finish consumes the same state after GitHub installs the App. The setup URL
+// is public, so only this unguessable, one-use state may trigger a sweep.
+func (s *setupState) finish(token string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, ok := s.pending[token]
+	delete(s.pending, token)
+	return ok && p.registered && now.Sub(p.created) <= stateTTL
 }
 
 // permissionsFor returns only what the chosen mode needs, so the install
@@ -93,7 +110,7 @@ func defaultEvents() []string {
 	return []string{"push", "pull_request"}
 }
 
-func (s *Server) manifest(mode store.AccessMode) githubapp.Manifest {
+func (s *Server) manifest(mode store.AccessMode, state string) githubapp.Manifest {
 	return githubapp.Manifest{
 		Name:        "Dusk",
 		URL:         s.cfg.PrivateHost,
@@ -103,6 +120,7 @@ func (s *Server) manifest(mode store.AccessMode) githubapp.Manifest {
 			Active: true,
 		},
 		RedirectURL:        s.cfg.SetupCallbackURL(),
+		SetupURL:           s.cfg.PrivateHost + "/setup/installed?state=" + url.QueryEscape(state),
 		CallbackURLs:       []string{s.cfg.AuthCallbackURL()},
 		Public:             false,
 		DefaultEvents:      defaultEvents(),
@@ -126,7 +144,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, "Could not start setup", err.Error(), "")
 		return
 	}
-	manifestJSON, err := githubapp.ManifestJSON(s.manifest(mode))
+	manifestJSON, err := githubapp.ManifestJSON(s.manifest(mode, token))
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, "Could not build the App manifest", err.Error(), "")
 		return
@@ -194,4 +212,17 @@ func (s *Server) handleSetupDone(w http.ResponseWriter, r *http.Request) {
 		InstallURL:  creds.InstallURL(),
 		Permissions: permissionsFor(creds.Mode),
 	})
+}
+
+func (s *Server) handleSetupInstalled(w http.ResponseWriter, r *http.Request) {
+	if !s.credentials.Configured() {
+		http.Redirect(w, r, "/setup", http.StatusSeeOther)
+		return
+	}
+
+	if s.state.finish(r.URL.Query().Get("state"), s.now()) && s.controller != nil {
+		go s.sweep(r.Context(), "post-install setup")
+	}
+
+	s.render(w, "installed", nil)
 }

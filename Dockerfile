@@ -45,7 +45,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath \
         -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-        -o /out/dusk ./cmd/dusk
+        -o /out/dusk ./cmd/dusk && \
+    mkdir -p /out/data && chown 65532:65532 /out/data
 
 # Static distroless: no shell and no package manager, so there is nothing in the
 # image to exploit that we did not put there. It does carry CA certificates,
@@ -63,6 +64,7 @@ LABEL org.opencontainers.image.title=dusk \
       org.opencontainers.image.revision=${COMMIT}
 
 COPY --from=build /out/dusk /usr/local/bin/dusk
+COPY --from=build --chown=65532:65532 /out/data /var/lib/dusk
 
 # Numeric on purpose: Kubernetes `runAsNonRoot` cannot verify a named user, and
 # 65532 is distroless's nonroot.

@@ -208,6 +208,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /setup", s.handleSetup)
 	mux.HandleFunc("GET /setup/callback", s.handleSetupCallback)
 	mux.HandleFunc("GET /setup/done", s.handleSetupDone)
+	mux.HandleFunc("GET /setup/installed", s.handleSetupInstalled)
 
 	// Nor can the icons those pages reference, and they exist before onboarding
 	// does, so they are routed whether or not there is a catalog.

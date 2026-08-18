@@ -44,6 +44,7 @@ type Manifest struct {
 	URL                string            `json:"url"`
 	HookAttributes     HookAttributes    `json:"hook_attributes"`
 	RedirectURL        string            `json:"redirect_url"`
+	SetupURL           string            `json:"setup_url,omitempty"`
 	CallbackURLs       []string          `json:"callback_urls,omitempty"`
 	Description        string            `json:"description,omitempty"`
 	Public             bool              `json:"public"`

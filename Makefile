@@ -1,4 +1,4 @@
-.PHONY: test lint nocgo check build clean web web-check web-dev
+.PHONY: test lint nocgo check build clean web web-check web-dev onboarding-smoke
 
 # What CI runs on every PR and push to main.
 test:
@@ -32,6 +32,10 @@ web-check:
 # Vite with hot reload, proxying the API to a Dusk running on :8080.
 web-dev:
 	cd web && npm run dev
+
+# Exercises the exact published image, including its non-root data volume.
+onboarding-smoke:
+	zsh scripts/onboarding-smoke.zsh
 
 clean:
 	rm -rf bin web/dist/assets web/dist/index.html
