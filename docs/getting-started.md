@@ -172,8 +172,8 @@ Restore the snapshot into a PVC, set `persistence.existingClaim`, restore the Se
 Pin production deployments to a release tag instead of `latest`.
 Read the release notes, take a backup, pull the new image or chart, and then replace the single Dusk process.
 
-For Compose, set `DUSK_IMAGE=ghcr.io/nerdswhofish/dusk:vX.Y.Z`, run `docker compose pull`, and run `docker compose up --detach`.
-For Helm, set `image.tag=vX.Y.Z` when upgrading an existing chart, or select a newer chart whose `appVersion` already targets that image.
+For Compose, set `DUSK_IMAGE=ghcr.io/nerdswhofish/dusk:X.Y.Z`, run `docker compose pull`, and run `docker compose up --detach`.
+For Helm, set `image.tag=X.Y.Z` when upgrading an existing chart, or select a newer chart whose `appVersion` already targets that image.
 
 Verify health, readiness, the last successful reads, one search, and one agent connection after the restart.
 
