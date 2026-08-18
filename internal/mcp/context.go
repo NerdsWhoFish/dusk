@@ -276,26 +276,26 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 		heading: "\n## Pinned notes, about this repository\n\n",
 		items:   noteItems(here),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\n%d more pinned note(s) about this repository are not listed.\n", len(dropped))
+			return fmt.Sprintf("\n%d more pinned note(s) about this repository: %s.\n", len(dropped), names(dropped))
 		},
 	}
 
 	owned := &section{
 		heading: fmt.Sprintf("\n## What this repository declares (%d)\n\n", len(declared)),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\n%d more it declares are not listed.\n", len(dropped))
+			return fmt.Sprintf("\n%d more it declares: %s.\n", len(dropped), names(dropped))
 		},
 	}
 	for _, ref := range declared {
 		line := fmt.Sprintf("- `%s`\n", ref)
-		owned.items = append(owned.items, item{name: ref, full: line, short: line})
+		owned.items = append(owned.items, item{name: "`" + ref + "`", full: line, short: line})
 	}
 
 	notesElsewhere := &section{
 		heading: "\n## Pinned notes, across the estate\n\n",
 		items:   noteItems(elsewhere),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\n%d more pinned note(s) are not listed.\n", len(dropped))
+			return fmt.Sprintf("\n%d more pinned note(s): %s.\n", len(dropped), names(dropped))
 		},
 	}
 
@@ -634,7 +634,9 @@ func noteItems(notes []*duskv1alpha1.Note) []item {
 	items := make([]item, 0, len(notes))
 	for _, note := range notes {
 		items = append(items, item{
-			name:  note.GetId(),
+			// Backticked, because an overflow line naming it is the id an agent
+			// pastes straight back into `note`.
+			name:  "`" + note.GetId() + "`",
 			full:  demoteHeadings(renderNote(note)),
 			short: fmt.Sprintf("- **%s** `%s` — %s\n", note.GetKind(), note.GetId(), firstLine(note.GetBody())),
 		})

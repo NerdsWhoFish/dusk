@@ -205,23 +205,30 @@ func TestADR0050_NothingIsDroppedSilently(t *testing.T) {
 		t.Errorf("context is %d bytes, past the %d budget", len(body), mcp.ContextBudget)
 	}
 
-	named := strings.Count(body, "`.dusk/pinned-")
-	missing := 0
+	// The overflow names the ids it dropped, so counting them everywhere would
+	// count those twice. Everything outside that line was rendered.
+	named, missing, overflow := 0, 0, ""
 	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "more pinned note(s) about this repository are not listed") {
-			if _, err := fmt.Sscanf(line, "%d more pinned note", &missing); err != nil {
-				t.Fatalf("could not read what was left out of %q: %v", line, err)
-			}
+		if _, err := fmt.Sscanf(line, "%d more pinned note(s) about this repository:", &missing); err == nil {
+			overflow = line
+			continue
 		}
+		named += strings.Count(line, "`.dusk/pinned-")
 	}
 	if named+missing != len(pinned) {
-		t.Errorf("%d notes named and %d reported left out, want all %d accounted for:\n%s",
+		t.Errorf("%d notes rendered and %d reported left out, want all %d accounted for:\n%s",
 			named, missing, len(pinned), body)
+	}
+
+	// ADR-0057: a count cannot say which note. An id is what `note` takes, so
+	// an overflow that reports only a number leaves them unreachable.
+	if !strings.Contains(overflow, "`.dusk/pinned-") {
+		t.Errorf("the overflow counted what it dropped without naming one: %q\n%s", overflow, body)
 	}
 
 	// A share cap is why pinning forty things does not erase the inventory,
 	// which is the other half of what ADR-0014 promises.
-	for _, want := range []string{"What this operator has", "not listed", "absence means nobody documented it"} {
+	for _, want := range []string{"What this operator has", "more pinned note(s)", "absence means nobody documented it"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("an over-budget context did not say %q:\n%s", want, body)
 		}
