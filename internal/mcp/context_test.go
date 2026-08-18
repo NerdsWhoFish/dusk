@@ -205,15 +205,19 @@ func TestADR0050_NothingIsDroppedSilently(t *testing.T) {
 		t.Errorf("context is %d bytes, past the %d budget", len(body), mcp.ContextBudget)
 	}
 
-	// The overflow names the ids it dropped, so counting them everywhere would
-	// count those twice. Everything outside that line was rendered.
-	named, missing, overflow := 0, 0, ""
+	// The overflow names the ids it dropped, on bullets of their own, so those
+	// have to be told apart from the notes actually rendered. A rendered one
+	// carries its kind in bold; an overflow bullet is the bare id.
+	named, missing, dropNamed := 0, 0, 0
 	for _, line := range strings.Split(body, "\n") {
-		if _, err := fmt.Sscanf(line, "%d more pinned note(s) about this repository:", &missing); err == nil {
-			overflow = line
-			continue
+		switch {
+		case strings.HasPrefix(line, "- `.dusk/pinned-"):
+			dropNamed++
+		default:
+			if _, err := fmt.Sscanf(line, "%d more pinned note(s) about this repository.", &missing); err != nil {
+				named += strings.Count(line, "`.dusk/pinned-")
+			}
 		}
-		named += strings.Count(line, "`.dusk/pinned-")
 	}
 	if named+missing != len(pinned) {
 		t.Errorf("%d notes rendered and %d reported left out, want all %d accounted for:\n%s",
@@ -222,8 +226,8 @@ func TestADR0050_NothingIsDroppedSilently(t *testing.T) {
 
 	// ADR-0057: a count cannot say which note. An id is what `note` takes, so
 	// an overflow that reports only a number leaves them unreachable.
-	if !strings.Contains(overflow, "`.dusk/pinned-") {
-		t.Errorf("the overflow counted what it dropped without naming one: %q\n%s", overflow, body)
+	if dropNamed == 0 {
+		t.Errorf("the overflow counted what it dropped without naming one:\n%s", body)
 	}
 
 	// A share cap is why pinning forty things does not erase the inventory,
@@ -349,9 +353,9 @@ func TestADR0057_TheOverflowNamesTheKindsItLeftOut(t *testing.T) {
 	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
-	overflow := lineWith(t, body, "Other kinds:")
-	if !strings.Contains(overflow, "widget-") {
-		t.Errorf("the overflow counted what it left out instead of naming it: %q\n%s", overflow, body)
+	lineWith(t, body, "Other kinds")
+	if !strings.Contains(body, "\n- widget-") {
+		t.Errorf("the overflow counted what it left out instead of naming it:\n%s", body)
 	}
 }
 

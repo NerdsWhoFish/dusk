@@ -276,14 +276,16 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 		heading: "\n## Pinned notes, about this repository\n\n",
 		items:   noteItems(here),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\n%d more pinned note(s) about this repository: %s.\n", len(dropped), names(dropped))
+			return fmt.Sprintf("\n%d more pinned note(s) about this repository. `note` with `pinned: true` answers with every one:\n%s",
+				len(dropped), names(dropped))
 		},
 	}
 
 	owned := &section{
 		heading: fmt.Sprintf("\n## What this repository declares (%d)\n\n", len(declared)),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\n%d more it declares: %s.\n", len(dropped), names(dropped))
+			return fmt.Sprintf("\n%d more it declares. `search` finds any of them by name:\n%s",
+				len(dropped), names(dropped))
 		},
 	}
 	for _, ref := range declared {
@@ -295,7 +297,8 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 		heading: "\n## Pinned notes, across the estate\n\n",
 		items:   noteItems(elsewhere),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\n%d more pinned note(s): %s.\n", len(dropped), names(dropped))
+			return fmt.Sprintf("\n%d more pinned note(s). `note` with `pinned: true` answers with every one:\n%s",
+				len(dropped), names(dropped))
 		},
 	}
 
@@ -305,13 +308,17 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 	inventory := &section{
 		heading: fmt.Sprintf("\n## What this operator has (%d)\n\n", held.total),
 		overflow: func(dropped []item) string {
-			return fmt.Sprintf("\nOther kinds: %s.\n", names(dropped))
+			return fmt.Sprintf("\nOther kinds, and `kinds` lists the whole vocabulary:\n%s", names(dropped))
 		},
 	}
 	for _, group := range held.kinds {
+		var refs strings.Builder
+		for _, ref := range group.refs {
+			fmt.Fprintf(&refs, "  - `%s`\n", ref)
+		}
 		inventory.items = append(inventory.items, item{
 			name:  fmt.Sprintf("%s (%d)", group.kind, len(group.refs)),
-			full:  fmt.Sprintf("- **%s** (%d): %s\n", group.kind, len(group.refs), strings.Join(group.refs, ", ")),
+			full:  fmt.Sprintf("- **%s** (%d)\n%s", group.kind, len(group.refs), refs.String()),
 			short: fmt.Sprintf("- **%s** (%d)\n", group.kind, len(group.refs)),
 		})
 	}
@@ -443,15 +450,15 @@ func (s *Server) actionable(held estate) string {
 		}
 	}
 	if len(acts) > 0 {
-		fmt.Fprintf(&out, "\nThe catalog acts as well as answers: %s carry actions. "+
-			"`get` names what an entity takes and `invoke` runs it.\n", listed(acts))
+		fmt.Fprintf(&out, "\nThe catalog acts as well as answers. `get` names what an entity takes and `invoke` runs it, "+
+			"and these kinds carry actions:\n%s", listed(acts))
 	}
 
 	// Phrased around the list rather than about it, so one plugin and several
 	// read the same. "`adr` offer actions" is what naming them directly gives.
 	if free := s.unattachedPlugins(); len(free) > 0 {
 		fmt.Fprintf(&out, "\nSome capability is about no single entity and so appears on nothing a `search` returns. "+
-			"It lives on these plugins: %s. Read one with `get plugin:<name>`.\n", listed(free))
+			"Read one of these with `get plugin:<name>`:\n%s", listed(free))
 	}
 
 	return out.String()
@@ -485,14 +492,24 @@ func names(dropped []item) string {
 	return listed(called)
 }
 
-// listed names things and counts whatever it did not name. Every line built
-// here is one whose room is reserved before it exists, so its length is capped
-// rather than left to how much a catalog happens to hold.
+// listed renders things as a markdown list, capped because its room is
+// reserved whether or not it prints. Callers name the call answering with the
+// rest: a remainder nothing can ask for is the defect this line fixes.
 func listed(names []string) string {
-	if len(names) <= overflowNames {
-		return strings.Join(names, ", ")
+	shown := names
+	if len(shown) > overflowNames {
+		shown = shown[:overflowNames]
 	}
-	return fmt.Sprintf("%s and %d more", strings.Join(names[:overflowNames], ", "), len(names)-overflowNames)
+
+	var out strings.Builder
+	for _, name := range shown {
+		out.WriteString("\n- ")
+		out.WriteString(name)
+	}
+	if hidden := len(names) - len(shown); hidden > 0 {
+		fmt.Fprintf(&out, "\n- and %d more", hidden)
+	}
+	return out.String() + "\n"
 }
 
 // item is one entry in a section: what it says in full, the shorter form that

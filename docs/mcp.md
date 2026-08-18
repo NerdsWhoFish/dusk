@@ -205,9 +205,24 @@ An orientation that opens with airports and never reaches services is ordered ba
 **Nothing is dropped without being named.**
 A note that will not fit whole is printed as its kind, its id and its opening line, which is what to pass back to `note`.
 A kind whose refs will not fit prints its count.
-Below either, and under the heading it belongs to, a line **names** what was left out and says which tool answers it, because a count cannot say `service`.
+Below either, and under the heading it belongs to, an overflow **names** what was left out, because a count cannot say `service` and cannot say `.dusk/gotcha-8f21.md` either.
 
-The closing also names the kinds that carry actions, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one.
+That naming is capped, since the room for it is reserved whether or not it ever prints, so **every overflow also names the call that answers with all of them** ([ADR-0057](../adr/0057-charged-for-what-was-printed.md)):
+
+```text
+25 more pinned note(s) about this repository. `note` with `pinned: true` answers with every one:
+
+- `.dusk/pinned-35.md`
+- `.dusk/pinned-36.md`
+- and 13 more
+```
+
+A remainder an agent cannot ask for is the defect the naming exists to fix, so leaving a bare "and 13 more" reintroduces it one level down.
+Notes recover through `note` with `pinned: true`, declared refs through `search`, and kinds through `kinds`.
+
+The closing also names the kinds that carry actions, and any plugin whose actions are about no single entity, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one and learns that a `plugin:` ref is something it may pass ([ADR-0076](../adr/0076-the-context-carries-the-manual-for-the-tools-it-names.md)).
+
+Anything enumerated here is a markdown list rather than a comma run inside a sentence, including the refs under each kind in the inventory.
 
 ### Configuring the injected context
 
