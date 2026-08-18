@@ -181,6 +181,23 @@ func TestADR0009_RelateWithoutProofIsRejected(t *testing.T) {
 	}
 }
 
+func TestADR0009_RelateRejectsAFileChangedBeforeReconcile(t *testing.T) {
+	writer, target, tokens := relatingWriter(t)
+	target.files[jellyfinPath] = strings.Replace(jellyfinFile, "Media server.", "Changed directly in Git.", 1)
+
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err := writer.Relate(t.Context(), token.ID, write.Relation{
+		From: jellyfin, To: "host:home/nas", Type: "runs_on",
+	})
+	var rejection *proof.Rejection
+	if !errors.As(err, &rejection) || rejection.Code != proof.CodeStale {
+		t.Fatalf("err = %v, want %s", err, proof.CodeStale)
+	}
+	if len(target.commits) != 0 {
+		t.Errorf("a stale relate still committed: %+v", target.commits)
+	}
+}
+
 // A relation lives in the file of the entity it points from, so there has to be
 // one. Creating it is `declare`'s job, and the answer says so.
 func TestRelateRefusesASourceNothingDeclares(t *testing.T) {
@@ -204,15 +221,12 @@ func TestRelateRefusesASourceNothingDeclares(t *testing.T) {
 // The same edge twice says nothing the first one did not, so it is answered
 // rather than committed, the way an identical note is.
 func TestRelateAnswersAnEdgeTheFileAlreadyDeclares(t *testing.T) {
-	writer, target, tokens := relatingWriter(t)
+	withRelation := strings.Replace(jellyfinFile, "title: Jellyfin\n", "title: Jellyfin\nrelations:\n  - type: runs_on\n    to: host:home/nas\n", 1)
+	writer, target, tokens := newWriter(t, locatedContents(jellyfinPath, withRelation), map[string]string{
+		RootPath: rootFile, jellyfinPath: withRelation,
+	})
 
 	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
-	if _, err := writer.Relate(t.Context(), token.ID, write.Relation{
-		From: jellyfin, To: "host:home/nas", Type: "runs_on",
-	}); err != nil {
-		t.Fatalf("Relate: %v", err)
-	}
-
 	again, err := writer.Relate(t.Context(), token.ID, write.Relation{
 		From: jellyfin, To: "host:home/nas", Type: "runs_on",
 	})
@@ -222,8 +236,8 @@ func TestRelateAnswersAnEdgeTheFileAlreadyDeclares(t *testing.T) {
 	if !again.Existing {
 		t.Error("Existing = false, want the answer to say it is already declared")
 	}
-	if len(target.commits) != 1 {
-		t.Errorf("commits = %d, want the second one to write nothing", len(target.commits))
+	if len(target.commits) != 0 {
+		t.Errorf("commits = %d, want the existing edge to write nothing", len(target.commits))
 	}
 
 	t.Run("a different type to the same target is a different edge", func(t *testing.T) {
@@ -232,12 +246,12 @@ func TestRelateAnswersAnEdgeTheFileAlreadyDeclares(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("Relate: %v", err)
 		}
-		if len(target.commits) != 2 {
-			t.Fatalf("commits = %d, want the second edge written", len(target.commits))
+		if len(target.commits) != 1 {
+			t.Fatalf("commits = %d, want the different edge written", len(target.commits))
 		}
 
 		parsed, err := duskmd.ParseIncluded(jellyfinPath,
-			target.commits[1].Content, "home", duskmd.Provenance{})
+			target.commits[0].Content, "home", duskmd.Provenance{})
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}

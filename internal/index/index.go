@@ -36,10 +36,11 @@ type DB struct {
 }
 
 type entityRow struct {
-	Repository string `gorm:"primaryKey"`
-	GitRef     string `gorm:"primaryKey"`
-	Ref        string `gorm:"primaryKey"`
-	Path       string
+	Repository  string `gorm:"primaryKey"`
+	GitRef      string `gorm:"primaryKey"`
+	Ref         string `gorm:"primaryKey"`
+	Path        string
+	ContentHash string
 
 	// Observed marks a row an ingester saw rather than a human declared. It
 	// orders reads: a person who wrote something down beats a machine that
@@ -223,8 +224,9 @@ var ftsSchema = []string{
 // Declaration is one entity and the file that declares it. They travel together
 // because a write has to find its way back to that file.
 type Declaration struct {
-	Path   string
-	Entity *duskv1alpha1.Entity
+	Path        string
+	ContentHash string
+	Entity      *duskv1alpha1.Entity
 
 	// ObservedAs names what an ingester calls this same thing, so drift can
 	// tell "I named it differently" from "it is gone".
@@ -513,6 +515,7 @@ func entityRows(repository, gitRef string, declarations []Declaration) ([]entity
 			Repository:  repository,
 			GitRef:      gitRef,
 			Path:        declared.Path,
+			ContentHash: declared.ContentHash,
 			Observed:    IsObserved(repository),
 			Ref:         e.GetRef(),
 			Kind:        e.GetKind(),

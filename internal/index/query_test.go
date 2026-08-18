@@ -91,6 +91,29 @@ func TestLocateRoutesToADeclarationAndNeverToAnObservation(t *testing.T) {
 	})
 }
 
+func TestLocateReturnsTheDeclaringFileContentHash(t *testing.T) {
+	db := newDB(t)
+	declaration := index.Declaration{
+		Path:        "jellyfin/dusk.md",
+		ContentHash: "sha256-of-the-declaring-file",
+		Entity:      entity("service:home/jellyfin", "Jellyfin", ""),
+	}
+	if err := db.Put(t.Context(), "example/homelab", mainRef, []index.Declaration{declaration}, nil, nil); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := db.SetDefaultView(t.Context(), "example/homelab", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+
+	at, err := db.Locate(t.Context(), "", declaration.Entity.GetRef())
+	if err != nil {
+		t.Fatalf("Locate: %v", err)
+	}
+	if at.ContentHash != declaration.ContentHash {
+		t.Errorf("ContentHash = %q, want %q", at.ContentHash, declaration.ContentHash)
+	}
+}
+
 // A note about what a repository declares usually lives in the config
 // repository, so the two halves of "notes about this repository" are stored
 // apart and only the refs connect them.

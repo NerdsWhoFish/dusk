@@ -13,6 +13,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
@@ -112,7 +113,14 @@ func newWriter(t *testing.T, at *index.Location, files map[string]string) (*writ
 }
 
 func located(path string) *index.Location {
-	return &index.Location{Repository: repo, GitRef: "refs/heads/main", Path: path, Version: "v1"}
+	return locatedContents(path, jellyfinFile)
+}
+
+func locatedContents(path, contents string) *index.Location {
+	return &index.Location{
+		Repository: repo, GitRef: "refs/heads/main", Path: path, Version: "v1",
+		ContentHash: duskmd.FileContentHash([]byte(contents)),
+	}
 }
 
 func TestDeclareUpdatesAnExistingEntity(t *testing.T) {
@@ -199,6 +207,24 @@ func TestADR0009_DeclareWithoutProofIsRejected(t *testing.T) {
 
 	if len(target.commits) != 0 {
 		t.Errorf("a rejected declare still committed: %+v", target.commits)
+	}
+}
+
+// ADR-0009 protects the state the agent read, not merely the last state the
+// asynchronous reconciler happened to materialize.
+func TestADR0009_DeclareRejectsAFileChangedBeforeReconcile(t *testing.T) {
+	changed := strings.Replace(jellyfinFile, "Media server.", "Changed directly in Git.", 1)
+	files := map[string]string{RootPath: rootFile, "services/jellyfin/dusk.md": changed}
+	writer, target, tokens := newWriter(t, located("services/jellyfin/dusk.md"), files)
+
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{Ref: jellyfin, Title: "x"})
+	var rejection *proof.Rejection
+	if !errors.As(err, &rejection) || rejection.Code != proof.CodeStale {
+		t.Fatalf("err = %v, want %s", err, proof.CodeStale)
+	}
+	if len(target.commits) != 0 {
+		t.Errorf("a stale declare still committed: %+v", target.commits)
 	}
 }
 

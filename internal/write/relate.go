@@ -58,6 +58,9 @@ func (w *Writer) Relate(ctx context.Context, token string, relation Relation) (*
 	if err != nil {
 		return nil, err
 	}
+	if err := currentDeclaration(from, at, contents.Data); err != nil {
+		return nil, err
+	}
 
 	if alreadyDeclares(file.Relations, relType, to) {
 		return &Result{

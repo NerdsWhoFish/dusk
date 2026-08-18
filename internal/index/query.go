@@ -262,10 +262,11 @@ func (db *DB) Kinds(ctx context.Context, gitRef string, v Visibility) ([]KindCou
 // Location is where an entity is declared: the repository, the file, and the
 // version a write must still match to prove it read the current one.
 type Location struct {
-	Repository string
-	GitRef     string
-	Path       string
-	Version    string
+	Repository  string
+	GitRef      string
+	Path        string
+	Version     string
+	ContentHash string
 }
 
 // Locate finds the file that declares an entity, which is how a write routes.
@@ -284,10 +285,11 @@ func (db *DB) Locate(ctx context.Context, gitRef, entityRef string) (*Location, 
 		return nil, fmt.Errorf("index: locate %q: %w", entityRef, err)
 	}
 	return &Location{
-		Repository: row.Repository,
-		GitRef:     row.GitRef,
-		Path:       row.Path,
-		Version:    row.Version,
+		Repository:  row.Repository,
+		GitRef:      row.GitRef,
+		Path:        row.Path,
+		Version:     row.Version,
+		ContentHash: row.ContentHash,
 	}, nil
 }
 

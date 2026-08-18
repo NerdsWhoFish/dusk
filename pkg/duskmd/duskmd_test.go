@@ -83,6 +83,19 @@ func TestParseRoot(t *testing.T) {
 	}
 }
 
+func TestParseRecordsTheExactFileContentHash(t *testing.T) {
+	file, err := duskmd.ParseRoot("dusk.md", []byte(validRoot), testProvenance)
+	if err != nil {
+		t.Fatalf("ParseRoot: %v", err)
+	}
+	if file.ContentHash != duskmd.FileContentHash([]byte(validRoot)) {
+		t.Errorf("ContentHash = %q, want the hash of the parsed bytes", file.ContentHash)
+	}
+	if file.ContentHash == duskmd.FileContentHash([]byte(validRoot+"\n")) {
+		t.Error("ContentHash ignored a byte-level change")
+	}
+}
+
 // ADR-0026 derives the ref from kind, namespace and name rather than accepting
 // it as a field, so the mismatch the SDK's conformance check exists to catch
 // cannot be authored in the first place.

@@ -201,6 +201,9 @@ func (w *Writer) update(ctx context.Context, token, ref string, declaration Decl
 	if err != nil {
 		return nil, err
 	}
+	if err := currentDeclaration(ref, at, contents.Data); err != nil {
+		return nil, err
+	}
 
 	apply(file, declaration)
 
@@ -222,6 +225,18 @@ func (w *Writer) update(ctx context.Context, token, ref string, declaration Decl
 			ReplacingSHA: contents.SHA,
 		},
 	})
+}
+
+func currentDeclaration(ref string, at *index.Location, contents []byte) error {
+	if at.ContentHash != "" && duskmd.FileContentHash(contents) == at.ContentHash {
+		return nil
+	}
+	return &proof.Rejection{
+		Code:   proof.CodeStale,
+		Ref:    ref,
+		Detail: "the declaring file changed in Git after the catalog read that issued this token",
+		Fix:    fmt.Sprintf("get(%q)", ref),
+	}
 }
 
 func (w *Writer) create(ctx context.Context, token, ref string, declaration Declaration) (*Result, error) {

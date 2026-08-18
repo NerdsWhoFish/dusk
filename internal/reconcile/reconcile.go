@@ -68,6 +68,9 @@ type Graph struct {
 	// file declares exactly one entity.
 	Files []string
 
+	// ContentHashes are the exact file identities index-aligned with Entities.
+	ContentHashes []string
+
 	Entities  []*duskv1alpha1.Entity
 	Relations []*duskv1alpha1.Relation
 
@@ -90,7 +93,7 @@ func (g *Graph) declarations() []index.Declaration {
 	out := make([]index.Declaration, 0, len(g.Entities))
 	for i, entity := range g.Entities {
 		out = append(out, index.Declaration{
-			Path: g.Files[i], Entity: entity, ObservedAs: g.ObservedAs[i],
+			Path: g.Files[i], ContentHash: g.ContentHashes[i], Entity: entity, ObservedAs: g.ObservedAs[i],
 		})
 	}
 	return out
@@ -289,6 +292,7 @@ func (g *Graph) merge(files []*duskmd.File) error {
 		}
 		declaredIn[ref] = file.Path
 		g.Files = append(g.Files, file.Path)
+		g.ContentHashes = append(g.ContentHashes, file.ContentHash)
 		g.Entities = append(g.Entities, file.Entity)
 		g.Relations = append(g.Relations, file.Relations...)
 		g.ObservedAs = append(g.ObservedAs, file.ObservedAs)

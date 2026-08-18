@@ -12,6 +12,8 @@ package duskmd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -54,6 +56,10 @@ type Provenance struct {
 type File struct {
 	// Path is the file's path within the repository.
 	Path string
+
+	// ContentHash identifies the exact bytes parsed. Writers compare it with a
+	// fresh repository read so a proof cannot authorize against stale materialized data.
+	ContentHash string
 
 	// Entity is the single entity the file declares.
 	Entity *duskv1alpha1.Entity
@@ -173,9 +179,15 @@ func parse(filePath string, data []byte, p Provenance, cfg config) (*File, error
 		return nil, err
 	}
 	return &File{
-		Path: filePath, Entity: entity, Relations: relations,
+		Path: filePath, ContentHash: FileContentHash(data), Entity: entity, Relations: relations,
 		Include: include, ObservedAs: fm.ObservedAs,
 	}, nil
+}
+
+// FileContentHash identifies the exact bytes of a catalog file.
+func FileContentHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func title(fm frontmatter, name string) string {

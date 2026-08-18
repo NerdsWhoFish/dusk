@@ -13,6 +13,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/reconcile"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 )
 
 // Both sources satisfy the boundary, which is what ADR-0005 requires: the
@@ -79,6 +80,14 @@ func TestReconcile(t *testing.T) {
 	result, err := reconciler.Reconcile(ctx, testRepo, mainRef, observedAt)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
+	}
+
+	at, err := idx.Locate(ctx, mainRef, "service:home/jellyfin")
+	if err != nil {
+		t.Fatalf("Locate: %v", err)
+	}
+	if at.ContentHash != duskmd.FileContentHash([]byte(jellyfinFile)) {
+		t.Errorf("declaring file hash = %q, want the reconciled bytes", at.ContentHash)
 	}
 
 	if !result.Participating {
