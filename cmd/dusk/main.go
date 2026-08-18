@@ -175,12 +175,13 @@ func serve(parent context.Context) error {
 		ConfigRepository: cfg.ConfigRepository,
 	}
 	agents := mcp.New(mcp.Options{
-		Catalog: idx,
-		Syncs:   syncStatus{catalog},
-		Version: version,
-		Tokens:  tokens,
-		Writer:  writer,
-		Plugins: plugins,
+		Catalog:        idx,
+		Syncs:          syncStatus{catalog},
+		Version:        version,
+		Tokens:         tokens,
+		Writer:         writer,
+		Plugins:        plugins,
+		SessionTimeout: cfg.MCPSessionTimeout,
 	})
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
 

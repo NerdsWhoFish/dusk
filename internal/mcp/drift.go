@@ -33,10 +33,10 @@ type driftInput struct {
 func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInput) (*sdk.CallToolResult, any, error) {
 	drifts, err := s.opts.Catalog.Drift(ctx, "", index.DriftFilter{Undeclared: in.Undeclared}, s.viewer())
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_drift_failed", err), nil, nil
 	}
 	if len(drifts) == 0 {
-		return text("Nothing the catalog claims is unsupported: everything declared is observed, and every note points at something real.\n\nThis says nothing about what is running and undeclared. Pass `undeclared` for that. And if no ingester is configured there is nothing to compare against, in which case this answer means only that."), nil, nil
+		return success("Nothing the catalog claims is unsupported: everything declared is observed, and every note points at something real.\n\nThis says nothing about what is running and undeclared. Pass `undeclared` for that. And if no ingester is configured there is nothing to compare against, in which case this answer means only that.", map[string]any{"drift": []index.Drift{}}), nil, nil
 	}
 
 	missing, notes, undeclared := sortDrift(drifts)
@@ -71,5 +71,5 @@ func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInpu
 		out.WriteString("\nThese exist and nobody has said what they are for. Declaring one is a `declare` call.\n")
 	}
 
-	return text(out.String()), nil, nil
+	return success(out.String(), map[string]any{"drift": drifts}), nil, nil
 }

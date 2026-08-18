@@ -147,6 +147,9 @@ func TestToolSurfaceIsSmall(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description, so an agent cannot tell when to use it", tool.Name)
 		}
+		if tool.OutputSchema == nil {
+			t.Errorf("tool %q has no output schema for its structured result", tool.Name)
+		}
 	}
 
 	// Six reads, plus note and kinds, which read as well as write. Adding one
@@ -449,6 +452,49 @@ func TestInstructionsAreServed(t *testing.T) {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("instructions missing %q", want)
 		}
+	}
+	if len(instructions) > 700 {
+		t.Fatalf("instructions cost %d bytes on every session, want at most 700:\n%s", len(instructions), instructions)
+	}
+}
+
+func TestIdleSessionsExpire(t *testing.T) {
+	session := serve(t, mcp.New(mcp.Options{
+		Catalog: newIndex(t), Version: "test", SessionTimeout: 20 * time.Millisecond,
+	}))
+	time.Sleep(80 * time.Millisecond)
+	if _, err := session.ListTools(t.Context(), nil); err == nil {
+		t.Fatal("an idle MCP session remained usable after its timeout")
+	}
+}
+
+func TestRelationOutputIsBounded(t *testing.T) {
+	session, idx := connect(t, nil)
+	root := entity("service:home/root", "service", "Root", "Has an unreasonable number of edges.")
+	relations := make([]*duskv1alpha1.Relation, 0, 150)
+	for i := range 150 {
+		relations = append(relations, &duskv1alpha1.Relation{
+			From: root.GetRef(), To: fmt.Sprintf("service:home/dependency-%03d", i), Type: "depends_on",
+			Provenance: &duskv1alpha1.Provenance{Source: "dusk.md", Version: "abc1234def"},
+		})
+	}
+	put(t, idx, "example/homelab", []*duskv1alpha1.Entity{root}, relations...)
+
+	result, err := session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "get", Arguments: map[string]any{"ref": root.GetRef()},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get): %v", err)
+	}
+	body := result.Content[0].(*sdk.TextContent).Text
+	if !strings.Contains(body, "50 more connection(s) were omitted") {
+		t.Fatalf("bounded result did not disclose truncation:\n%s", body)
+	}
+	if strings.Contains(body, "dependency-149") {
+		t.Fatal("get rendered relations beyond the bound")
+	}
+	if result.StructuredContent == nil {
+		t.Fatal("get returned markdown without compact structured content")
 	}
 }
 

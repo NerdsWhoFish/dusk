@@ -50,22 +50,22 @@ type contextInput struct {
 func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in contextInput) (*sdk.CallToolResult, any, error) {
 	repository, err := s.matchRepository(ctx, in.Root)
 	if err != nil {
-		return nil, nil, err
+		return failure("context_repository_resolution_failed", err), nil, nil
 	}
 
 	profile, err := s.contextProfile(ctx)
 	if err != nil {
-		return nil, nil, err
+		return failure("context_profile_read_failed", err), nil, nil
 	}
 
 	entities, err := s.opts.Catalog.List(ctx, "", "")
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	vocabulary, err := s.opts.Catalog.Vocabulary(ctx, "")
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 	held := takeInventory(entities, vocabulary)
 	held.kinds = orderKinds(held.kinds, profile.KindOrder)
@@ -73,25 +73,27 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 	var declared []string
 	if repository != "" {
 		if declared, err = s.opts.Catalog.Declared(ctx, "", repository); err != nil {
-			return nil, nil, err
+			return failure("catalog_read_failed", err), nil, nil
 		}
 	}
 
 	here, elsewhere, err := s.pinned(ctx, repository)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	tail, err := s.tail(ctx, held)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	reading, _ := contextSections(declared, here, elsewhere, held)
 	reading, priority := profileSections(profile, reading)
 	body := assemble(contextHeader(in.Root, repository, len(declared), held.total, profile.Instructions), tail, reading, priority)
 
-	return text(truncate(body, profile.Budget)), nil, nil
+	return success(truncate(body, profile.Budget), map[string]any{
+		"repository": repository, "declared": declared, "entity_count": held.total,
+	}), nil, nil
 }
 
 func (s *Server) contextProfile(ctx context.Context) (contextconfig.Profile, error) {

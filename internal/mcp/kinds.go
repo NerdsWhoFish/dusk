@@ -35,7 +35,7 @@ func (s *Server) kinds(ctx context.Context, _ *sdk.CallToolRequest, in kindsInpu
 func (s *Server) readKinds(ctx context.Context, in kindsInput) (*sdk.CallToolResult, any, error) {
 	kinds, err := s.opts.Catalog.Vocabulary(ctx, "")
 	if err != nil {
-		return nil, nil, err
+		return failure("vocabulary_read_failed", err), nil, nil
 	}
 
 	var out strings.Builder
@@ -49,7 +49,7 @@ func (s *Server) readKinds(ctx context.Context, in kindsInput) (*sdk.CallToolRes
 
 	out.WriteString("\nKinds are open: declaring one that is not here creates it, and nothing refuses that. " +
 		"Minting one says what it is for, which is what makes something act on it.\n")
-	return text(out.String() + s.issueVocabulary(ctx)), nil, nil
+	return success(out.String()+s.issueVocabulary(ctx), map[string]any{"kinds": kinds, "namespace": in.Namespace}), nil, nil
 }
 
 func renderNamespace(out *strings.Builder, namespace vocab.Namespace, kinds []vocab.Kind) {
@@ -106,33 +106,34 @@ func (s *Server) issueVocabulary(ctx context.Context) string {
 
 func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResult, any, error) {
 	if s.opts.Writer == nil || s.opts.Tokens == nil {
-		return text("This deployment is read only, so the vocabulary can be read and not extended."), nil, nil
+		return failure("vocabulary_writes_disabled", fmt.Errorf("this deployment is read only, so the vocabulary can be read and not extended")), nil, nil
 	}
 
 	kind, err := parseMint(in)
 	if err != nil {
-		return text(fmt.Sprintf("Nothing was minted.\n\n%s", err)), nil, nil
+		return failureText("invalid_argument", fmt.Sprintf("Nothing was minted.\n\n%s", err), err), nil, nil
 	}
 
 	existing, err := s.opts.Catalog.Vocabulary(ctx, "")
 	if err != nil {
-		return nil, nil, err
+		return failure("vocabulary_read_failed", err), nil, nil
 	}
 
 	// The one refusal: a second spelling is two rows meaning one thing. The
 	// same spelling is a correction, which is what ADR-0054 exists for.
 	was, known := vocab.Lookup(kind.Namespace, kind.Name, existing)
 	if known && was.Name != kind.Name {
-		return text(refuseMint(kind, was)), nil, nil
+		message := refuseMint(kind, was)
+		return failureText("kind_alias_conflict", message, fmt.Errorf("%s", message)), nil, nil
 	}
 
 	result, err := s.opts.Writer.MintKind(ctx, in.Proof, kind)
 	if err != nil {
-		return text(fmt.Sprintf("Nothing was minted.\n\n%s", err)), nil, nil
+		return failureText("kind_write_failed", fmt.Sprintf("Nothing was minted.\n\n%s", err), err), nil, nil
 	}
 	if result.Existing {
-		return text(fmt.Sprintf("The %s kind `%s` is already %s, with nothing to add. Nothing was written.",
-			kind.Namespace, kind.Name, kind.Role)), nil, nil
+		return success(fmt.Sprintf("The %s kind `%s` is already %s, with nothing to add. Nothing was written.",
+			kind.Namespace, kind.Name, kind.Role), result), nil, nil
 	}
 
 	var out strings.Builder
@@ -146,7 +147,7 @@ func (s *Server) mintKind(ctx context.Context, in kindsInput) (*sdk.CallToolResu
 			"mint an alias on that one instead of keeping both.\n", quoteNames(near))
 	}
 	out.WriteString("\nIt reaches the catalog on the next reconcile, which the push already triggered.\n")
-	return text(out.String()), nil, nil
+	return success(out.String(), map[string]any{"kind": kind, "write": result}), nil, nil
 }
 
 // minted says what the mint did, which is not always minting: a kind something

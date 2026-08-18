@@ -33,6 +33,7 @@ Dusk serves streamable HTTP at `/mcp` on the private host.
 | `DUSK_MCP_TOKEN` | Require that bearer token. Compared in constant time |
 | `DUSK_TRUSTED_NETWORK=true` | Serve it unauthenticated. Every host that can reach `/mcp` may read the estate, obtain proofs, and invoke enabled mutations as the operator |
 | `DUSK_PROOF_TTL` | How long an abandoned proof remains spendable, as a Go duration. Defaults to `1h`; current-version checks still invalidate it immediately when content changes |
+| `DUSK_MCP_SESSION_TIMEOUT` | Close a streamable HTTP session after this much inactivity, as a Go duration. Defaults to `30m`; an active tool call is not cut short |
 | Neither | `/mcp` answers 503 explaining how to turn it on |
 
 Setting both is an error rather than the stricter of the two, because two answers to "who may read this" is an unanswered question.
@@ -67,6 +68,7 @@ Notes come back whole rather than as ids to fetch, because a gotcha an agent has
 
 Fat is about what arrives, not about how much of it: the notes past the byte budget arrive named rather than whole, and `titles` names all of them ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
 A relation carries the title of what it points at, so choosing which of twenty-two related things to open does not cost twenty-two calls.
+Connection and dependent sections stop at 100 rows and state how many were omitted, so a broken or generated catalog cannot create an unbounded agent response.
 
 An attribute arrives as what it is.
 A scalar is prose, and a list or a map is JSON, because Go's own formatting of `["Backlog", "To Do"]` is `[Backlog To Do]`, which cannot be told from a list of the words inside its elements.
@@ -77,6 +79,9 @@ A plugin's capabilities are [actions](../adr/0015-plugin-actions-and-events.md),
 Discovery folds into `get`, because what can be done to a thing is part of the picture of that thing, and running one is `invoke` ([ADR-0041](../adr/0041-plugins-reach-agents-as-actions.md)).
 
 The surface is therefore constant: a tenth plugin costs nothing, and an agent that has read an entity already knows what it can do to it.
+
+Each action includes the complete JSON Schema its plugin declared.
+Dusk does not reduce that contract to parameter names: types, descriptions, required fields, enums, defaults and nested constraints all reach the agent unchanged.
 
 An action declares a class.
 Read-only needs nothing.
@@ -103,6 +108,19 @@ The cost is real and worth stating: an agent that never calls `get` never discov
 Proof tokens prevent blind and stale writes; they do not identify a person or turn an untrusted caller into a read-only one.
 Any process that can reach `/mcp` can read the catalog, receive fresh proof tokens, invoke every enabled action, and change plugin configuration.
 Use trusted-network mode only when network reachability itself is the operator boundary; otherwise set `DUSK_MCP_TOKEN`.
+
+## Result and error contract
+
+Every tool keeps a readable Markdown result for the model and human transcript.
+The same response carries compact `structuredContent` for clients that should not scrape prose, using a shared envelope with `status`, an optional stable `code`, and tool-specific `data`.
+
+An expected empty result is successful and says what was searched.
+An operational failure sets MCP `isError: true` and a stable snake-case code such as `catalog_read_failed`, `action_failed` or `stale_or_invalid_proof`.
+Confirmation requests remain successful answers because the agent must put the decision to its operator.
+An interrupted mutation is an error with `mutation_outcome_unknown`, not `action_failed`, because retrying it as though nothing happened is unsafe.
+
+The server initialization instructions contain only the workflow shared across tools.
+Detailed arguments and behavior live in each tool description and input schema, where clients already pay for them, instead of being repeated in every session twice ([ADR-0071](../adr/0071-mcp-results-are-dual-purpose-and-bounded.md)).
 
 ## What `search` matches
 

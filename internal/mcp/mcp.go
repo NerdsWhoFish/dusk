@@ -132,33 +132,17 @@ type Options struct {
 	// Now is what ages a read time. Injected so a test can assert on a phrase
 	// rather than on whatever the machine's clock said.
 	Now func() time.Time
+
+	// SessionTimeout closes idle streamable HTTP sessions. Zero uses 30 minutes.
+	SessionTimeout time.Duration
 }
 
 // instructions is the portable half of ADR-0014's context injection: an
 // interaction manual, not a knowledge dump, because it is spent on every
 // session before any work happens.
-const instructions = `Dusk is the internal developer platform for this operator's homelab. It is the catalog and operational memory shared by one trusted operator and their agents: services, hosts, datastores, how they connect, and what has been learned about them.
+const instructions = `Dusk is the internal developer platform, catalog and operational memory shared by one homelabber and their agents.
 
-Use it before guessing at infrastructure. If a question mentions a service, a host, a cluster, or "how do I", search here first.
-
-- search finds entities by any word in their name, kind, title, or description.
-- get returns everything known about one entity, including what it connects to.
-- neighbors walks the graph outward from an entity.
-- changes reports what Dusk last read from git and anything wrong with the result, which is how you tell a stale answer from a missing one and a confident answer from a correct one.
-- drift reports where the catalog and reality disagree: declared where something is watching and not observed there, or running and written down nowhere. It reports what it can check, never what it cannot see, so a row is a thing to look into rather than a thing to delete.
-- invoke does something to an entity. What can be done is part of what get returns, so read a thing to learn what you can do to it. Anything that changes something needs the proof token from the read it names; anything destructive needs confirm; pass preview to see what would happen first.
-
-- note reads and writes what has been written down. An **idea** is a note of kind idea: something somebody wants to keep, attached to what it is about or to nothing at all. Ask for them with note and no body, narrowed by kind, status and ref, and close one with status done or dropped.
-
-- kinds lists the vocabulary: every kind in use, what it is for, and how many things carry it. Read it before inventing a kind, because kinds are open and nothing will stop you creating a second spelling of one that exists. Minting one with a role is what makes something act on it.
-
-- dusk_context returns this operator's inventory and the notes they pinned, tailored to the repository you are working in. A note it names but does not print is one to ask note for.
-
-Every result carries a ref of the form kind:namespace/name. Refs feed straight back into get.
-
-The catalog only knows what repositories have declared in a dusk.md, plus what an ingester observed by looking. An entity being absent means nobody has written it down, not that it does not exist.
-
-**Call dusk_context once at the start of a session**, passing the directory you are working in. It tells you what this operator has before you need to ask, and it is the difference between answering from their catalog and answering from a guess.`
+Call dusk_context once at the start of a session, with the current owner/name repository when known. Use search before guessing; pass returned kind:namespace/name refs to get. Use changes to judge freshness, drift for maintenance work, and note for knowledge worth keeping. Get lists the enabled actions for a thing and the proof required before changing it. Absence means nobody declared or observed something, not that it cannot exist.`
 
 // Server is the MCP surface over the catalog.
 type Server struct {
@@ -182,7 +166,14 @@ func (s *Server) viewer() index.Visibility { return index.Unrestricted() }
 
 // Handler serves the streamable HTTP transport.
 func (s *Server) Handler() http.Handler {
-	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return s.sdkServer() }, nil)
+	timeout := s.opts.SessionTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	return sdk.NewStreamableHTTPHandler(
+		func(*http.Request) *sdk.Server { return s.sdkServer() },
+		&sdk.StreamableHTTPOptions{SessionTimeout: timeout},
+	)
 }
 
 func (s *Server) sdkServer() *sdk.Server {
@@ -195,86 +186,50 @@ func (s *Server) sdkServer() *sdk.Server {
 		&sdk.ServerOptions{Instructions: instructions},
 	)
 
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "search",
-		Description: "Search the catalog for entities by any word in their name, kind, title, or description. The place to start.",
-	}, s.search)
+	sdk.AddTool(server, resultTool("search", "Search the catalog for entities by any word in their name, kind, title, or description. The place to start."), s.search)
 
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "get",
-		Description: "Everything known about one entity, including its relations and what can be done to it. Takes a ref of the form kind:namespace/name, or `plugin:name` to read a plugin and see what it can be asked to do without naming an entity.",
-	}, s.get)
+	sdk.AddTool(server, resultTool("get", "Everything known about one entity, including its relations and what can be done to it. Takes a ref of the form kind:namespace/name, or `plugin:name` to read a plugin and see what it can be asked to do without naming an entity."), s.get)
 
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "neighbors",
-		Description: "Walk the graph outward from an entity to find what depends on it.",
-	}, s.neighbors)
+	sdk.AddTool(server, resultTool("neighbors", "Walk the graph outward from an entity to find what depends on it."), s.neighbors)
 
 	// Freshness and soundness are one question, "how much should I trust what
 	// you just told me", so they are one tool. ADR-0010 makes the size of the
 	// tool list a product constraint: it is spent before any work happens.
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "changes",
-		Description: "The state of the catalog: what Dusk last read from each repository, and anything wrong with the result. Use it to tell a stale answer from a missing one, and a confident answer from a correct one.",
-	}, s.changes)
+	sdk.AddTool(server, resultTool("changes", "The state of the catalog: what Dusk last read from each repository, and anything wrong with the result. Use it to tell a stale answer from a missing one, and a confident answer from a correct one."), s.changes)
 
 	// A fifth tool, and the only one that is a work queue rather than a
 	// lookup. Folding it into changes would mix "can I trust this answer"
 	// with "what should I go and do", which are different sessions.
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "drift",
-		Description: "What the catalog claims and reality does not support: declared where something is watching and not observed there, or a note pointing at a ref nothing holds. This is the maintenance queue, so ask after something is decommissioned. A row is not proof a thing is gone, and the answer says what else it can mean. Pass undeclared to also list what is running and written down nowhere.",
-	}, s.drift)
+	sdk.AddTool(server, resultTool("drift", "What the catalog claims and reality does not support: declared where something is watching and not observed there, or a note pointing at a ref nothing holds. This is the maintenance queue, so ask after something is decommissioned. A row is not proof a thing is gone, and the answer says what else it can mean. Pass undeclared to also list what is running and written down nowhere."), s.drift)
 
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "dusk_context",
-		Description: "What this operator's catalog knows, tailored to the repository you are working in: what they pinned worth knowing before you start, what the repository declares, and what else they have. Call this once at the start of a session, before assuming anything about their infrastructure.",
-	}, s.duskContext)
+	sdk.AddTool(server, resultTool("dusk_context", "What this operator's catalog knows, tailored to the repository you are working in: what they pinned worth knowing before you start, what the repository declares, and what else they have. Call this once at the start of a session, before assuming anything about their infrastructure."), s.duskContext)
 
 	// One tool, however many plugins are installed. A plugin's capability is an
 	// action, not a tool, so the surface does not grow with the marketplace
 	// (ADR-0041).
 	if s.opts.Plugins != nil {
-		sdk.AddTool(server, &sdk.Tool{
-			Name:        "invoke",
-			Description: "Do something to an entity, from the actions get listed for it, or poll an asynchronous run by passing its plugin and handle. Anything that changes something needs the proof token from the read it names and a unique idempotency_key; reuse that key if a reply is lost. Anything destructive also needs confirm. Pass preview to see what would happen instead.",
-		}, s.invoke)
+		sdk.AddTool(server, resultTool("invoke", "Do something to an entity, from the actions get listed for it, or poll an asynchronous run by passing its plugin and handle. Anything that changes something needs the proof token from the read it names and a unique idempotency_key; reuse that key if a reply is lost. Anything destructive also needs confirm. Pass preview to see what would happen instead."), s.invoke)
 
-		sdk.AddTool(server, &sdk.Tool{
-			Name:        "configure",
-			Description: "Read or set a plugin's configuration. Pass settings to change fields, which are merged over what is there; omit it to see the current values. Credentials are entered in Dusk's own interface and cannot be set here.",
-		}, s.configure)
+		sdk.AddTool(server, resultTool("configure", "Read or set a plugin's configuration. Pass settings to change fields, which are merged over what is there; omit it to see the current values. Credentials are entered in Dusk's own interface and cannot be set here."), s.configure)
 	}
 
 	// Registered whether or not anything can be written, for the same reason
 	// note is: knowing what kinds exist is what stops the next one being a
 	// misspelling of one that does.
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "kinds",
-		Description: "Read the catalog's vocabulary of kinds, or extend it. Every kind in use is listed with what it is for and how many things carry it. Pass mint with a namespace and a role to add one, against the proof token this read returns. Kinds are open, so declaring an unlisted one always works; minting is how a kind gets a meaning something acts on.",
-	}, s.kinds)
+	sdk.AddTool(server, resultTool("kinds", "Read the catalog's vocabulary of kinds, or extend it. Every kind in use is listed with what it is for and how many things carry it. Pass mint with a namespace and a role to add one, against the proof token this read returns. Kinds are open, so declaring an unlisted one always works; minting is how a kind gets a meaning something acts on."), s.kinds)
 
 	// Registered whether or not anything can be written: reading what has been
 	// written down is a read, and a deployment with nowhere to put a new note
 	// can still answer "what ideas do I have".
-	sdk.AddTool(server, &sdk.Tool{
-		Name:        "note",
-		Description: "Read or record something worth keeping that is not a description of any one thing: a gotcha, a runbook, an idea, the reason something is the way it is. Pass a body to write one, attaching it to the entities it concerns, or nothing to read what is there, narrowed by kind, status and what it is about. An id on its own reads that one note and returns the token to replace it. An idea about nothing in particular needs no refs. Close one with status done or dropped.",
-	}, s.note)
+	sdk.AddTool(server, resultTool("note", "Read or record something worth keeping that is not a description of any one thing: a gotcha, a runbook, an idea, the reason something is the way it is. Pass a body to write one, attaching it to the entities it concerns, or nothing to read what is there, narrowed by kind, status and what it is about. An id on its own reads that one note and returns the token to replace it. An idea about nothing in particular needs no refs. Close one with status done or dropped."), s.note)
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
-		sdk.AddTool(server, &sdk.Tool{
-			Name:        "declare",
-			Description: "Create, correct, decommission, reactivate, or remove an entity declaration. Fields are merged unless unset names them. Removing an included declaration is destructive and needs confirm. Requires the proof token from a read; use get with repository to select one side of a duplicate.",
-		}, s.declare)
+		sdk.AddTool(server, resultTool("declare", "Create, correct, decommission, reactivate, or remove an entity declaration. Fields are merged unless unset names them. Removing an included declaration is destructive and needs confirm. Requires the proof token from a read; use get with repository to select one side of a duplicate."), s.declare)
 
 		// A separate tool from declare because it writes a different thing: an
 		// edge belongs to the entity it points from, and only that entity's
 		// repository may assert it (ADR-0026).
-		sdk.AddTool(server, &sdk.Tool{
-			Name:        "relate",
-			Description: "Declare, correct, or withdraw one outbound relation. The relation lives in the file of the entity it points from, so the token comes from a read of that one. Removing an edge needs confirm. What it points at does not have to be in the catalog.",
-		}, s.relate)
+		sdk.AddTool(server, resultTool("relate", "Declare, correct, or withdraw one outbound relation. The relation lives in the file of the entity it points from, so the token comes from a read of that one. Removing an edge needs confirm. What it points at does not have to be in the catalog."), s.relate)
 
 		// A deployment with nowhere to put notes still reads them, but the page
 		// is both halves of one file and needs somewhere to write it.
@@ -282,14 +237,25 @@ func (s *Server) sdkServer() *sdk.Server {
 			// One tool for both halves rather than two: reading the page is how
 			// an agent gets the proof token that lets it write one back, so
 			// splitting them would make the read look optional.
-			sdk.AddTool(server, &sdk.Tool{
-				Name:        "page",
-				Description: "Read or rewrite the homepage. Omit body to read it, which returns the current page and the proof token needed to change it. Pass body to replace it: markdown with YAML frontmatter declaring an ordered list of blocks, each a typed query. What you send is the whole page.",
-			}, s.page)
+			sdk.AddTool(server, resultTool("page", "Read or rewrite the homepage. Omit body to read it, which returns the current page and the proof token needed to change it. Pass body to replace it: markdown with YAML frontmatter declaring an ordered list of blocks, each a typed query. What you send is the whole page."), s.page)
 		}
 	}
 
 	return server
+}
+
+func resultTool(name, description string) *sdk.Tool {
+	return &sdk.Tool{
+		Name: name, Description: description,
+		OutputSchema: map[string]any{
+			"type": "object", "required": []string{"status"},
+			"properties": map[string]any{
+				"status": map[string]any{"type": "string", "enum": []string{"ok", "error"}},
+				"code":   map[string]any{"type": "string"},
+				"data":   map[string]any{},
+			},
+		},
+	}
 }
 
 // issue mints a proof token for what a read returned and hands it over unasked,
@@ -318,14 +284,14 @@ type searchInput struct {
 
 func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchInput) (*sdk.CallToolResult, any, error) {
 	if strings.TrimSpace(in.Query) == "" {
-		return text("A query is required. Try a service name, a hostname, or a word from a description."), nil, nil
+		return failure("invalid_argument", errors.New("a query is required; try a service name, a hostname, or a word from a description")), nil, nil
 	}
 
 	results, total, err := s.opts.Catalog.Search(ctx, "", index.SearchFilter{
 		Query: in.Query, Kind: in.Kind, Limit: in.Limit,
 	})
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_search_failed", err), nil, nil
 	}
 
 	var out strings.Builder
@@ -342,15 +308,19 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 		// A search that found nothing is exactly what authorizes creating, so
 		// it still issues a token: the absence is the evidence. It covers
 		// nothing, so offering it to write "any of the above" offers nothing.
-		return text(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
+		return success(fmt.Sprintf("Nothing in the catalog matches %q%s.\n\nThe catalog only holds what repositories have declared in a dusk.md, so this may mean nobody has written it down yet. `changes` shows what has been read.%s",
 			in.Query, ofKind(in.Kind), s.issue(proof.FromSearch, nil,
-				"Pass it to `declare` to create what this search did not find."))), nil, nil
+				"Pass it to `declare` to create what this search did not find.")), map[string]any{
+			"query": in.Query, "kind": in.Kind, "results": []index.SearchResult{}, "total": 0,
+		}), nil, nil
 	}
-	return text(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
+	return success(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
 		searchHeadline(len(results), total, in.Query, in.Kind),
 		out.String(), s.issue(proof.FromSearch, seen,
 			fmt.Sprintf("Pass it to %s to write any of the above. It also authorizes creating what this search did not find.",
-				s.catalogWrites())))), nil, nil
+				s.catalogWrites()))), map[string]any{
+		"query": in.Query, "kind": in.Kind, "results": results, "total": total,
+	}), nil, nil
 }
 
 // catalogWrites is what a token covering catalog content can be spent on. A
@@ -401,7 +371,7 @@ type getInput struct {
 // getPlugin answers for a plugin, listing what it can be asked to do.
 func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
 	if s.opts.Plugins == nil {
-		return text("Plugins are not enabled here, so there is nothing to read."), nil, nil
+		return success("Plugins are not enabled here, so there is nothing to read.", map[string]any{"plugins": []plugin.Report{}}), nil, nil
 	}
 
 	var installed []string
@@ -420,12 +390,12 @@ func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
 		} else {
 			fmt.Fprintf(&out, "\n%s", nothingToRun(declared))
 		}
-		return text(out.String()), nil, nil
+		return success(out.String(), map[string]any{"plugin": report, "actions": declared}), nil, nil
 	}
 
 	slices.Sort(installed)
-	return text(fmt.Sprintf("No plugin `%s` is installed. These are: %s.",
-		id, strings.Join(installed, ", "))), nil, nil
+	return success(fmt.Sprintf("No plugin `%s` is installed. These are: %s.",
+		id, strings.Join(installed, ", ")), map[string]any{"plugin": nil, "installed": installed}), nil, nil
 }
 
 // runningWord says whether a plugin is up, which decides whether an action on
@@ -468,29 +438,30 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	// Only absence becomes a friendly answer. A storage failure reported as
 	// "no such entity" would have the agent believe the thing does not exist.
 	if errors.Is(err, index.ErrNotFound) {
-		return text(noSuchEntity(in.Ref)), nil, nil
+		return success(noSuchEntity(in.Ref), map[string]any{"ref": in.Ref, "found": false}), nil, nil
 	}
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	relations, err := s.opts.Catalog.Neighbors(ctx, "", in.Ref)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
+	relations, omittedRelations := boundRelations(relations)
 
 	notes, err := s.opts.Catalog.NotesFor(ctx, "", in.Ref)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(in.Ref, relations))
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 	sources, err := s.opts.Catalog.Sources(ctx, "", in.Ref)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	// The notes go in the token too, so replacing one needs proof of the read
@@ -502,9 +473,12 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 
 	// What can be done to a thing is part of the picture of that thing, and get
 	// is deliberately fat for exactly this reason (ADR-0041).
-	return text(renderEntity(entity, relations, titles, sources) +
-		renderNotes(notes, len(notes), getNotesBudget(in.Titles)) + s.actionsFor(entity.GetKind()) +
-		s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))), nil, nil
+	return success(renderEntity(entity, relations, omittedRelations, titles, sources)+
+		renderNotes(notes, len(notes), getNotesBudget(in.Titles))+s.actionsFor(entity.GetKind())+
+		s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites())), map[string]any{
+		"entity": entity, "relations": relations, "relations_omitted": omittedRelations,
+		"notes": notes, "sources": sources, "actions": s.entityActions(entity.GetKind()),
+	}), nil, nil
 }
 
 func (s *Server) actionsFor(kind string) string {
@@ -512,6 +486,13 @@ func (s *Server) actionsFor(kind string) string {
 		return ""
 	}
 	return renderActions(s.opts.Plugins.Actions(kind))
+}
+
+func (s *Server) entityActions(kind string) []plugin.Action {
+	if s.opts.Plugins == nil {
+		return nil
+	}
+	return enabled(s.opts.Plugins.Actions(kind))
 }
 
 // Attached notes are never limited, so every one of them matched. What varies
@@ -626,17 +607,19 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 		return s.undeclared(ctx, in.Ref)
 	}
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	relations, err := s.opts.Catalog.Neighbors(ctx, "", in.Ref)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
+	relations, omittedRelations := boundRelations(relations)
 	dependents, err := s.opts.Catalog.Dependents(ctx, "", in.Ref, depth)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
+	dependents, omittedDependents := boundDependents(dependents)
 
 	named := relatedRefs(in.Ref, relations)
 	for _, d := range dependents {
@@ -644,17 +627,20 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 	}
 	titles, err := s.opts.Catalog.Titles(ctx, "", named)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
 
 	var out strings.Builder
 	fmt.Fprintf(&out, "# Around `%s`\n\n", in.Ref)
-	out.WriteString(renderRelations(in.Ref, relations, titles))
+	out.WriteString(renderRelations(in.Ref, relations, omittedRelations, titles))
 
 	if len(dependents) > 0 {
 		fmt.Fprintf(&out, "\n## Reaches it within %d hop(s)\n\n", depth)
 		for _, d := range dependents {
 			fmt.Fprintf(&out, "- %s`%s` (%d hop(s) away)\n", nameOf(titles, d.Ref), d.Ref, d.Depth)
+		}
+		if omittedDependents > 0 {
+			fmt.Fprintf(&out, "\n%d more dependent(s) were omitted. Narrow the starting entity or reduce `depth` before acting on this result.\n", omittedDependents)
 		}
 		out.WriteString("\nThese break, or need checking, if it goes away.\n")
 	}
@@ -662,8 +648,11 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 	// A traversal names refs without reading their contents, so the token it
 	// issues covers only the entity it was asked about.
 	seen := map[string]string{in.Ref: entity.GetProvenance().GetVersion()}
-	return text(out.String() + s.issue(proof.FromNeighbors, seen,
-		fmt.Sprintf("Pass it to `declare` or `relate` to change `%s`, which is the only ref this walk read.", in.Ref))), nil, nil
+	return success(out.String()+s.issue(proof.FromNeighbors, seen,
+		fmt.Sprintf("Pass it to `declare` or `relate` to change `%s`, which is the only ref this walk read.", in.Ref)), map[string]any{
+		"ref": in.Ref, "relations": relations, "relations_omitted": omittedRelations,
+		"dependents": dependents, "dependents_omitted": omittedDependents,
+	}), nil, nil
 }
 
 // undeclared answers a walk around a ref nothing declares. What points at one
@@ -672,18 +661,21 @@ func (s *Server) neighbors(ctx context.Context, _ *sdk.CallToolRequest, in neigh
 func (s *Server) undeclared(ctx context.Context, ref string) (*sdk.CallToolResult, any, error) {
 	relations, err := s.opts.Catalog.Neighbors(ctx, "", ref)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
+	relations, omittedRelations := boundRelations(relations)
 	if len(relations) == 0 {
-		return text(noSuchEntity(ref)), nil, nil
+		return success(noSuchEntity(ref), map[string]any{"ref": ref, "found": false, "relations": relations}), nil, nil
 	}
 
 	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(ref, relations))
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_read_failed", err), nil, nil
 	}
-	return text(fmt.Sprintf("%s\n\nSomething points at it anyway, which `drift` reports as a ref nothing holds:\n\n%s",
-		noSuchEntity(ref), renderRelations(ref, relations, titles))), nil, nil
+	return success(fmt.Sprintf("%s\n\nSomething points at it anyway, which `drift` reports as a ref nothing holds:\n\n%s",
+		noSuchEntity(ref), renderRelations(ref, relations, omittedRelations, titles)), map[string]any{
+		"ref": ref, "found": false, "relations": relations, "relations_omitted": omittedRelations,
+	}), nil, nil
 }
 
 type declareInput struct {
@@ -716,14 +708,14 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	// A refused write is an answer, not a transport failure: the agent has to
 	// read the reason and act on it.
 	if err != nil {
-		return text(fmt.Sprintf("The write was not made.\n\n%s", err)), nil, nil
+		return failure("declaration_write_failed", fmt.Errorf("the write was not made: %w", err)), nil, nil
 	}
 	if result.Proposed {
-		return text(proposal(result)), nil, nil
+		return success(proposal(result), result), nil, nil
 	}
 	if result.Existing {
-		return text(fmt.Sprintf("`%s` already has the requested declaration state in %s at `%s`, so nothing was written.",
-			result.Ref, result.Repository, result.Path)), nil, nil
+		return success(fmt.Sprintf("`%s` already has the requested declaration state in %s at `%s`, so nothing was written.",
+			result.Ref, result.Repository, result.Path), result), nil, nil
 	}
 
 	verb := "Updated"
@@ -738,9 +730,9 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	kind, _, _ := strings.Cut(in.Ref, ":")
 	warning := s.warnAboutKind(ctx, vocab.Entity, kind)
 
-	return text(fmt.Sprintf(
+	return success(fmt.Sprintf(
 		"%s `%s` in %s at `%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.%s",
-		verb, result.Ref, result.Repository, result.Path, result.URL, warning)), nil, nil
+		verb, result.Ref, result.Repository, result.Path, result.URL, warning), result), nil, nil
 }
 
 // nothingToWrite reports that a call asked for notes rather than changing one.
@@ -791,11 +783,11 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 
 	notes, err := s.opts.Catalog.Notes(ctx, "", filter)
 	if err != nil {
-		return nil, nil, err
+		return failure("note_read_failed", err), nil, nil
 	}
 	total, err := s.opts.Catalog.CountNotes(ctx, "", filter)
 	if err != nil {
-		return nil, nil, err
+		return failure("note_read_failed", err), nil, nil
 	}
 
 	seen := make(map[string]string, len(notes))
@@ -806,10 +798,12 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 	// A read that matched nothing issues no token: it covers nothing, and a new
 	// note needs none, so the token would be a key offered to no door.
 	if len(notes) == 0 {
-		return text(describeNothing(in)), nil, nil
+		return success(describeNothing(in), map[string]any{"notes": notes, "total": total}), nil, nil
 	}
-	return text(renderNotes(notes, total, notesBudget) + s.issue(proof.FromNote, seen,
-		"Pass it to `note` with the `id` of one of the above to replace or close it.")), nil, nil
+	return success(renderNotes(notes, total, notesBudget)+s.issue(proof.FromNote, seen,
+		"Pass it to `note` with the `id` of one of the above to replace or close it."), map[string]any{
+		"notes": notes, "total": total,
+	}), nil, nil
 }
 
 func describeNothing(in noteInput) string {
@@ -841,7 +835,7 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 	// Reading works with nowhere to write, so the refusal belongs here rather
 	// than in whether the tool exists at all.
 	if s.opts.Writer == nil || s.opts.Writer.NoteDestination() == "" {
-		return text(write.ErrNoConfigRepository.Error()), nil, nil
+		return failure("note_writes_disabled", write.ErrNoConfigRepository), nil, nil
 	}
 
 	result, err := s.opts.Writer.Record(ctx, in.Proof, write.Note{
@@ -853,36 +847,36 @@ func (s *Server) note(ctx context.Context, _ *sdk.CallToolRequest, in noteInput)
 		Status: in.Status,
 	})
 	if err != nil {
-		return text(fmt.Sprintf("The note was not written.\n\n%s", err)), nil, nil
+		return failure("note_write_failed", fmt.Errorf("the note was not written: %w", err)), nil, nil
 	}
 	if result.Proposed {
-		return text(proposal(result)), nil, nil
+		return success(proposal(result), result), nil, nil
 	}
 	if result.Existing {
-		return text(renderExisting(result)), nil, nil
+		return success(renderExisting(result), result), nil, nil
 	}
 
 	verb := "Updated"
 	if result.Created {
 		verb = "Wrote"
 	}
-	return text(fmt.Sprintf(
+	return success(fmt.Sprintf(
 		"%s the note at `%s` in %s.\n\nCommit: %s\n\nIts id is `%s`. Pass that as `id` to replace it rather than writing a second one.%s",
 		verb, result.Path, result.Repository, result.URL, result.Path,
-		renderSimilar(result.Similar)+s.warnAboutKind(ctx, vocab.Note, in.Kind))), nil, nil
+		renderSimilar(result.Similar)+s.warnAboutKind(ctx, vocab.Note, in.Kind)), result), nil, nil
 }
 
 // renderIntegrity appends what is wrong with the graph. It arrives unasked
 // for, like the proof token does, because an agent that has to know to ask
 // whether an answer is trustworthy will not ask.
-func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) error {
+func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) ([]index.Problem, error) {
 	problems, err := s.opts.Catalog.Integrity(ctx, "", s.viewer())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(problems) == 0 {
 		out.WriteString("\nNothing is declared twice, and every relation and note points at something that exists.\n")
-		return nil
+		return problems, nil
 	}
 
 	fmt.Fprintf(out, "\n## %d problem(s) with the catalog itself\n\n", len(problems))
@@ -896,7 +890,7 @@ func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) erro
 	}
 
 	out.WriteString("These are not read failures. Each is a place the catalog answers confidently and may be wrong; the repair lines name the guarded reads and writes that resolve it.\n")
-	return nil
+	return problems, nil
 }
 
 func renderRepair(out *strings.Builder, problem index.Problem) {
@@ -918,7 +912,7 @@ func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesI
 	// repositories and ingesters are dated from it.
 	lastRead, err := s.opts.Catalog.LastRead(ctx)
 	if err != nil {
-		return nil, nil, err
+		return failure("catalog_status_failed", err), nil, nil
 	}
 
 	// Soundness does not depend on sync status, so it is reported even where
@@ -930,8 +924,9 @@ func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesI
 		renderSweep(&out, now, s.opts.Syncs.NextSweep())
 	}
 
-	if err := s.renderIntegrity(ctx, &out); err != nil {
-		return nil, nil, err
+	problems, err := s.renderIntegrity(ctx, &out)
+	if err != nil {
+		return failure("catalog_integrity_failed", err), nil, nil
 	}
 
 	// An observation nothing refreshes is a stale answer with no marker on it,
@@ -939,7 +934,11 @@ func (s *Server) changes(ctx context.Context, _ *sdk.CallToolRequest, _ changesI
 	if s.opts.Plugins != nil {
 		out.WriteString(renderPlugins(s.opts.Plugins.Report(), now, lastRead))
 	}
-	return text(out.String()), nil, nil
+	data := map[string]any{"repositories": statuses, "last_read": lastRead, "integrity": problems}
+	if s.opts.Plugins != nil {
+		data["plugins"] = s.opts.Plugins.Report()
+	}
+	return success(out.String(), data), nil, nil
 }
 
 // freshness writes the read-status half and returns what it found, so the
@@ -960,7 +959,7 @@ func (s *Server) freshness(out *strings.Builder) []SyncStatus {
 	return statuses
 }
 
-func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation, titles map[string]string, sources []index.EntitySource) string {
+func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation, omittedRelations int, titles map[string]string, sources []index.EntitySource) string {
 	var out strings.Builder
 
 	fmt.Fprintf(&out, "# %s\n\n", displayName(entity.GetTitle(), entity.GetRef()))
@@ -979,7 +978,7 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 		out.WriteString("\n")
 	}
 
-	out.WriteString(renderRelations(entity.GetRef(), relations, titles))
+	out.WriteString(renderRelations(entity.GetRef(), relations, omittedRelations, titles))
 
 	if len(sources) > 0 {
 		out.WriteString("\n## Provenance\n\n")
@@ -1021,7 +1020,23 @@ func attributeValue(value *structpb.Value) string {
 	return string(encoded)
 }
 
-func renderRelations(ref string, relations []*duskv1alpha1.Relation, titles map[string]string) string {
+const relationResultLimit = 100
+
+func boundRelations(relations []*duskv1alpha1.Relation) ([]*duskv1alpha1.Relation, int) {
+	if len(relations) <= relationResultLimit {
+		return relations, 0
+	}
+	return relations[:relationResultLimit], len(relations) - relationResultLimit
+}
+
+func boundDependents(dependents []index.Dependent) ([]index.Dependent, int) {
+	if len(dependents) <= relationResultLimit {
+		return dependents, 0
+	}
+	return dependents[:relationResultLimit], len(dependents) - relationResultLimit
+}
+
+func renderRelations(ref string, relations []*duskv1alpha1.Relation, omitted int, titles map[string]string) string {
 	if len(relations) == 0 {
 		return "No relations are declared for it.\n"
 	}
@@ -1036,6 +1051,9 @@ func renderRelations(ref string, relations []*duskv1alpha1.Relation, titles map[
 		}
 		fmt.Fprintf(&out, "- %s`%s` %s this\n",
 			nameOf(titles, relation.GetFrom()), relation.GetFrom(), relation.GetType())
+	}
+	if omitted > 0 {
+		fmt.Fprintf(&out, "\n%d more connection(s) were omitted to keep this result bounded. Use a more specific entity before acting on the list.\n", omitted)
 	}
 	return out.String()
 }
@@ -1066,6 +1084,33 @@ func relatedRefs(ref string, relations []*duskv1alpha1.Relation) []string {
 
 func text(body string) *sdk.CallToolResult {
 	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: body}}}
+}
+
+type structuredResult struct {
+	Status string `json:"status"`
+	Code   string `json:"code,omitempty"`
+	Data   any    `json:"data,omitempty"`
+}
+
+func success(body string, data any) *sdk.CallToolResult {
+	result := text(body)
+	result.StructuredContent = structuredResult{Status: "ok", Data: data}
+	return result
+}
+
+func failure(code string, err error) *sdk.CallToolResult {
+	return failureText(code, err.Error(), err)
+}
+
+func failureText(code, body string, err error) *sdk.CallToolResult {
+	result := text(body)
+	result.IsError = true
+	result.StructuredContent = structuredResult{
+		Status: "error",
+		Code:   code,
+		Data:   map[string]string{"message": err.Error()},
+	}
+	return result
 }
 
 // displayName falls back to the ref, because an entity with no title still has
@@ -1154,14 +1199,14 @@ func (s *Server) page(ctx context.Context, _ *sdk.CallToolRequest, in pageInput)
 
 	result, err := s.opts.Writer.SetHome(ctx, in.Proof, []byte(in.Body))
 	if err != nil {
-		return text(fmt.Sprintf("The page was not written.\n\n%s", err)), nil, nil
+		return failure("page_write_failed", fmt.Errorf("the page was not written: %w", err)), nil, nil
 	}
 	if result.Proposed {
-		return text(proposal(result)), nil, nil
+		return success(proposal(result), result), nil, nil
 	}
-	return text(fmt.Sprintf(
+	return success(fmt.Sprintf(
 		"Rewrote `%s` in %s.\n\nCommit: %s\n\nThe homepage is now exactly what you sent.",
-		result.Path, result.Repository, result.URL)), nil, nil
+		result.Path, result.Repository, result.URL), result), nil, nil
 }
 
 func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error) {
@@ -1170,19 +1215,19 @@ func (s *Server) readPage(ctx context.Context) (*sdk.CallToolResult, any, error)
 		declared, _ := yaml.Marshal(page.Default())
 		// Nothing seen, because there is nothing there: this read is the one
 		// that witnesses the absence declaring the first page needs.
-		return text(fmt.Sprintf(
+		return success(fmt.Sprintf(
 			"No page is declared, so Dusk serves its default. Writing one replaces it entirely.\n\n"+
 				"The default, as it would be written:\n\n```yaml\n---\n%s---\n```\n\n%s",
 			declared, s.issue(proof.FromPage, nil,
-				"Pass it to `page` with a body to declare the first one."))), nil, nil
+				"Pass it to `page` with a body to declare the first one.")), map[string]any{"declared": false, "body": string(declared)}), nil, nil
 	}
 	if err != nil {
-		return text(fmt.Sprintf("The page could not be read.\n\n%s", err)), nil, nil
+		return failure("page_read_failed", fmt.Errorf("the page could not be read: %w", err)), nil, nil
 	}
 
-	return text(fmt.Sprintf(
+	return success(fmt.Sprintf(
 		"The homepage, as declared in `%s`:\n\n```markdown\n%s\n```\n\n%s",
 		page.Path, body,
 		s.issue(proof.FromPage, map[string]string{page.Path: duskmd.ContentHash(string(body))},
-			"Pass it to `page` with a body to replace the whole of it."))), nil, nil
+			"Pass it to `page` with a body to replace the whole of it.")), map[string]any{"declared": true, "path": page.Path, "body": string(body)}), nil, nil
 }

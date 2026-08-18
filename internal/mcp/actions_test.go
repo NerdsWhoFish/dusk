@@ -104,7 +104,14 @@ func TestADR0041_GetSaysWhatCanBeDoneToTheEntity(t *testing.T) {
 		{
 			Plugin: "airtrail", Name: "delete_flight", Description: "Remove it from the logbook.",
 			Class: plugin.ClassDestructive, Approval: plugin.ApprovalConfirm,
-			ProofFrom: "get", Enabled: true, Kinds: []string{"service"},
+			ProofFrom: "get", Enabled: true, Kinds: []string{"service"}, Params: map[string]any{
+				"type": "object", "required": []any{"reason"}, "properties": map[string]any{
+					"reason": map[string]any{
+						"type": "string", "description": "Why it is being removed.",
+						"enum": []any{"duplicate", "mistake"}, "default": "duplicate",
+					},
+				},
+			},
 		},
 		{
 			Plugin: "airtrail", Name: "hidden", Description: "Not enabled.",
@@ -117,13 +124,49 @@ func TestADR0041_GetSaysWhatCanBeDoneToTheEntity(t *testing.T) {
 
 	body := call(t, acting.session, "get", map[string]any{"ref": "service:home/jellyfin"})
 
-	for _, want := range []string{"## Actions", "delete_flight", "destructive", "Needs `confirm`", "proof token from `get`", "`invoke`"} {
+	for _, want := range []string{
+		"## Actions", "delete_flight", "destructive", "Needs `confirm`", "proof token from `get`", "`invoke`",
+		`"type": "string"`, `"description": "Why it is being removed."`, `"enum"`, `"default": "duplicate"`, `"required"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("get did not mention %q:\n%s", want, body)
 		}
 	}
 	if strings.Contains(body, "hidden") {
 		t.Errorf("an action nobody enabled must not be offered:\n%s", body)
+	}
+}
+
+func TestToolResultsPairMarkdownWithStructuredContent(t *testing.T) {
+	plugins := &offering{outcome: &plugin.Outcome{
+		Action: "inspect", Plugin: "example", Ref: "service:home/one",
+		Done: true, OK: true, Message: "healthy",
+	}}
+	result, err := acting(t, plugins).session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "invoke", Arguments: map[string]any{"ref": "service:home/one", "action": "inspect"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if len(result.Content) == 0 || result.StructuredContent == nil {
+		t.Fatalf("result needs markdown and structured content: %+v", result)
+	}
+}
+
+func TestOperationalFailuresHaveStableCodes(t *testing.T) {
+	plugins := &offering{err: errors.New("plugin connection disappeared")}
+	result, err := acting(t, plugins).session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "invoke", Arguments: map[string]any{"ref": "service:home/one", "action": "inspect"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("operational failure did not set isError")
+	}
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok || structured["code"] != "action_failed" {
+		t.Fatalf("structured error = %#v, want action_failed", result.StructuredContent)
 	}
 }
 

@@ -32,33 +32,33 @@ func (s *Server) relate(ctx context.Context, _ *sdk.CallToolRequest, in relateIn
 		Attributes: in.Attributes, Unset: in.Unset, Remove: in.Remove, Confirm: in.Confirm,
 	})
 	if err != nil {
-		return text(fmt.Sprintf("The relation was not declared.\n\n%s", err)), nil, nil
+		return failure("relation_write_failed", fmt.Errorf("the relation was not declared: %w", err)), nil, nil
 	}
 	if result.Proposed {
-		return text(proposal(result)), nil, nil
+		return success(proposal(result), result), nil, nil
 	}
 	if result.Existing {
 		state := "already declares"
 		if in.Remove {
 			state = "already does not declare"
 		}
-		return text(fmt.Sprintf(
+		return success(fmt.Sprintf(
 			"`%s` %s %s `%s`, so nothing was written.\n\nThe declaration file is `%s` in %s.",
-			result.Ref, state, in.Type, in.To, result.Path, result.Repository)), nil, nil
+			result.Ref, state, in.Type, in.To, result.Path, result.Repository), result), nil, nil
 	}
 	if in.Remove {
-		return text(fmt.Sprintf(
+		return success(fmt.Sprintf(
 			"`%s` no longer says %s `%s`; the edge was withdrawn from %s at `%s`.\n\nCommit: %s\n\nIt leaves the catalog on the next reconcile, which the push already triggered.",
-			result.Ref, in.Type, in.To, result.Repository, result.Path, result.URL)), nil, nil
+			result.Ref, in.Type, in.To, result.Repository, result.Path, result.URL), result), nil, nil
 	}
 
-	return text(fmt.Sprintf(
+	return success(fmt.Sprintf(
 		"`%s` now says %s `%s`, declared in %s at `%s`.\n\nCommit: %s\n\n"+
 			"That file is the only place the edge is written, and `get` on `%s` will show it anyway, "+
 			"because the graph is assembled across repositories. "+
 			"It reaches the catalog on the next reconcile, which the push already triggered.%s",
 		result.Ref, in.Type, in.To, result.Repository, result.Path, result.URL,
-		in.To, s.warnAboutTarget(ctx, in.To))), nil, nil
+		in.To, s.warnAboutTarget(ctx, in.To)), result), nil, nil
 }
 
 // warnAboutTarget says the other end is not in the catalog. ADR-0033 reports

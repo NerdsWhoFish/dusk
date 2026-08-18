@@ -78,6 +78,10 @@ type Config struct {
 	// ProofTTL is the longest an abandoned read-before-write token remains
 	// spendable. Version checks still invalidate it as soon as content changes.
 	ProofTTL time.Duration
+
+	// MCPSessionTimeout closes agent sessions that stopped sending requests.
+	// It bounds retained transport state without limiting an active tool call.
+	MCPSessionTimeout time.Duration
 }
 
 // ConfigRepositoryParts splits the config repository into owner and name.
@@ -118,6 +122,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		ConfigRepository: strings.Trim(strings.TrimSpace(getenv("DUSK_CONFIG_REPOSITORY")), "/"),
 		PluginOrgs:       splitAccounts(getenv("DUSK_PLUGIN_ORGS")),
 		ProofTTL:         proofTTL(getenv("DUSK_PROOF_TTL")),
+		MCPSessionTimeout: durationOrDefault(
+			getenv("DUSK_MCP_SESSION_TIMEOUT"), 30*time.Minute),
 
 		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
 		ShowObservedToEveryone: strings.EqualFold(
@@ -138,6 +144,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	if c.ProofTTL <= 0 {
 		problems = append(problems, errors.New("DUSK_PROOF_TTL must be a positive Go duration such as 15m or 2h"))
 	}
+	if c.MCPSessionTimeout <= 0 {
+		problems = append(problems, errors.New("DUSK_MCP_SESSION_TIMEOUT must be a positive Go duration such as 15m or 2h"))
+	}
 
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
@@ -146,8 +155,12 @@ func Load(getenv func(string) string) (*Config, error) {
 }
 
 func proofTTL(raw string) time.Duration {
+	return durationOrDefault(raw, time.Hour)
+}
+
+func durationOrDefault(raw string, fallback time.Duration) time.Duration {
 	if strings.TrimSpace(raw) == "" {
-		return time.Hour
+		return fallback
 	}
 	duration, err := time.ParseDuration(raw)
 	if err != nil || duration <= 0 {

@@ -95,13 +95,13 @@ func canElicit(session *sdk.ServerSession) bool {
 func (s *Server) invoke(ctx context.Context, req *sdk.CallToolRequest, in invokeInput) (*sdk.CallToolResult, any, error) {
 	if in.Handle != "" {
 		if in.Plugin == "" {
-			return text("Polling an action needs the plugin returned with its handle."), nil, nil
+			return failure("invalid_argument", errors.New("polling an action needs the plugin returned with its handle")), nil, nil
 		}
 		outcome, err := s.opts.Plugins.Status(ctx, in.Plugin, in.Handle)
 		if err != nil {
-			return text(err.Error()), nil, nil
+			return failure("action_status_failed", err), nil, nil
 		}
-		return text(renderOutcome(outcome)), nil, nil
+		return actionResult(outcome), nil, nil
 	}
 	request := plugin.Request{
 		Ref: in.Ref, Action: in.Action, Params: in.Params, Proof: in.Proof,
@@ -121,11 +121,24 @@ func (s *Server) invoke(ctx context.Context, req *sdk.CallToolRequest, in invoke
 	case errors.Is(err, plugin.ErrNeedsApproval):
 		// An answer rather than an error: the agent is being asked, and can put
 		// the question to whoever is watching.
-		return text(err.Error()), nil, nil
+		return success(err.Error(), map[string]any{"status": "confirmation_required"}), nil, nil
 	case err != nil:
-		return text(err.Error()), nil, nil
+		return failure("action_failed", err), nil, nil
 	}
-	return text(renderOutcome(outcome)), nil, nil
+	return actionResult(outcome), nil, nil
+}
+
+func actionResult(outcome *plugin.Outcome) *sdk.CallToolResult {
+	result := success(renderOutcome(outcome), outcome)
+	switch {
+	case outcome.Unknown:
+		result.IsError = true
+		result.StructuredContent = structuredResult{Status: "error", Code: "mutation_outcome_unknown", Data: outcome}
+	case outcome.Done && !outcome.OK:
+		result.IsError = true
+		result.StructuredContent = structuredResult{Status: "error", Code: "action_failed", Data: outcome}
+	}
+	return result
 }
 
 func verdictOf(outcome *plugin.Outcome) string {
@@ -301,49 +314,25 @@ func renderActionList(offered []plugin.Action) string {
 			fmt.Fprintf(&out, " Needs the proof token from `%s`.", action.ProofFrom)
 		}
 		if len(action.Params) > 0 {
-			fmt.Fprintf(&out, " Parameters: %s.", strings.Join(paramNames(action.Params), ", "))
+			out.WriteString(" Its complete parameter schema follows.")
 		}
 		out.WriteString("\n")
+		if len(action.Params) > 0 {
+			fmt.Fprintf(&out, "\n```json\n%s\n```\n", parameterSchema(action.Params))
+		}
 	}
 	return out.String()
 }
 
-// paramNames pulls the argument names out of a JSON Schema so an agent sees
-// what to pass without being handed the schema itself.
-func paramNames(schema map[string]any) []string {
-	properties, ok := schema["properties"].(map[string]any)
-	if !ok {
-		return nil
+// parameterSchema preserves the plugin's JSON Schema rather than flattening it
+// to names. Types, descriptions, enums, defaults and nested constraints are all
+// part of the action contract an agent must satisfy.
+func parameterSchema(schema map[string]any) string {
+	encoded, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		return "{}"
 	}
-
-	required := map[string]bool{}
-	for _, name := range asStrings(schema["required"]) {
-		required[name] = true
-	}
-
-	names := make([]string, 0, len(properties))
-	for _, name := range slices.Sorted(maps.Keys(properties)) {
-		if required[name] {
-			name += " (required)"
-		}
-		names = append(names, name)
-	}
-	return names
-}
-
-func asStrings(value any) []string {
-	list, ok := value.([]any)
-	if !ok {
-		return nil
-	}
-
-	out := make([]string, 0, len(list))
-	for _, item := range list {
-		if text, ok := item.(string); ok {
-			out = append(out, text)
-		}
-	}
-	return out
+	return string(encoded)
 }
 
 // renderPlugins reports plugin health, which was a UI-only answer while the
@@ -430,21 +419,23 @@ type configureInput struct {
 func (s *Server) configure(ctx context.Context, _ *sdk.CallToolRequest, in configureInput) (*sdk.CallToolResult, any, error) {
 	current, fields, version, err := s.opts.Plugins.Settings(in.Plugin, in.Instance)
 	if err != nil {
-		return text(err.Error()), nil, nil
+		return failure("plugin_configuration_read_failed", err), nil, nil
 	}
 
 	if len(in.Settings) == 0 {
-		return text(renderSettings(in.Plugin, in.Instance, current, fields, version) + s.configurationProof(in.Plugin, in.Instance, version)), nil, nil
+		return success(renderSettings(in.Plugin, in.Instance, current, fields, version)+s.configurationProof(in.Plugin, in.Instance, version), map[string]any{
+			"plugin": in.Plugin, "instance": in.Instance, "settings": current, "fields": fields, "version": version,
+		}), nil, nil
 	}
 	if s.opts.Tokens == nil {
-		return text("Plugin configuration writes are disabled because no proof store is configured."), nil, nil
+		return failure("configuration_writes_disabled", errors.New("plugin configuration writes are disabled because no proof store is configured")), nil, nil
 	}
 	if err := s.opts.Tokens.AuthorizeUpdateFrom(in.Proof, proof.Configuration(in.Plugin, in.Instance), version); err != nil {
-		return text(err.Error()), nil, nil
+		return failure("stale_or_invalid_proof", err), nil, nil
 	}
 
 	if problem := configurationProblem(in.Plugin, in.Settings, fields); problem != "" {
-		return text(problem), nil, nil
+		return failure("invalid_argument", errors.New(problem)), nil, nil
 	}
 
 	// Merged rather than replaced: an agent setting one field should not clear
@@ -456,13 +447,15 @@ func (s *Server) configure(ctx context.Context, _ *sdk.CallToolRequest, in confi
 	maps.Copy(merged, in.Settings)
 
 	if err := s.opts.Plugins.Configure(ctx, in.Plugin, in.Instance, merged, in.Version); err != nil {
-		return text(err.Error()), nil, nil
+		return failure("plugin_configuration_write_failed", err), nil, nil
 	}
 	updated, fields, nextVersion, err := s.opts.Plugins.Settings(in.Plugin, in.Instance)
 	if err != nil {
-		return text(err.Error()), nil, nil
+		return failure("plugin_configuration_read_failed", err), nil, nil
 	}
-	return text(renderSettings(in.Plugin, in.Instance, updated, fields, nextVersion) + s.configurationProof(in.Plugin, in.Instance, nextVersion)), nil, nil
+	return success(renderSettings(in.Plugin, in.Instance, updated, fields, nextVersion)+s.configurationProof(in.Plugin, in.Instance, nextVersion), map[string]any{
+		"plugin": in.Plugin, "instance": in.Instance, "settings": updated, "fields": fields, "version": nextVersion,
+	}), nil, nil
 }
 
 func configurationProblem(id string, settings map[string]any, fields []plugin.Field) string {

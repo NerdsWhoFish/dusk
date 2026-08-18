@@ -38,6 +38,29 @@ func TestProofTTLIsConfigurableAndValidated(t *testing.T) {
 	}
 }
 
+func TestMCPSessionTimeoutIsConfigurableAndValidated(t *testing.T) {
+	base := map[string]string{
+		"DUSK_PRIVATE_HOST":   "https://dusk.example.com",
+		"DUSK_ENCRYPTION_KEY": validKey(t),
+	}
+	cfg, err := config.Load(env(base))
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if cfg.MCPSessionTimeout != 30*time.Minute {
+		t.Fatalf("default MCP session timeout = %s, want 30m", cfg.MCPSessionTimeout)
+	}
+	base["DUSK_MCP_SESSION_TIMEOUT"] = "10m"
+	cfg, err = config.Load(env(base))
+	if err != nil || cfg.MCPSessionTimeout != 10*time.Minute {
+		t.Fatalf("configured MCP session timeout = %s, %v", cfg.MCPSessionTimeout, err)
+	}
+	base["DUSK_MCP_SESSION_TIMEOUT"] = "never"
+	if _, err := config.Load(env(base)); err == nil || !strings.Contains(err.Error(), "DUSK_MCP_SESSION_TIMEOUT") {
+		t.Fatalf("invalid MCP session timeout was not refused: %v", err)
+	}
+}
+
 func validKey(t *testing.T) string {
 	t.Helper()
 	k, err := vault.NewKey()

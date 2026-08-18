@@ -80,6 +80,7 @@ That is what stops the same argument happening again in six months.
 | [0068](0068-repositories-are-resolved-by-git-identity.md) | Repositories are resolved by Git identity | The hook resolves the checkout's exact GitHub origin, the server never guesses from a path suffix, and stable GitHub ids preserve old slugs as aliases through repository renames and transfers |
 | [0069](0069-agent-context-is-operator-configured-in-git.md) | Agent context is operator-configured in Git | `.dusk/context.md` controls the context budget, sections, inventory detail, kind order and shared instructions; reconcile validates and materializes it so every client receives one policy without a GitHub request per session |
 | [0070](0070-mutations-have-durable-retry-identity.md) | Mutations have durable retry identity | Mutating actions reserve a caller key in the durable local action journal before execution, retries return the remembered outcome, interrupted mutations are unknown, asynchronous handles settle their original event through `invoke`, and plugin configuration is protected by a read version and proof |
+| [0071](0071-mcp-results-are-dual-purpose-and-bounded.md) | MCP results are dual-purpose and bounded | Keep the fixed fat tools, pair Markdown with structured content, signal operational failures with stable codes, preserve complete action schemas, expire idle sessions, and cap graph result sections |
 
 ## Writing one
 
