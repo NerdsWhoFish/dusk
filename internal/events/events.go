@@ -302,6 +302,17 @@ func (l *Log) write(event *duskv1alpha1.Event) {
 // Recent returns the newest events first, up to limit. Zero or less means all
 // of them.
 func (l *Log) Recent(limit int) []*duskv1alpha1.Event {
+	return l.recent(limit, "")
+}
+
+// RecentFor returns the newest events about one entity first, up to limit.
+// It is deliberately an exact ref match: operational history for one thing
+// must not absorb another entity whose ref merely shares a prefix.
+func (l *Log) RecentFor(ref string, limit int) []*duskv1alpha1.Event {
+	return l.recent(limit, ref)
+}
+
+func (l *Log) recent(limit int, ref string) []*duskv1alpha1.Event {
 	if l == nil {
 		return nil
 	}
@@ -309,13 +320,20 @@ func (l *Log) Recent(limit int) []*duskv1alpha1.Event {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if limit <= 0 || limit > len(l.ring) {
-		limit = len(l.ring)
+	capacity := limit
+	if capacity <= 0 || capacity > len(l.ring) {
+		capacity = len(l.ring)
 	}
 
-	newest := make([]*duskv1alpha1.Event, 0, limit)
-	for i := len(l.ring) - 1; i >= len(l.ring)-limit; i-- {
+	newest := make([]*duskv1alpha1.Event, 0, capacity)
+	for i := len(l.ring) - 1; i >= 0; i-- {
+		if ref != "" && l.ring[i].GetRef() != ref {
+			continue
+		}
 		newest = append(newest, l.ring[i])
+		if limit > 0 && len(newest) == limit {
+			break
+		}
 	}
 	return newest
 }

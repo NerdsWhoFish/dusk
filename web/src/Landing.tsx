@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type { Entity, Home, SearchResult } from "./api";
 import { handle } from "./App";
+import { CatalogCheckpoint } from "./CatalogCheckpoint";
 import { renderBlock } from "./blocks";
 import { Markdown } from "./Markdown";
 import { Rows } from "./Rows";
@@ -167,6 +168,8 @@ function Portal({
 
   return (
     <>
+      <CatalogCheckpoint repositories={home.repositories ?? []} />
+
       {groups.length > 0 && (
         <div className="kinds">
           {groups.map((entry) => (

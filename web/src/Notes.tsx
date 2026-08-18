@@ -109,6 +109,14 @@ function Written({
         </div>
       )}
 
+      {!compact && note.provenance && (
+        <p className="note-source">
+          Written in <code>{note.provenance.source || "the catalog"}</code>
+          {note.provenance.version ? ` at ${shortVersion(note.provenance.version)}` : ""}
+          {note.provenance.observed_at ? ` · read ${when(note.provenance.observed_at)}` : ""}
+        </p>
+      )}
+
       {!compact && <p className="ref note-id">{note.id}</p>}
 
       {closable && (
@@ -123,4 +131,13 @@ function Written({
       )}
     </article>
   );
+}
+
+function shortVersion(version: string): string {
+  return /^[0-9a-f]{8,}$/i.test(version) ? version.slice(0, 7) : version;
+}
+
+function when(value: string): string {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? value : at.toLocaleDateString();
 }

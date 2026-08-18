@@ -175,7 +175,11 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"events": asEvents(s.events.Recent(limit))})
+	recorded := s.events.Recent(limit)
+	if ref := r.URL.Query().Get("ref"); ref != "" {
+		recorded = s.events.RecentFor(ref, limit)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": asEvents(recorded)})
 }
 
 // eventJSON is the wire shape, hand-written for the same reason every other one

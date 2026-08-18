@@ -189,3 +189,31 @@ There is nothing to fall back from.
 
 They now run on every push, as a Go test driving a headless browser and reading the measurements out of the page.
 [ADR-0065](0065-measuring-the-viewport-matrix.md) records how, and the two things worth knowing here: the application is loaded in a frame rather than the browser window being resized, because a headless window is clamped to a minimum width and lays out at 500 when asked for 320; and screenshot comparison is still rejected, so every assertion is a number the document computed about itself.
+
+### 2026-08-18: the matrix covers the device range and both sides of the breakpoint
+
+The six-row matrix was good at finding the failures Dusk had already seen and too sparse to be the definition of a new operational UI.
+It skipped common 360 and 375 pixel phones, had nothing between a wide phone and a tablet, and measured the 48rem breakpoint without measuring the pixels immediately beside it.
+The shell cap does make wide desktops render the same central column, but 1280 and 1920 still exercise browser and fixed-position edges that the capped content does not control.
+
+The enforced matrix is now:
+
+| Viewport | Touch | Why it stays |
+| --- | --- | --- |
+| 320 x 568 | yes | Narrow phone floor |
+| 360 x 800 | yes | Common compact Android phone |
+| 375 x 812 | yes | Common compact iPhone |
+| 390 x 844 | yes | Typical modern phone |
+| 430 x 932 | yes | Wide phone ceiling |
+| 600 x 960 | yes | Small tablet and large-text stress point |
+| 767 x 1024 | yes | One pixel below the layout breakpoint |
+| 768 x 1024 | yes | The layout breakpoint |
+| 769 x 1024 | yes | One pixel above the layout breakpoint |
+| 1024 x 768 | yes | Touch device at a desktop width |
+| 1280 x 800 | no | Compact laptop |
+| 1440 x 900 | no | Typical laptop |
+| 1920 x 1080 | no | Wide desktop |
+
+This supersedes the 2026-08-16 six-row table without rewriting it.
+The cost is more browser launches on every check.
+That cost is accepted because the browser test is the only check that exercises CSS layout, pointer media queries, and real target geometry together.

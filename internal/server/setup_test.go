@@ -81,6 +81,7 @@ type setup struct {
 	pages   server.Pages
 	plugins server.Plugins
 	control *fakeController
+	syncs   server.Syncs
 }
 
 type fakeController struct {
@@ -142,6 +143,7 @@ func build(t *testing.T, s setup) http.Handler {
 		Pages:       s.pages,
 		Plugins:     s.plugins,
 		Controller:  s.control,
+		Syncs:       s.syncs,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

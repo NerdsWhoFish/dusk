@@ -55,3 +55,24 @@ func TestAnIdempotencyKeyCannotNameTwoRequests(t *testing.T) {
 		t.Fatalf("reusing a key for a different request = used %v, error %v", used, err)
 	}
 }
+
+func TestRecentForReturnsOnlyOneEntityNewestFirst(t *testing.T) {
+	log := &events.Log{}
+	for _, event := range []*duskv1alpha1.Event{
+		events.Started("one-old", "", "plugin", "service:home/one", "restart", "agent", time.Now()),
+		events.Started("two", "", "plugin", "service:home/two", "restart", "agent", time.Now()),
+		events.Started("one-new", "", "plugin", "service:home/one", "restart", "agent", time.Now()),
+	} {
+		if err := log.Emit(event); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+	}
+
+	recent := log.RecentFor("service:home/one", 2)
+	if len(recent) != 2 || recent[0].GetId() != "one-new" || recent[1].GetId() != "one-old" {
+		t.Fatalf("recent for one = %+v", recent)
+	}
+	if got := log.RecentFor("service:home/missing", 0); len(got) != 0 {
+		t.Fatalf("recent for missing = %+v", got)
+	}
+}

@@ -23,11 +23,18 @@ var matrix = []struct {
 	touch         bool
 }{
 	{"320x568", 320, 568, true},
+	{"360x800", 360, 800, true},
+	{"375x812", 375, 812, true},
 	{"390x844", 390, 844, true},
 	{"430x932", 430, 932, true},
+	{"600x960", 600, 960, true},
+	{"767x1024", 767, 1024, true},
 	{"768x1024", 768, 1024, true},
+	{"769x1024", 769, 1024, true},
 	{"1024x768", 1024, 768, true},
+	{"1280x800", 1280, 800, false},
 	{"1440x900", 1440, 900, false},
+	{"1920x1080", 1920, 1080, false},
 }
 
 // Every route, plus the one panel that opens on a tap. A menu anchored to the

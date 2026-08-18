@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Actions } from "./Actions";
 import { api } from "./api";
-import type { EntityDetail } from "./api";
+import type { EntityDetail, EntitySource, Event } from "./api";
 import { handle } from "./App";
+import { Events } from "./Events";
 import { Markdown } from "./Markdown";
 import { Notes } from "./Notes";
 import { PluginBlock } from "./PluginView";
@@ -100,6 +101,8 @@ export function EntityView({
         )}
       </header>
 
+      <Briefing detail={detail} onOpen={onOpen} />
+
       {entity.description && <Markdown>{entity.description}</Markdown>}
 
       {/* Before the notes: a plugin's own view of a thing is usually the most
@@ -128,6 +131,9 @@ export function EntityView({
           <Notes notes={notes} proof={detail.proof} onChanged={load} />
         </>
       )}
+
+      <h2>Operational history</h2>
+      <Events recorded={detail.events ?? []} ref={entity.ref} />
 
       {attributes.length > 0 && (
         <>
@@ -188,6 +194,109 @@ export function EntityView({
       )}
     </>
   );
+}
+
+function Briefing({
+  detail,
+  onOpen,
+}: {
+  detail: EntityDetail;
+  onOpen: (ref: string | null) => void;
+}) {
+  const truth = sourceTruth(detail.sources ?? []);
+  const dependents = detail.dependents ?? [];
+  const direct = dependents.filter((dependent) => dependent.Depth === 1).length;
+  const latest = detail.events?.[0];
+
+  return (
+    <section className="briefing" aria-labelledby="briefing-heading">
+      <h2 id="briefing-heading">Operational briefing</h2>
+      <div className="briefing-grid">
+        <article className={`brief brief-${truth.tone}`}>
+          <span className="brief-label">Source truth</span>
+          <strong>{truth.title}</strong>
+          <p>{truth.detail}</p>
+        </article>
+        <article className={`brief ${dependents.length > 0 ? "brief-caution" : "brief-calm"}`}>
+          <span className="brief-label">Blast radius</span>
+          <strong>{plural(dependents.length, "dependent")}</strong>
+          <p>
+            {dependents.length === 0
+              ? "Nothing in the catalog relies on this."
+              : `${plural(direct, "direct dependent")}; ${plural(dependents.length - direct, "indirect dependent")}.`}
+          </p>
+        </article>
+        <article className={`brief ${eventTone(latest)}`}>
+          <span className="brief-label">Last operation</span>
+          <strong>{latest ? `${latest.action} · ${latest.status}` : "No recorded actions"}</strong>
+          <p>{latest ? eventSummary(latest) : "Dusk has no action receipt for this entity."}</p>
+        </article>
+      </div>
+
+      {dependents.length > 0 && (
+        <div className="impact">
+          <h3>If this goes down</h3>
+          <Rows
+            items={dependents.map((dependent) => ({
+              key: dependent.Ref,
+              title: dependent.Ref,
+              mono: true,
+              tag: dependent.Depth === 1 ? "direct" : `${dependent.Depth} hops`,
+              tagKind: dependent.Depth === 1 ? undefined : ("rel" as const),
+              onOpen: () => onOpen(dependent.Ref),
+            }))}
+            empty=""
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function sourceTruth(sources: EntitySource[]): {
+  title: string;
+  detail: string;
+  tone: "calm" | "caution" | "observed";
+} {
+  const declared = sources.some((source) => !source.Observed);
+  const observed = sources.some((source) => source.Observed);
+  if (declared && observed) {
+    return {
+      title: "Declared + observed",
+      detail: "Git declares this and a live source also sees it.",
+      tone: "calm",
+    };
+  }
+  if (observed) {
+    return {
+      title: "Observed only",
+      detail: "A plugin sees this, but no repository declares it yet.",
+      tone: "observed",
+    };
+  }
+  return {
+    title: declared ? "Declared only" : "Source unknown",
+    detail: declared
+      ? "Git declares this; no live observation is attached. It may simply be unwatched."
+      : "Dusk cannot explain where this entity came from.",
+    tone: "caution",
+  };
+}
+
+function eventTone(event?: Event): "brief-calm" | "brief-caution" {
+  return event?.status === "failed" || event?.status === "denied"
+    ? "brief-caution"
+    : "brief-calm";
+}
+
+function eventSummary(event: Event): string {
+  const at = event.finished_at ?? event.started_at;
+  const when = at ? new Date(at).toLocaleString() : "time unknown";
+  return `${event.actor || "agent"} · ${when}${event.message ? ` · ${event.message}` : ""}`;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 // url is the single most useful thing on the page for an operator, so it is

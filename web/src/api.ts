@@ -16,6 +16,7 @@ export type Note = {
   kind: string;
   body: string;
   pinned?: boolean;
+  provenance?: { source?: string; version?: string; observed_at?: string };
 
   // status closes a note that is work: open, done or dropped. Absent means
   // open, which is what a note written before there was a status is.
@@ -132,11 +133,15 @@ export type EntityDetail = {
   views?: PluginView[];
   actions?: Action[];
   sources?: EntitySource[];
+  dependents?: Dependent[];
+  events?: Event[];
 
   // proof is the token an action presents, from this very read. The browser
   // meets the same read-before-write contract an agent does (ADR-0009).
   proof?: string;
 };
+
+export type Dependent = { Ref: string; Depth: number };
 
 export type EntitySource = {
   Repository: string;
@@ -295,6 +300,7 @@ export type Home = {
   prose: string;
   search?: boolean;
   blocks: ResolvedBlock[];
+  repositories?: RepositoryStatus[];
   problem?: string;
 
   // proof is the token from this read, which is what closing a note the page
@@ -456,7 +462,10 @@ export const api = {
     get<Outcome>(
       `/plugins/${encodeURIComponent(id)}/handles/${encodeURIComponent(handle)}`,
     ),
-  events: (limit = 50) => get<{ events: Event[] }>(`/events?limit=${limit}`),
+  events: (limit = 50, ref?: string) =>
+    get<{ events: Event[] }>(
+      `/events?limit=${limit}${ref ? `&ref=${encodeURIComponent(ref)}` : ""}`,
+    ),
   closeNote: (id: string, status: "done" | "dropped", proof?: string) =>
     post<Closed>("/notes/status", { id, status, proof }),
   output: (id: string) =>

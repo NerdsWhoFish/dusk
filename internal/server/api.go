@@ -78,10 +78,11 @@ type relationJSON struct {
 }
 
 type noteJSON struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"`
-	Body   string `json:"body"`
-	Pinned bool   `json:"pinned,omitempty"`
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind"`
+	Body       string          `json:"body"`
+	Pinned     bool            `json:"pinned,omitempty"`
+	Provenance *provenanceJSON `json:"provenance,omitempty"`
 
 	// Status closes a note that is work. Empty means open, which is what a note
 	// written before there was a status is.
@@ -123,10 +124,17 @@ func asRelations(relations []*duskv1alpha1.Relation) []relationJSON {
 func asNotes(notes []*duskv1alpha1.Note) []noteJSON {
 	out := make([]noteJSON, 0, len(notes))
 	for _, n := range notes {
-		out = append(out, noteJSON{
+		entry := noteJSON{
 			ID: n.GetId(), Kind: n.GetKind(), Body: n.GetBody(),
 			Pinned: n.GetPinned(), Status: n.GetStatus(),
-		})
+		}
+		if p := n.GetProvenance(); p != nil {
+			entry.Provenance = &provenanceJSON{Source: p.GetSource(), Version: p.GetVersion()}
+			if p.GetObservedAt() != nil {
+				entry.Provenance.ObservedAt = p.GetObservedAt().AsTime().UTC().Format(timeFormat)
+			}
+		}
+		out = append(out, entry)
 	}
 	return out
 }
@@ -234,7 +242,7 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	sources, err := s.catalog.Sources(r.Context(), refOf(r), ref)
+	operational, err := s.entityOperational(r.Context(), refOf(r), ref, visible)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -250,12 +258,14 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	answer := map[string]any{
-		"entity":    asEntity(entity),
-		"relations": asRelations(relations),
-		"notes":     asNotes(notes),
-		"views":     views,
-		"actions":   actions,
-		"sources":   sources,
+		"entity":     asEntity(entity),
+		"relations":  asRelations(relations),
+		"notes":      asNotes(notes),
+		"views":      views,
+		"actions":    actions,
+		"sources":    operational.sources,
+		"dependents": operational.dependents,
+		"events":     operational.events,
 	}
 
 	// The browser meets the same read-before-write contract an agent does, so
@@ -271,6 +281,36 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+type operationalEntity struct {
+	sources    []index.EntitySource
+	dependents []index.Dependent
+	events     []eventJSON
+}
+
+func (s *Server) entityOperational(
+	ctx context.Context,
+	gitRef string,
+	ref string,
+	visible func(string) bool,
+) (operationalEntity, error) {
+	sources, err := s.catalog.Sources(ctx, gitRef, ref)
+	if err != nil {
+		return operationalEntity{}, err
+	}
+	dependents, err := s.catalog.Dependents(ctx, gitRef, ref, 4)
+	if err != nil {
+		return operationalEntity{}, err
+	}
+	dependents = slices.DeleteFunc(dependents, func(dependent index.Dependent) bool {
+		return !visible(dependent.Ref)
+	})
+	return operationalEntity{
+		sources:    sources,
+		dependents: dependents,
+		events:     asEvents(s.events.RecentFor(ref, 12)),
+	}, nil
 }
 
 // handleAPIDependents answers GET /api/entities/{ref}/dependents?depth=

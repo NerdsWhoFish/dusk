@@ -40,6 +40,10 @@ func fixtureHome() string {
   "prose": %q,
   "search": true,
   "proof": "proof-home",
+  "repositories": [
+    {"Repository":"example/platform","GitRef":"","Commit":"0f4c1ab9d2e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0","Entities":128,"Relations":214,"Error":"","Participating":true},
+    {"Repository":"example/lab","GitRef":"","Commit":"7d881ef9d2e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0","Entities":42,"Relations":60,"Error":"","Participating":true}
+  ],
   "blocks": [
     {"type":"kinds","title":"Kinds","kinds":[
       {"Kind":"service","Count":128},
@@ -104,7 +108,14 @@ func fixtureEntity() string {
     {"type":"serves","from":"service:platform/storefront","to":%[1]q}
   ],
   "notes": [
-    {"id":"note/9f2c1b","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary.","pinned":true}
+    {"id":"note/9f2c1b","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary.","pinned":true,"provenance":{"source":"services/checkout/dusk.md","version":"0f4c1ab9d2e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0","observed_at":"2026-08-16T09:15:00Z"}}
+  ],
+  "dependents": [
+    {"Ref":"service:platform/storefront","Depth":1},
+    {"Ref":"service:platform/order-confirmation-notification-worker-with-a-long-name","Depth":2}
+  ],
+  "events": [
+    {"id":"ev-1","plugin":"kubernetes","ref":%[1]q,"action":"restart","actor":"agent","status":"succeeded","started_at":"2026-08-16T09:20:00Z","finished_at":"2026-08-16T09:20:04Z","message":"the deployment behind this service was restarted"}
   ],
   "sources": [
     {"Repository":"example/platform","Path":"services/checkout/dusk.md","Source":"services/checkout/dusk.md","Version":"0f4c1ab9d2e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0","Observed":false},

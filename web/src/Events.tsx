@@ -5,14 +5,18 @@ import type { Event } from "./api";
 
 // Events is what has been run. The bounded history and retry receipts are
 // durable even though the catalog index beside them is disposable.
-export function Events() {
-  const [events, setEvents] = useState<Event[]>();
+export function Events({ recorded, ref }: { recorded?: Event[]; ref?: string } = {}) {
+  const [events, setEvents] = useState<Event[] | undefined>(recorded);
   const [problem, setProblem] = useState<string>();
 
   useEffect(() => {
+    if (recorded) {
+      setEvents(recorded);
+      return;
+    }
     let live = true;
     api
-      .events(25)
+      .events(25, ref)
       .then((answer) => live && setEvents(answer.events ?? []))
       .catch((error: unknown) => {
         if (live) {
@@ -23,7 +27,7 @@ export function Events() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [recorded, ref]);
 
   if (problem) {
     return (
@@ -63,5 +67,10 @@ function when(value?: string): string {
     return "";
   }
   const at = new Date(value);
-  return Number.isNaN(at.getTime()) ? value : at.toLocaleTimeString();
+  return Number.isNaN(at.getTime())
+    ? value
+    : at.toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
 }

@@ -51,6 +51,12 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 		// rather than showing an error where the catalog should be.
 		"problem": problem,
 	}
+	// Repository status names every installed repository, so it belongs only to
+	// the trusted-operator view. A restricted GitHub viewer has no per-repo
+	// checkpoint until the API can narrow statuses by that viewer's access.
+	if s.syncs != nil && !s.visibilityFor(r).Restricted() {
+		answer["repositories"] = s.syncs.Status()
+	}
 
 	// The notes the page showed go in a token, so closing one is proof of the
 	// read that surfaced it rather than a write from nowhere (ADR-0009).
