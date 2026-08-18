@@ -90,9 +90,14 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 	reading, _ := contextSections(declared, here, elsewhere, held)
 	reading, priority := profileSections(profile, reading)
 	body := assemble(contextHeader(in.Root, repository, len(declared), held.total, profile.Instructions), tail, reading, priority)
+	rendered := truncate(body, profile.Budget)
 
-	return success(truncate(body, profile.Budget), map[string]any{
+	// Repeated because a client given an output schema may render only the
+	// structured half. Elsewhere the data carries the answer; here the prose
+	// is it, so dropping the content block loses everything and still says ok.
+	return success(rendered, map[string]any{
 		"repository": repository, "declared": declared, "entity_count": held.total,
+		"context": rendered,
 	}), nil, nil
 }
 
@@ -235,7 +240,7 @@ func entityRank(role vocab.Role) int {
 // worked in and the rest. Two queries, because a note read from the index does
 // not carry its refs and asking by repository is what tells the halves apart.
 func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere []*duskv1alpha1.Note, err error) {
-	all, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{Pinned: true, Limit: contextNotes})
+	all, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{Pinned: new(true), Limit: contextNotes})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -244,7 +249,7 @@ func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere
 	}
 
 	here, err = s.opts.Catalog.Notes(ctx, "", index.NoteFilter{
-		Pinned: true, AboutRepository: repository, Limit: contextNotes,
+		Pinned: new(true), AboutRepository: repository, Limit: contextNotes,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -363,6 +368,10 @@ func (s *Server) tail(ctx context.Context, held estate) (string, error) {
 		fmt.Fprintf(&out, "\n%d thing(s) the catalog claims are not supported by reality, %d of them notes pointing at nothing. Call `drift` for the list.\n",
 			len(drifts), notes)
 	}
+
+	out.WriteString("\nA note's id is its path, of the form `.dusk/<kind>-<hash>.md`. " +
+		"Pass one to `note` as `id` to read it whole; that read returns the `proof` its replacement needs. " +
+		"`note` pages with `limit` and `offset`, and filters on `pinned`.\n")
 
 	out.WriteString("\nAsk `search` before assuming something is not here. " +
 		"The catalog only knows what a repository wrote down, so absence means nobody documented it, not that it does not exist.\n")

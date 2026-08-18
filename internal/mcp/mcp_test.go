@@ -279,11 +279,33 @@ func TestADR0059_ASearchSaysHowManyItIsNotShowing(t *testing.T) {
 
 	t.Run("a cut page says what it matched", func(t *testing.T) {
 		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 3})
-		if !strings.Contains(body, "3 of 12 result(s)") {
+		if !strings.Contains(body, "1-3 of 12 result(s)") {
 			t.Errorf("search body does not say how many matched:\n%s", body)
 		}
-		if !strings.Contains(body, "limit") {
+		if !strings.Contains(body, "`offset` 3") {
 			t.Errorf("search body does not say how to see the rest:\n%s", body)
+		}
+	})
+
+	t.Run("the offset it names answers with the next page", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 3, "offset": 3})
+		if !strings.Contains(body, "4-6 of 12 result(s)") {
+			t.Errorf("search body does not report the page it answered with:\n%s", body)
+		}
+		if strings.Contains(body, "Service 00") {
+			t.Errorf("offset did not skip the first page:\n%s", body)
+		}
+	})
+
+	// The last page is still "N of M", because it was reached by paging, but
+	// naming a further offset would send the caller past the end.
+	t.Run("the last page does not name an offset past the end", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 6, "offset": 6})
+		if !strings.Contains(body, "7-12 of 12 result(s)") {
+			t.Errorf("search body does not report the final page:\n%s", body)
+		}
+		if strings.Contains(body, "`offset` 12") {
+			t.Errorf("search body points past the end of the result:\n%s", body)
 		}
 	})
 

@@ -177,13 +177,18 @@ func TestNotesAboutARepository(t *testing.T) {
 		},
 		{
 			name:   "pinned and about it",
-			filter: index.NoteFilter{AboutRepository: "example/homelab", Pinned: true},
+			filter: index.NoteFilter{AboutRepository: "example/homelab", Pinned: new(true)},
 			want:   []string{".dusk/both.md", ".dusk/one.md"},
 		},
 		{
 			name:   "pinned anywhere, including about nothing",
-			filter: index.NoteFilter{Pinned: true},
+			filter: index.NoteFilter{Pinned: new(true)},
 			want:   []string{".dusk/both.md", ".dusk/elsewhere.md", ".dusk/nothing.md", ".dusk/one.md"},
+		},
+		{
+			name:   "only the unpinned",
+			filter: index.NoteFilter{Pinned: new(false)},
+			want:   []string{".dusk/unpinned.md"},
 		},
 		{
 			name:   "one entity, not the repository",

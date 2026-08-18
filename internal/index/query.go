@@ -176,11 +176,15 @@ type NoteFilter struct {
 	// the config repository.
 	AboutRepository string
 
-	// Pinned limits to what somebody marked worth keeping at the top, for a
-	// caller that wants only those rather than only their ordering.
-	Pinned bool
+	// Pinned limits to what somebody marked worth keeping at the top. Nil is
+	// every note, false only the unpinned, which a plain bool could not ask.
+	Pinned *bool
 
 	Limit int
+
+	// Offset pages past Limit. Raising Limit instead re-sends the page already
+	// read, so it cannot get a caller past their own response size cap.
+	Offset int
 }
 
 // openNote matches a note nobody has closed. Empty counts as open, so a note
@@ -204,6 +208,7 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	err := db.notesQuery(ctx, gitRef, filter).
 		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
 		Limit(filter.Limit).
+		Offset(filter.Offset).
 		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
@@ -248,8 +253,8 @@ func (db *DB) notesQuery(ctx context.Context, gitRef string, filter NoteFilter) 
 	default:
 		query = query.Where("notes.status = ?", filter.Status)
 	}
-	if filter.Pinned {
-		query = query.Where("notes.pinned = ?", true)
+	if filter.Pinned != nil {
+		query = query.Where("notes.pinned = ?", *filter.Pinned)
 	}
 	if filter.Ref != "" {
 		query = query.Where(attachedTo("note_refs.ref = ?"), filter.Ref)
@@ -458,6 +463,10 @@ type SearchFilter struct {
 
 	// Limit caps the page. Zero takes the default.
 	Limit int
+
+	// Offset pages past Limit. The total is a window function over every
+	// ranked row, so it stays the size of the whole result set as this moves.
+	Offset int
 }
 
 // Search runs a full-text query at gitRef, answering one page of hits and how
@@ -497,7 +506,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 		args = append(args, entityKindArgs...)
 		args = append(args, containsArgs...)
 	}
-	args = append(args, filter.Limit)
+	args = append(args, filter.Limit, filter.Offset)
 
 	// An entity whose own name holds the query, and that the match did not
 	// already find. Below every match and above a work note, because it is a
@@ -555,7 +564,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 		       COUNT(*) OVER () AS total
 		  FROM hits
 		 ORDER BY demoted, relevance, ref
-		 LIMIT ?`, args...,
+		 LIMIT ? OFFSET ?`, args...,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("index: search %q at %q: %w", filter.Query, gitRef, err)

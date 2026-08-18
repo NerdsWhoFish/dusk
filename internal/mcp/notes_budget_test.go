@@ -59,11 +59,50 @@ func TestADR0059_ANoteListSaysHowManyItIsNotShowing(t *testing.T) {
 
 	t.Run("a limit the caller asked for says what it left out", func(t *testing.T) {
 		body := call(t, session, "note", map[string]any{"kind": "runbook", "limit": 5})
-		if !strings.Contains(body, "5 of 35 note(s)") {
+		if !strings.Contains(body, "1-5 of 35 note(s)") {
 			t.Errorf("note body does not say what the limit cut:\n%s", first(body))
 		}
-		if !strings.Contains(body, "limit") {
+		if !strings.Contains(body, "`offset` 5") {
 			t.Errorf("note body does not say how to see the rest:\n%s", first(body))
+		}
+	})
+
+	t.Run("the offset it names answers with the next page", func(t *testing.T) {
+		body := call(t, session, "note", map[string]any{"kind": "runbook", "limit": 5, "offset": 5})
+		if !strings.Contains(body, "6-10 of 35 note(s)") {
+			t.Errorf("note body does not report the page it answered with:\n%s", first(body))
+		}
+	})
+}
+
+// A filter the tool accepts and drops is worse than one it rejects: the rows
+// come back ordered pinned-first, so a caller reading a page of them concludes
+// the whole catalog is pinned. That misreading is what this test exists for.
+func TestNoteReadFiltersOnPinned(t *testing.T) {
+	session, idx := connect(t, nil)
+	notes := runbooks(6)
+	notes[0].Pinned = true
+	notes[1].Pinned = true
+	putNotes(t, idx, notes)
+
+	t.Run("only the pinned", func(t *testing.T) {
+		body := call(t, session, "note", map[string]any{"kind": "runbook", "pinned": true})
+		if !strings.Contains(body, "2 note(s)") {
+			t.Errorf("pinned read did not narrow to the pinned:\n%s", first(body))
+		}
+	})
+
+	t.Run("only the unpinned", func(t *testing.T) {
+		body := call(t, session, "note", map[string]any{"kind": "runbook", "pinned": false})
+		if !strings.Contains(body, "4 note(s)") {
+			t.Errorf("unpinned read did not narrow to the unpinned:\n%s", first(body))
+		}
+	})
+
+	t.Run("left out is every note", func(t *testing.T) {
+		body := call(t, session, "note", map[string]any{"kind": "runbook"})
+		if !strings.Contains(body, "6 note(s)") {
+			t.Errorf("an unfiltered read should answer with every note:\n%s", first(body))
 		}
 	})
 }
