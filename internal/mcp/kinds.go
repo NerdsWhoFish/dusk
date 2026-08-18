@@ -49,7 +49,10 @@ func (s *Server) readKinds(ctx context.Context, in kindsInput) (*sdk.CallToolRes
 
 	out.WriteString("\nKinds are open: declaring one that is not here creates it, and nothing refuses that. " +
 		"Minting one says what it is for, which is what makes something act on it.\n")
-	return success(out.String()+s.issueVocabulary(ctx), map[string]any{"kinds": kinds, "namespace": in.Namespace}), nil, nil
+	issued := s.issueVocabulary(ctx)
+	return success(out.String()+issued.markdown, issued.withData(map[string]any{
+		"kinds": kinds, "namespace": in.Namespace,
+	})), nil, nil
 }
 
 func renderNamespace(out *strings.Builder, namespace vocab.Namespace, kinds []vocab.Kind) {
@@ -90,14 +93,14 @@ func explain(namespace vocab.Namespace) string {
 // issueVocabulary mints the token a write against the vocabulary needs. The
 // version is the file's hash, so a mint racing another one is refused rather
 // than silently landing on top of it.
-func (s *Server) issueVocabulary(ctx context.Context) string {
+func (s *Server) issueVocabulary(ctx context.Context) issuedProof {
 	if s.opts.Tokens == nil || s.opts.Writer == nil {
-		return ""
+		return issuedProof{}
 	}
 
 	minted, err := s.opts.Writer.Vocabulary(ctx)
 	if err != nil {
-		return fmt.Sprintf("\n---\nThe vocabulary file could not be read, so nothing can be minted right now: %s\n", err)
+		return issuedProof{markdown: fmt.Sprintf("\n---\nThe vocabulary file could not be read, so nothing can be minted right now: %s\n", err)}
 	}
 
 	return s.issue(proof.FromKinds, map[string]string{vocab.Path: minted.Version},
