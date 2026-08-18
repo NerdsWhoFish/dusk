@@ -540,7 +540,7 @@ func note(id, kind, body string, pinned bool, refs ...string) *duskv1alpha1.Note
 // Every other test here reads the content block, which is the half a client
 // holding an output schema may discard. Against one that does, this answered
 // three summary fields and a status of ok: no pinned notes, and no way to tell.
-func TestContextSurvivesAClientThatReadsOnlyStructuredContent(t *testing.T) {
+func TestADR0074_ContextSurvivesAClientReadingOnlyStructuredContent(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	notes(t, idx, []*duskv1alpha1.Note{
