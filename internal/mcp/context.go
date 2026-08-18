@@ -383,7 +383,7 @@ func (s *Server) manual(vocabulary []vocab.Kind) string {
 	var out strings.Builder
 
 	out.WriteString("\n## Working with this catalog\n\n" +
-		"Refs are `kind:namespace/name` and feed straight back into `get`. " +
+		"Refs are `kind:namespace/name` and feed straight back into `get`, which also takes `plugin:<name>`. " +
 		"A note's id is its path, `.dusk/<kind>-<hash>.md`. " +
 		"A note listed above as a single line was named rather than printed: pass its id to `note` as `id` to read it whole. " +
 		"Every read of something writable returns a `proof` token, and the write that follows requires it.\n\n" +
@@ -447,9 +447,11 @@ func (s *Server) actionable(held estate) string {
 			"`get` names what an entity takes and `invoke` runs it.\n", listed(acts))
 	}
 
+	// Phrased around the list rather than about it, so one plugin and several
+	// read the same. "`adr` offer actions" is what naming them directly gives.
 	if free := s.unattachedPlugins(); len(free) > 0 {
-		fmt.Fprintf(&out, "\nAnd %s offer actions that are about no single entity, so they appear on nothing "+
-			"a `search` would return. Read one with `get plugin:<name>`.\n", listed(free))
+		fmt.Fprintf(&out, "\nSome capability is about no single entity and so appears on nothing a `search` returns. "+
+			"It lives on these plugins: %s. Read one with `get plugin:<name>`.\n", listed(free))
 	}
 
 	return out.String()
