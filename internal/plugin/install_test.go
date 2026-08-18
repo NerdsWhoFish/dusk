@@ -338,6 +338,63 @@ func TestADR0066_AReadyUpdateCutsOverAndRestoresOffline(t *testing.T) {
 	}
 }
 
+// GoReleaser's Version template omits the leading v from a git tag. That is a
+// spelling difference, not permission for a candidate to report another
+// release, and every official plugin uses the template.
+func TestADR0066_AGitTagAndGoReleaserVersionAreTheSameRelease(t *testing.T) {
+	manager, _ := manager(t)
+	t.Cleanup(manager.Stop)
+
+	executable, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	released := newReleaseBytes(t, "versioned", executable)
+	released.tag = "v1.2.3-rc.1"
+	manager.Market = released.serve(t, "versioned")
+
+	spec := oneAction("versioned", readOnly)
+	spec.Version = "1.2.3-rc.1"
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("encode plugin stand-in: %v", err)
+	}
+	t.Setenv(standInEnv, string(encoded))
+
+	active, err := manager.Install(t.Context(), spec.ID)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if active.Version != released.tag {
+		t.Errorf("active version = %q, want release tag %q", active.Version, released.tag)
+	}
+}
+
+func TestADR0066_ADifferentCandidateVersionIsStillRefused(t *testing.T) {
+	manager, _ := manager(t)
+	t.Cleanup(manager.Stop)
+
+	executable, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	released := newReleaseBytes(t, "wrong-version", executable)
+	released.tag = "v1.2.3"
+	manager.Market = released.serve(t, "wrong-version")
+
+	spec := oneAction("wrong-version", readOnly)
+	spec.Version = "1.2.4"
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("encode plugin stand-in: %v", err)
+	}
+	t.Setenv(standInEnv, string(encoded))
+
+	if _, err := manager.Install(t.Context(), spec.ID); err == nil {
+		t.Fatal("a candidate reporting another release was activated")
+	}
+}
+
 // The checksum is the only automated check between trusting an org and running
 // a binary from the internet, so a mismatch has to stop the install dead.
 func TestInstallRefusesAChecksumMismatch(t *testing.T) {

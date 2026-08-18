@@ -16,7 +16,7 @@ There is no enterprise permission maze, org chart, software factory, or complian
 Every knowledge tool dies the same way: the curation burden falls on a human who has better things to do.
 Dusk assumes the agents doing the work can also do the documenting, so the catalog updates as a byproduct of the work rather than as a chore after it.
 
-> Status: running in production against a real homelab, with plugins observing Kubernetes, Flux, container hosts, OCI registries, and a router. [DESIGN.md](DESIGN.md) is the architecture, [docs/status.md](docs/status.md) is what is built and what is not.
+> Status: running in production against a real homelab, with plugins observing Kubernetes, Flux, container hosts, OCI registries, the network, and Home Assistant. [DESIGN.md](DESIGN.md) is the architecture, [docs/ecosystem.md](docs/ecosystem.md) is what Dusk integrates with, and [docs/status.md](docs/status.md) is what is built and what is not.
 
 ![The Dusk homepage: a search box, a count of every kind in the catalog, what has drifted, what Dusk last read, and the notes agents have written](docs/images/home.png)
 
@@ -68,6 +68,7 @@ That account list is the code trust boundary, but a plugin does not inherit Dusk
 - [docs/controller.md](docs/controller.md) covers what keeps the catalog current: discovery, the account allowlist, webhooks, the poll floor, and the API budget.
 - [docs/storage.md](docs/storage.md) covers the materialized graph: how it is keyed, what it stores, and how search works.
 - [docs/ingest.md](docs/ingest.md) covers the half of the catalog nobody types: what an ingester promises, why a failure never deletes, and why every one of them is a plugin.
+- [docs/ecosystem.md](docs/ecosystem.md) names the released homelab integrations, the questions each answers, and the bar for adding another one.
 - [docs/kinds.md](docs/kinds.md) is the vocabulary: how kinds are counted rather than configured, what minting one changes, and why a near match warns instead of refusing.
 - [docs/pages.md](docs/pages.md) is the homepage: the `.dusk/home.md` a config repository declares, every block type, and the query grammar behind them.
 - [docs/plugins.md](docs/plugins.md) is for plugin authors: what an action's parameter schema may contain, which shape becomes which control, and what a form refuses before the plugin sees it.

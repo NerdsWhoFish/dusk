@@ -85,3 +85,12 @@ The updater would have to infer which of the binary, backup and record is author
 Whichever file moves first creates a state where the record and binary disagree, and a crash can preserve that state.
 - **Option 4** was rejected because supervision answers a runtime crash, not installation validity.
 It would repeatedly execute the newly selected broken version before deciding to mutate durable version history, coupling two failure policies and making the operator's explicit selection reversible by an unrelated crash counter.
+
+## Amendments
+
+### 2026-08-18 — A tag and GoReleaser's version are the same semantic release
+
+The candidate still has to report the release it came from, but the comparison now treats `v1.2.3` from GitHub and `1.2.3` from GoReleaser's standard `Version` template as the same semantic version.
+The first Home Assistant plugin release exposed the mismatch: its checksum and contract passed, then Dusk rejected the process because every official plugin's GoReleaser configuration injects the version without the tag prefix.
+Only a valid semantic version receives this normalization, including prerelease and build suffixes; arbitrary version strings still compare exactly, and an actually different version is still refused.
+Changing every plugin to re-add the prefix was rejected because it duplicates host compatibility policy across every publisher and fights the release tool's documented value without adding identity.

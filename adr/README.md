@@ -82,6 +82,7 @@ That is what stops the same argument happening again in six months.
 | [0070](0070-mutations-have-durable-retry-identity.md) | Mutations have durable retry identity | Mutating actions reserve a caller key in the durable local action journal before execution, retries return the remembered outcome, interrupted mutations are unknown, asynchronous handles settle their original event through `invoke`, and plugin configuration is protected by a read version and proof |
 | [0071](0071-mcp-results-are-dual-purpose-and-bounded.md) | MCP results are dual-purpose and bounded | Keep the fixed fat tools, pair Markdown with structured content, signal operational failures with stable codes, preserve complete action schemas, expire idle sessions, and cap graph result sections |
 | [0072](0072-a-read-checkpoint-belongs-to-the-browser.md) | A catalog read checkpoint belongs to the browser | Compare repository commits and failures with an explicit browser-local checkpoint, so one operator gets a truthful unread signal without accounts or server-side reader state |
+| [0073](0073-integrations-answer-operator-questions.md) | Integrations answer operator questions, not a vendor checklist | Prefer shared protocols when they preserve the answer, use vendor APIs when they do not, and call an integration supported only after an installable release and real check |
 
 ## Writing one
 

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -423,7 +424,7 @@ func (m *Manager) Install(ctx context.Context, id string) (*Installed, error) {
 		running.Stop()
 		return record, fmt.Errorf("plugin: %s has an incompatible description: %s", id, result.Error())
 	}
-	if running.Version != record.Version {
+	if !sameReleaseVersion(running.Version, record.Version) {
 		running.Stop()
 		return record, fmt.Errorf("plugin: %s release is %s but its process reports %s", id, record.Version, running.Version)
 	}
@@ -435,6 +436,20 @@ func (m *Manager) Install(ctx context.Context, id string) (*Installed, error) {
 	m.stop(id)
 	m.adopt(ctx, *record, running, secrets)
 	return record, nil
+}
+
+var semanticReleaseVersion = regexp.MustCompile(`^v?(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+
+// sameReleaseVersion accepts the spelling difference between a git tag and
+// GoReleaser's Version template while keeping the candidate identity check.
+func sameReleaseVersion(left, right string) bool {
+	if left == right {
+		return true
+	}
+	if !semanticReleaseVersion.MatchString(left) || !semanticReleaseVersion.MatchString(right) {
+		return false
+	}
+	return strings.TrimPrefix(left, "v") == strings.TrimPrefix(right, "v")
 }
 
 // Uninstall stops a plugin and removes it from disk.

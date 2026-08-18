@@ -1,5 +1,77 @@
 # What a plugin declares, and what the browser makes of it
 
+## From an upstream API to an installable plugin
+
+Use a plugin when the fact lives in another running system or Dusk should perform an action there.
+If the fact is maintained by a person or an agent and belongs to a repository, declare it in `dusk.md` instead.
+A plugin is not a more elaborate way to write static catalog data.
+
+The [plugin SDK](https://github.com/NerdsWhoFish/dusk-plugin-sdk) owns the protocol, generated clients, process runner, and conformance checks.
+The [Home Assistant plugin](https://github.com/NerdsWhoFish/dusk-plugin-home-assistant) is a complete REST example, and the [Music Assistant plugin](https://github.com/NerdsWhoFish/dusk-plugin-music-assistant) is a complete WebSocket example.
+
+### Start with the contract
+
+Implement these RPCs in this order:
+
+1. **`Describe`** gives the plugin a stable id and version, lists every emitted kind, declares configuration fields and source-budget keys, and advertises actions and UI contributions.
+2. **`ValidateConfig`** checks field shape, credentials, and reachability where the upstream permits a cheap probe.
+3. **`Ingest`** streams a complete observation carrying `schema_version: v1alpha1`.
+4. **`DryRun`** resolves the real target and explains every advertised action without changing it.
+5. **`Invoke`** performs the action, returns a bounded result, and names refs Dusk should observe again.
+6. **`Status`** is needed only when `Invoke` returns an asynchronous handle.
+
+An observation is a replacement, not a patch.
+If the upstream cannot supply a complete answer, return an error or an explicitly partial batch according to the source's contract; never turn “I could not look” into an empty successful result.
+
+Keep normalization at the edge.
+Dusk should receive stable refs, useful titles, normalized attributes, and relations with their final meaning rather than vendor response objects it must reinterpret.
+Resolve action refs against the upstream instead of reversing a slug when the original identity cannot be recovered losslessly.
+
+### Keep the repository ordinary
+
+A Go plugin normally needs only this shape:
+
+```text
+cmd/dusk-plugin-name/main.go
+internal/serve/server.go
+pkg/upstream/client.go
+go.mod
+Makefile
+.goreleaser.yaml
+.github/workflows/ci.yml
+.github/workflows/release.yml
+```
+
+The command calls the SDK's process runner and contains no upstream logic.
+The server translates the Dusk contract to a client whose HTTP, socket, or command boundary can be replaced in tests.
+Nothing requires Go: the protobuf contract is the source of truth, and any language that can serve gRPC over the host-provided unix socket can implement it.
+
+### Prove the boundaries
+
+Every plugin repository should test:
+
+- `conformance.ValidateDescribe`, because every Dusk surface is built from that response
+- Complete and failed observations against a fake upstream
+- Authentication and credential non-disclosure
+- Stable identity and normalization, including awkward names
+- `DryRun` making no upstream mutation
+- Every action's kind and parameter boundary, including a direct call that bypasses the UI
+- A representative read-only run against a real system, gated by explicit environment variables
+- A snapshot GoReleaser build for every published operating system and architecture
+
+Do not make a normal test run capable of changing a real house, cluster, router, or account.
+The fake upstream exercises mutations end to end; the real check proves authentication and inventory read-only.
+
+### Publish what Dusk can verify
+
+Discovery looks for repositories named `dusk-plugin-*` in an allowlisted GitHub organization that Dusk's GitHub identity can read.
+A release must contain platform archives named from the repository and a `checksums.txt`; Dusk verifies the selected archive before it runs anything.
+The process version must identify that release; Dusk treats a semantic Git tag's leading `v` as spelling, because GoReleaser's standard `Version` template omits it, and refuses any other mismatch.
+The official repositories call the shared release workflow in `NerdsWhoFish/.github` so archive naming, checksums, changelogs, and versioning have one implementation.
+
+After publishing, install the release through Dusk, configure it, and confirm that an entity, declared view, dry run, and enabled action travel through the host rather than only through a unit test.
+The action may target a fake or disposable upstream; the inventory check should target the real system the plugin claims to support.
+
 ## What happens when a plugin dies
 
 A plugin is a subprocess ([ADR-0039](../adr/0039-one-plugin-transport.md)), and Dusk keeps it up ([ADR-0055](../adr/0055-supervising-plugin-processes.md)).
