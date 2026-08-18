@@ -66,6 +66,13 @@ type fakeGitHub struct {
 	// failTarballs makes that many downloads fail, standing in for a blip.
 	failTarballs int
 
+	// snapshots let a concurrency test serve the tree belonging to each resolved commit.
+	snapshots map[string]string
+
+	blockTarball   string
+	tarballStarted chan struct{}
+	releaseTarball chan struct{}
+
 	mu    sync.Mutex
 	calls map[string]int
 }
@@ -103,10 +110,18 @@ func (f *fakeGitHub) start(t *testing.T) *githubapp.Client {
 }
 
 func (f *fakeGitHub) commit() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.sha != "" {
 		return f.sha
 	}
 	return "abc1234def5678"
+}
+
+func (f *fakeGitHub) moveTo(commit string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sha = commit
 }
 
 func (f *fakeGitHub) count(path string) {
@@ -169,7 +184,7 @@ func (f *fakeGitHub) writeRepositories(w http.ResponseWriter, _ *http.Request) {
 // in the JSON envelope the write path also reads.
 func (f *fakeGitHub) writeContents(w http.ResponseWriter, req *http.Request) {
 	slug := strings.TrimPrefix(strings.SplitN(req.URL.Path, "/contents/", 2)[0], "/repos/")
-	content, ok := f.contentsOf(slug)
+	content, ok := f.contentAt(slug, req.URL.Query().Get("ref"))
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, `{"message":"Not Found"}`)
@@ -198,8 +213,31 @@ func (f *fakeGitHub) writeTarball(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	slug := strings.TrimPrefix(strings.SplitN(req.URL.Path, "/tarball/", 2)[0], "/repos/")
-	content, ok := f.contentsOf(slug)
+	parts := strings.SplitN(req.URL.Path, "/tarball/", 2)
+	slug := strings.TrimPrefix(parts[0], "/repos/")
+	commit := parts[1]
+
+	f.mu.Lock()
+	blocked := commit == f.blockTarball && f.releaseTarball != nil
+	started := f.tarballStarted
+	release := f.releaseTarball
+	if blocked && started != nil {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+	}
+	f.mu.Unlock()
+	if blocked {
+		select {
+		case <-req.Context().Done():
+			return
+		case <-release:
+		}
+	}
+
+	content, ok := f.contentAt(slug, commit)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -214,6 +252,16 @@ func (f *fakeGitHub) writeTarball(w http.ResponseWriter, req *http.Request) {
 	_, _ = tw.Write([]byte(content))
 	_ = tw.Close()
 	_ = gz.Close()
+}
+
+func (f *fakeGitHub) contentAt(slug, commit string) (string, bool) {
+	f.mu.Lock()
+	content, ok := f.snapshots[commit]
+	f.mu.Unlock()
+	if ok {
+		return content, true
+	}
+	return f.contentsOf(slug)
 }
 
 // contentsOf returns a repository's dusk.md. Empty means the repository exists
@@ -452,6 +500,71 @@ func TestAnUnchangedCommitIsNotDownloaded(t *testing.T) {
 			t.Error("a changed commit was skipped")
 		}
 	})
+}
+
+func TestADR0006_AnOlderReconcileCannotReplaceANewerCommit(t *testing.T) {
+	const (
+		oldCommit = "1111111old"
+		newCommit = "2222222new"
+	)
+	fake := &fakeGitHub{
+		sha: oldCommit,
+		installs: []install{{
+			id: 10, account: "example",
+			repos: map[string]string{"example/homelab": rootFile("fallback")},
+		}},
+		snapshots: map[string]string{
+			oldCommit: rootFile("old"),
+			newCommit: rootFile("new"),
+		},
+		blockTarball: oldCommit, tarballStarted: make(chan struct{}), releaseTarball: make(chan struct{}),
+	}
+	c, idx := newController(t, fake, "example", controller.Options{})
+
+	syncRepository := func(done chan<- error) {
+		done <- c.SyncRepository(t.Context(), 10, "example", "example", "homelab", mainRef)
+	}
+	oldDone := make(chan error, 1)
+	go syncRepository(oldDone)
+
+	select {
+	case <-fake.tarballStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the old reconcile never reached its blocked download")
+	}
+
+	fake.moveTo(newCommit)
+	newDone := make(chan error, 1)
+	go syncRepository(newDone)
+
+	var newErr error
+	select {
+	case newErr = <-newDone:
+		// Without scope serialization the newer reconcile finishes here. Releasing
+		// the older one afterwards makes the stale snapshot deterministically win.
+		close(fake.releaseTarball)
+	case <-time.After(250 * time.Millisecond):
+		// The newer reconcile is correctly waiting before it resolves the ref.
+		close(fake.releaseTarball)
+		newErr = <-newDone
+	}
+	if err := <-oldDone; err != nil {
+		t.Fatalf("old SyncRepository: %v", err)
+	}
+	if newErr != nil {
+		t.Fatalf("new SyncRepository: %v", newErr)
+	}
+
+	if _, err := idx.Get(t.Context(), mainRef, "service:home/new"); err != nil {
+		t.Errorf("new commit is not the final graph: %v", err)
+	}
+	if _, err := idx.Get(t.Context(), mainRef, "service:home/old"); !errors.Is(err, index.ErrNotFound) {
+		t.Errorf("old commit replaced the newer graph: %v", err)
+	}
+	statuses := c.Status()
+	if len(statuses) != 1 || statuses[0].Commit != newCommit {
+		t.Errorf("Status = %+v, want commit %s", statuses, newCommit)
+	}
 }
 
 // A delivery is answered before the work runs, so GitHub never redelivers. A

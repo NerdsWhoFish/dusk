@@ -59,8 +59,9 @@ type Options struct {
 type Controller struct {
 	opts Options
 
-	mu     sync.Mutex
-	status map[index.Scope]Status
+	mu             sync.Mutex
+	status         map[index.Scope]Status
+	reconcileGates map[index.Scope]*reconcileGate
 
 	// tokens is rebuilt when the App changes, so its cache survives between
 	// sweeps rather than re-minting a token every ten minutes.
@@ -83,6 +84,46 @@ type Controller struct {
 	// nextSweep is when the poll floor runs again, which is how long a read can
 	// stay as old as it is before anything corrects it.
 	nextSweep time.Time
+}
+
+type reconcileGate struct {
+	turn  chan struct{}
+	users int
+}
+
+func (c *Controller) enterReconcile(ctx context.Context, scope index.Scope) (func(), error) {
+	c.mu.Lock()
+	if c.reconcileGates == nil {
+		c.reconcileGates = make(map[index.Scope]*reconcileGate)
+	}
+	gate := c.reconcileGates[scope]
+	if gate == nil {
+		gate = &reconcileGate{turn: make(chan struct{}, 1)}
+		gate.turn <- struct{}{}
+		c.reconcileGates[scope] = gate
+	}
+	gate.users++
+	c.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		c.leaveReconcile(scope, gate)
+		return nil, ctx.Err()
+	case <-gate.turn:
+		return func() {
+			gate.turn <- struct{}{}
+			c.leaveReconcile(scope, gate)
+		}, nil
+	}
+}
+
+func (c *Controller) leaveReconcile(scope index.Scope, gate *reconcileGate) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	gate.users--
+	if gate.users == 0 {
+		delete(c.reconcileGates, scope)
+	}
 }
 
 // Target returns a writable handle on a repository a sweep has seen, so what
@@ -452,6 +493,11 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 		return fmt.Errorf("controller: %q is not an owner/name repository", slug)
 	}
 	scope := index.Scope{Repository: slug, GitRef: gitRef}
+	leave, err := c.enterReconcile(ctx, scope)
+	if err != nil {
+		return err
+	}
+	defer leave()
 
 	source := &reconcile.Tarball{Repo: install.Repository(owner, name)}
 	commit, err := source.Resolve(ctx, gitRef)
