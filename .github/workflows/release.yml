@@ -163,7 +163,7 @@ jobs:
       # validate the examples. Re-running may overwrite this image tag until a
       # release exists, and the failure cleanup below removes the git tag.
       - name: Smoke test the published image
-        run: zsh scripts/onboarding-smoke.zsh "${IMAGE}:${{ steps.version.outputs.version }}"
+        run: scripts/onboarding-smoke.sh "${IMAGE}:${{ steps.version.outputs.version }}"
 
       - name: Release ${{ steps.version.outputs.next }}
         env:

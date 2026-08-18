@@ -1,9 +1,9 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 
 set -euo pipefail
 
 image=${1:-ghcr.io/nerdswhofish/dusk:latest}
-root=${0:A:h:h}
+root=$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd -P)
 run_id="dusk-onboarding-${$}-${RANDOM}"
 volume="${run_id}-data"
 
@@ -18,19 +18,17 @@ if [[ ${DUSK_SMOKE_PULL:-true} == true ]]; then
 fi
 
 key=$(docker run --rm "$image" genkey)
-[[ -n "$key" ]] || { print -u2 "dusk genkey returned nothing"; exit 1; }
+[[ -n "$key" ]] || { printf 'dusk genkey returned nothing\n' >&2; exit 1; }
 
 starter=$(docker run --rm --volume "$root/examples/starter:/catalog:ro" "$image" validate /catalog)
 [[ "$starter" == *"1 entities, 0 relations, 0 notes"* ]] || {
-  print -u2 -- "$starter"
-  print -u2 "starter catalog did not validate as one useful result"
+  printf '%s\nstarter catalog did not validate as one useful result\n' "$starter" >&2
   exit 1
 }
 
 homelab=$(docker run --rm --volume "$root/examples/homelab:/catalog:ro" "$image" validate /catalog)
 [[ "$homelab" == *"5 entities, 5 relations, 1 notes"* ]] || {
-  print -u2 -- "$homelab"
-  print -u2 "example homelab did not validate with its complete graph"
+  printf '%s\nexample homelab did not validate with its complete graph\n' "$homelab" >&2
   exit 1
 }
 
@@ -46,28 +44,28 @@ docker run --detach --name "$run_id" \
 address=$(docker port "$run_id" 8080/tcp)
 port=${address##*:}
 for attempt in {1..30}; do
-  if curl --fail --silent --show-error "http://127.0.0.1:${port}/healthz" >/dev/null; then
+  if curl --fail --silent "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
     break
   fi
   if (( attempt == 30 )); then
     docker logs "$run_id"
-    print -u2 "Dusk did not become healthy"
+    printf 'Dusk did not become healthy\n' >&2
     exit 1
   fi
   sleep 1
 done
 
 ready=$(curl --fail --silent --show-error "http://127.0.0.1:${port}/readyz")
-[[ "$ready" == *"not onboarded"* ]] || { print -u2 -- "$ready"; exit 1; }
+[[ "$ready" == *"not onboarded"* ]] || { printf '%s\n' "$ready" >&2; exit 1; }
 
 setup=$(curl --fail --silent --show-error "http://127.0.0.1:${port}/setup")
 [[ "$setup" == *"internal developer platform for homelabbers"* ]] || {
-  print -u2 "setup page did not explain the product"
+  printf 'setup page did not explain the product\n' >&2
   exit 1
 }
 [[ "$setup" == *"/setup/installed?state="* ]] || {
-  print -u2 "setup manifest did not include the post-install return"
+  printf 'setup manifest did not include the post-install return\n' >&2
   exit 1
 }
 
-print "onboarding smoke passed for $image"
+printf 'onboarding smoke passed for %s\n' "$image"

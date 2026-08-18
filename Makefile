@@ -35,7 +35,7 @@ web-dev:
 
 # Exercises the exact published image, including its non-root data volume.
 onboarding-smoke:
-	zsh scripts/onboarding-smoke.zsh
+	scripts/onboarding-smoke.sh
 
 clean:
 	rm -rf bin web/dist/assets web/dist/index.html
