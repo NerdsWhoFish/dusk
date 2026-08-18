@@ -287,6 +287,36 @@ func TestADR0059_ASearchSaysHowManyItIsNotShowing(t *testing.T) {
 		}
 	})
 
+	t.Run("a whole page does not pretend to be cut", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 50})
+		if !strings.Contains(body, "12 result(s)") || strings.Contains(body, " of 12") {
+			t.Errorf("search body should not say it cut anything:\n%s", body)
+		}
+	})
+
+	// An empty answer that does not repeat the kind reads as "nothing called
+	// that exists", which is a stronger claim than the one that was checked.
+	t.Run("an empty answer names the kind it looked for", func(t *testing.T) {
+		body := call(t, session, "search", map[string]any{"query": "shelf", "kind": "datastore"})
+		if !strings.Contains(body, "datastore") {
+			t.Errorf("empty answer does not say what it looked for:\n%s", body)
+		}
+	})
+}
+
+// ADR-0075: a cut list names a step the caller can take. A larger limit
+// re-sends the page already read, so it never clears a response size cap.
+func TestADR0075_ACutSearchNamesTheNextOffset(t *testing.T) {
+	session, idx := connect(t, nil)
+
+	entities := make([]*duskv1alpha1.Entity, 0, 12)
+	for i := range 12 {
+		entities = append(entities, entity(
+			fmt.Sprintf("service:home/svc%02d", i), "service",
+			fmt.Sprintf("Service %02d", i), "shelf"))
+	}
+	put(t, idx, "example/homelab", entities)
+
 	t.Run("the offset it names answers with the next page", func(t *testing.T) {
 		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 3, "offset": 3})
 		if !strings.Contains(body, "4-6 of 12 result(s)") {
@@ -306,22 +336,6 @@ func TestADR0059_ASearchSaysHowManyItIsNotShowing(t *testing.T) {
 		}
 		if strings.Contains(body, "`offset` 12") {
 			t.Errorf("search body points past the end of the result:\n%s", body)
-		}
-	})
-
-	t.Run("a whole page does not pretend to be cut", func(t *testing.T) {
-		body := call(t, session, "search", map[string]any{"query": "shelf", "limit": 50})
-		if !strings.Contains(body, "12 result(s)") || strings.Contains(body, " of 12") {
-			t.Errorf("search body should not say it cut anything:\n%s", body)
-		}
-	})
-
-	// An empty answer that does not repeat the kind reads as "nothing called
-	// that exists", which is a stronger claim than the one that was checked.
-	t.Run("an empty answer names the kind it looked for", func(t *testing.T) {
-		body := call(t, session, "search", map[string]any{"query": "shelf", "kind": "datastore"})
-		if !strings.Contains(body, "datastore") {
-			t.Errorf("empty answer does not say what it looked for:\n%s", body)
 		}
 	})
 }

@@ -67,18 +67,26 @@ func TestADR0059_ANoteListSaysHowManyItIsNotShowing(t *testing.T) {
 		}
 	})
 
-	t.Run("the offset it names answers with the next page", func(t *testing.T) {
-		body := call(t, session, "note", map[string]any{"kind": "runbook", "limit": 5, "offset": 5})
-		if !strings.Contains(body, "6-10 of 35 note(s)") {
-			t.Errorf("note body does not report the page it answered with:\n%s", first(body))
-		}
-	})
+}
+
+// ADR-0075: the offset a cut note list names answers with the next page.
+func TestADR0075_ACutNoteListNamesTheNextOffset(t *testing.T) {
+	session, idx := connect(t, nil)
+	putNotes(t, idx, runbooks(35))
+
+	body := call(t, session, "note", map[string]any{"kind": "runbook", "limit": 5, "offset": 5})
+	if !strings.Contains(body, "6-10 of 35 note(s)") {
+		t.Errorf("note body does not report the page it answered with:\n%s", first(body))
+	}
+	if strings.Contains(body, ".dusk/runbook-00.md") {
+		t.Errorf("offset did not skip the first page:\n%s", first(body))
+	}
 }
 
 // A filter the tool accepts and drops is worse than one it rejects: the rows
 // come back ordered pinned-first, so a caller reading a page of them concludes
 // the whole catalog is pinned. That misreading is what this test exists for.
-func TestNoteReadFiltersOnPinned(t *testing.T) {
+func TestADR0075_ANoteReadFiltersOnPinned(t *testing.T) {
 	session, idx := connect(t, nil)
 	notes := runbooks(6)
 	notes[0].Pinned = true
