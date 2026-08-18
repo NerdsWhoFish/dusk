@@ -174,3 +174,13 @@ The reasoning this ADR already records is the reasoning against that: *a count c
 All four sections now name what they dropped. Nothing new was needed: `reserve` already sets aside the longest overflow line a section could print, and `listed` already caps it at twelve names with the rest counted behind them, because that room is reserved whether or not the line ever prints. A note's and a ref's `name` is backticked, since an overflow naming one is handing over an identifier to paste back.
 
 The gap survived because the rule was tested where it was implemented. `TestADR0057_TheOverflowNamesTheKindsItLeftOut` asserts it of the inventory and nothing asserted it of the sections that mattered more.
+
+### 2026-08-18: the cap names the call that answers with the rest, and everything enumerated is a list
+
+Naming what was dropped left the same defect one level down, in the cap that makes the naming affordable.
+
+`listed` names twelve and then said `and 13 more`, which is a count that cannot say which note, reintroducing exactly the problem the amendment above fixed. It was visible immediately once the overflow started naming ids: the reader can reach twelve of them and has nothing at all for the remainder.
+
+Every overflow now names the call that answers with all of them: `note` with `pinned: true` for either pinned section, `search` for what a repository declares, `kinds` for the vocabulary. The cap stays, because the reserve is paid whether or not the line prints, and it is now a display limit rather than an information limit.
+
+Separately, everything the context enumerates is a markdown list rather than a comma run inside a sentence: the overflow entries, the kinds carrying actions, the plugins holding entity-less capability, and the refs under each kind in the inventory, which were one long comma-joined line per kind. The inventory pays a few bytes a ref for it and the budget absorbs that by degrading a kind to its count, which is the trade this ADR already makes everywhere else.
