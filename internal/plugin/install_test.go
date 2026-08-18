@@ -24,12 +24,17 @@ import (
 type release struct {
 	archive   []byte
 	checksum  string
+	tag       string
 	corrupt   bool
 	omitSums  bool
 	omitAsset bool
 }
 
 func newRelease(t *testing.T, id, contents string) *release {
+	return newReleaseBytes(t, id, []byte(contents))
+}
+
+func newReleaseBytes(t *testing.T, id string, contents []byte) *release {
 	t.Helper()
 
 	var buffer bytes.Buffer
@@ -42,7 +47,7 @@ func newRelease(t *testing.T, id, contents string) *release {
 	}); err != nil {
 		t.Fatalf("write header: %v", err)
 	}
-	if _, err := writer.Write([]byte(contents)); err != nil {
+	if _, err := writer.Write(contents); err != nil {
 		t.Fatalf("write archive: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -53,7 +58,7 @@ func newRelease(t *testing.T, id, contents string) *release {
 	}
 
 	sum := sha256.Sum256(buffer.Bytes())
-	return &release{archive: buffer.Bytes(), checksum: hex.EncodeToString(sum[:])}
+	return &release{archive: buffer.Bytes(), checksum: hex.EncodeToString(sum[:]), tag: "v1.2.3"}
 }
 
 func (r *release) serve(t *testing.T, id string) *plugin.Market {
@@ -83,7 +88,7 @@ func (r *release) serve(t *testing.T, id string) *plugin.Market {
 				"name": "checksums.txt", "browser_download_url": base + "/checksums",
 			})
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.2.3", "assets": assets})
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": r.tag, "assets": assets})
 	})
 	mux.HandleFunc("GET /download", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(r.archive)
@@ -138,7 +143,7 @@ func TestListSkipsPrefixedRepositoriesWithNothingToInstall(t *testing.T) {
 	}
 }
 
-func TestInstallWritesTheBinaryAndItsRecord(t *testing.T) {
+func TestStageWritesAnImmutableBinaryWithoutActivatingIt(t *testing.T) {
 	market := newRelease(t, "kubernetes", "#!/bin/sh\necho hi\n").serve(t, "kubernetes")
 	store := &plugin.Store{Dir: t.TempDir()}
 
@@ -147,15 +152,15 @@ func TestInstallWritesTheBinaryAndItsRecord(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 
-	record, err := market.Install(t.Context(), store, listings[0])
+	record, err := market.Stage(t.Context(), store, listings[0])
 	if err != nil {
-		t.Fatalf("Install: %v", err)
+		t.Fatalf("Stage: %v", err)
 	}
 	if record.Version != "v1.2.3" {
 		t.Errorf("version = %q", record.Version)
 	}
 
-	body, err := os.ReadFile(store.Binary("kubernetes"))
+	body, err := os.ReadFile(store.BinaryFor(*record))
 	if err != nil {
 		t.Fatalf("read the installed binary: %v", err)
 	}
@@ -164,7 +169,7 @@ func TestInstallWritesTheBinaryAndItsRecord(t *testing.T) {
 	}
 
 	// Executable, or the host cannot start what it just installed.
-	info, err := os.Stat(store.Binary("kubernetes"))
+	info, err := os.Stat(store.BinaryFor(*record))
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
@@ -176,15 +181,25 @@ func TestInstallWritesTheBinaryAndItsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List installed: %v", err)
 	}
+	if len(installed) != 0 {
+		t.Errorf("installed = %+v, want staging not to change the active record", installed)
+	}
+	if err := store.Write(*record); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	installed, err = store.List()
+	if err != nil {
+		t.Fatalf("List activated: %v", err)
+	}
 	if len(installed) != 1 || installed[0].ID != "kubernetes" {
-		t.Errorf("installed = %+v, want one record for kubernetes", installed)
+		t.Errorf("installed = %+v, want one active record for kubernetes", installed)
 	}
 }
 
 // Installing over an existing plugin is how an update is applied. Writing a
 // fresh record lost the configuration, so updating to a bug fix meant retyping
 // the credential that made the plugin work.
-func TestInstallKeepsConfigurationAcrossAnUpdate(t *testing.T) {
+func TestStageCarriesConfigurationIntoAnUpdateCandidate(t *testing.T) {
 	market := newRelease(t, "kubernetes", "binary").serve(t, "kubernetes")
 	store := &plugin.Store{Dir: t.TempDir()}
 
@@ -192,8 +207,12 @@ func TestInstallKeepsConfigurationAcrossAnUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if _, err := market.Install(t.Context(), store, listings[0]); err != nil {
-		t.Fatalf("Install: %v", err)
+	first, err := market.Stage(t.Context(), store, listings[0])
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if err := store.Write(*first); err != nil {
+		t.Fatalf("activate: %v", err)
 	}
 
 	configured, err := store.Read("kubernetes")
@@ -206,19 +225,116 @@ func TestInstallKeepsConfigurationAcrossAnUpdate(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	if _, err := market.Install(t.Context(), store, listings[0]); err != nil {
+	candidate, err := market.Stage(t.Context(), store, listings[0])
+	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
+	if candidate.Config["cluster"] != "prod" {
+		t.Errorf("config = %v, want the candidate to have kept it", candidate.Config)
+	}
+	if _, ok := candidate.Instances["other"]; !ok {
+		t.Errorf("instances = %v, want the candidate to have kept them", candidate.Instances)
+	}
+}
 
-	after, err := store.Read("kubernetes")
+func TestADR0066_AFailedUpdateLeavesTheActivePluginRunning(t *testing.T) {
+	manager, rotation := manager(t)
+	old := oneAction("upgradable", readOnly)
+	old.Version = "v0.0.1"
+	install(t, manager.Store, old)
+	manager.Restore(t.Context())
+	t.Cleanup(manager.Stop)
+
+	broken := newRelease(t, old.ID, "#!/bin/sh\nexit 9\n")
+	broken.tag = "v0.0.2"
+	manager.Market = broken.serve(t, old.ID)
+
+	if _, err := manager.Install(t.Context(), old.ID); err == nil {
+		t.Fatal("an update whose process never became ready was activated")
+	}
+
+	active, err := manager.Store.Read(old.ID)
 	if err != nil {
-		t.Fatalf("Read after update: %v", err)
+		t.Fatalf("Read active record: %v", err)
 	}
-	if after.Config["cluster"] != "prod" {
-		t.Errorf("config = %v, want the update to have kept it", after.Config)
+	if active.Version != old.Version {
+		t.Errorf("active version = %q, want the old %q", active.Version, old.Version)
 	}
-	if _, ok := after.Instances["other"]; !ok {
-		t.Errorf("instances = %v, want the update to have kept them", after.Instances)
+	described, running := manager.Describe(old.ID)
+	if !running || described.GetVersion() != old.Version {
+		t.Errorf("running description = %+v, %v; want the old process still serving", described, running)
+	}
+	if got := rotation.names(); len(got) != 1 || got[0] != "plugin:"+old.ID {
+		t.Errorf("rotation = %v, want the old instance untouched", got)
+	}
+}
+
+func TestADR0066_AReadyUpdateCutsOverAndRestoresOffline(t *testing.T) {
+	manager, _ := manager(t)
+	old := oneAction("upgradable", readOnly)
+	old.Version = "v0.0.1"
+	old.Fields = []string{"cluster"}
+	install(t, manager.Store, old)
+
+	record, err := manager.Store.Read(old.ID)
+	if err != nil {
+		t.Fatalf("Read old record: %v", err)
+	}
+	record.Config = map[string]any{"cluster": "production"}
+	record.Instances = map[string]map[string]any{"staging": {"cluster": "staging"}}
+	record.Enabled = []string{"poke"}
+	if err := manager.Store.Write(*record); err != nil {
+		t.Fatalf("configure old record: %v", err)
+	}
+	manager.Restore(t.Context())
+	t.Cleanup(manager.Stop)
+
+	executable, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	released := newReleaseBytes(t, old.ID, executable)
+	released.tag = "v0.0.2"
+	manager.Market = released.serve(t, old.ID)
+
+	next := old
+	next.Version = released.tag
+	encoded, err := json.Marshal(next)
+	if err != nil {
+		t.Fatalf("encode update stand-in: %v", err)
+	}
+	t.Setenv(standInEnv, string(encoded))
+
+	active, err := manager.Install(t.Context(), old.ID)
+	if err != nil {
+		t.Fatalf("Install update: %v", err)
+	}
+	if active.Version != next.Version || active.Config["cluster"] != "production" {
+		t.Errorf("active record = %+v, want the new version with old configuration", active)
+	}
+	if _, ok := active.Instances["staging"]; !ok || len(active.Enabled) != 1 {
+		t.Errorf("active record lost instances or enabled actions: %+v", active)
+	}
+	if path := manager.Store.BinaryFor(*active); !strings.Contains(path, filepath.Join("versions", active.SHA256)) {
+		t.Errorf("active binary = %q, want the immutable digest path", path)
+	}
+	if described, running := manager.Describe(old.ID); !running || described.GetVersion() != next.Version {
+		t.Errorf("running description = %+v, %v; want the new process", described, running)
+	}
+	if _, err := manager.Install(t.Context(), old.ID); err != nil {
+		t.Fatalf("reinstall the active release beside its candidate socket: %v", err)
+	}
+
+	manager.Stop()
+	restoredRotation := newRota()
+	restored := &plugin.Manager{Store: manager.Store, Market: manager.Market, Rota: restoredRotation}
+	restored.Restore(t.Context())
+	t.Cleanup(restored.Stop)
+	if described, running := restored.Describe(old.ID); !running || described.GetVersion() != next.Version {
+		t.Errorf("offline restore = %+v, %v; want the activated version from disk", described, running)
+	}
+	if got := restoredRotation.names(); len(got) != 2 {
+		t.Errorf("restored rotation = %v, want the default and named instance", got)
 	}
 }
 
@@ -234,7 +350,7 @@ func TestInstallRefusesAChecksumMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if _, err := market.Install(t.Context(), store, listings[0]); err == nil {
+	if _, err := market.Stage(t.Context(), store, listings[0]); err == nil {
 		t.Fatal("installed a binary whose checksum did not match")
 	}
 
@@ -255,7 +371,7 @@ func TestInstallRefusesAReleaseWithNoChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if _, err := market.Install(t.Context(), store, listings[0]); err == nil {
+	if _, err := market.Stage(t.Context(), store, listings[0]); err == nil {
 		t.Error("installed from a release publishing no checksums")
 	}
 }
@@ -270,5 +386,20 @@ func TestListInstalledIsEmptyRatherThanFailingWithNoDirectory(t *testing.T) {
 	}
 	if len(installed) != 0 {
 		t.Errorf("installed = %+v, want none", installed)
+	}
+}
+
+func TestBinaryForFallsBackToAPreVersionedInstall(t *testing.T) {
+	store := &plugin.Store{Dir: t.TempDir()}
+	if err := os.MkdirAll(filepath.Join(store.Dir, "legacy"), 0o700); err != nil {
+		t.Fatalf("make legacy directory: %v", err)
+	}
+	if err := os.WriteFile(store.Binary("legacy"), []byte("old binary"), 0o700); err != nil {
+		t.Fatalf("write legacy binary: %v", err)
+	}
+
+	record := plugin.Installed{ID: "legacy", SHA256: strings.Repeat("a", 64)}
+	if got := store.BinaryFor(record); got != store.Binary("legacy") {
+		t.Errorf("BinaryFor = %q, want legacy path %q", got, store.Binary("legacy"))
 	}
 }

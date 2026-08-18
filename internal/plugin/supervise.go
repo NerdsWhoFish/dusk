@@ -245,17 +245,21 @@ func (m *Manager) retry(ctx context.Context, id string, halt chan struct{}) {
 		case <-timer.C:
 		}
 
+		m.ops.Lock()
 		record, err := m.Store.Read(id)
 		if err != nil {
+			m.ops.Unlock()
 			// Uninstalled while the backoff ran. There is nothing to start and
 			// nothing has gone wrong.
 			return
 		}
 		if !m.current(id, halt) {
+			m.ops.Unlock()
 			return
 		}
 
 		started := m.start(ctx, *record)
+		m.ops.Unlock()
 		if started == nil {
 			// Counted here rather than at the attempt, so "restarted three
 			// times" means three processes and not three tries.
@@ -374,6 +378,9 @@ func (m *Manager) launch(ctx context.Context, record Installed) error {
 // is the only way back from failed: a plugin that is not running cannot be
 // reconfigured, because only a running one says which fields are secret.
 func (m *Manager) Restart(ctx context.Context, id string) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	record, err := m.Store.Read(id)
 	if err != nil {
 		return fmt.Errorf("plugin: %q is not installed", id)

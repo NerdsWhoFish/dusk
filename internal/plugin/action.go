@@ -259,6 +259,9 @@ func (m *Manager) Report() []Report {
 // Enable turns an action on or off. Denied by default is only meaningful if
 // turning one on is a separate, recorded decision (ADR-0015).
 func (m *Manager) Enable(id, name string, on bool) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	record, err := m.Store.Read(id)
 	if err != nil {
 		return fmt.Errorf("plugin: %q is not installed", id)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -337,15 +338,14 @@ func install(t *testing.T, store *plugin.Store, spec standIn) {
 	if err != nil {
 		t.Fatalf("encode the stand-in spec: %v", err)
 	}
-	t.Setenv(standInEnv, string(encoded))
-
 	if err := os.MkdirAll(filepath.Join(store.Dir, spec.ID), 0o700); err != nil {
 		t.Fatalf("make the plugin directory: %v", err)
 	}
-	// A symlink rather than a copy: exec follows it to this test binary, which
-	// TestMain then runs as the plugin.
-	if err := os.Symlink(os.Args[0], store.Binary(spec.ID)); err != nil {
-		t.Fatalf("link the stand-in binary: %v", err)
+	quoted := strings.ReplaceAll(string(encoded), "'", `'"'"'`)
+	executable := strings.ReplaceAll(os.Args[0], "'", `'"'"'`)
+	wrapper := "#!/bin/sh\nexec env " + standInEnv + "='" + quoted + "' '" + executable + "'\n"
+	if err := os.WriteFile(store.Binary(spec.ID), []byte(wrapper), 0o700); err != nil {
+		t.Fatalf("write the stand-in launcher: %v", err)
 	}
 	if err := store.Write(plugin.Installed{ID: spec.ID, Version: spec.Version}); err != nil {
 		t.Fatalf("record the install: %v", err)

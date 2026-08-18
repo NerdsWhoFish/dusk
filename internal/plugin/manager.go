@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/NerdsWhoFish/dusk-plugin-sdk/conformance"
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/events"
@@ -84,6 +85,10 @@ type Manager struct {
 	// Now exists so a test can assert on an event without matching a timestamp
 	// it cannot predict.
 	Now func() time.Time
+
+	// ops serializes durable and process lifecycle mutations. Each operation
+	// preserves a record snapshot, so letting two overlap silently loses one.
+	ops sync.Mutex
 
 	mu         sync.Mutex
 	running    map[string]*Running
@@ -185,6 +190,9 @@ func (m *Manager) log() *slog.Logger {
 // Restore starts every plugin already on disk. Called at boot, before anything
 // reaches for the network, so an offline Dusk comes up with what it had.
 func (m *Manager) Restore(ctx context.Context) {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	installed, err := m.Store.List()
 	if err != nil {
 		m.log().Error("could not read installed plugins", "error", err)
@@ -353,10 +361,12 @@ func (m *Manager) healthOf(id string) []Health {
 	return health
 }
 
-// Install downloads a plugin and starts it. Installing an already-installed
-// plugin is how an update is applied, which is why it stops the old process
-// before the new binary lands on top of it.
+// Install stages and proves a plugin before atomically selecting it. An update
+// never stops the known-good process until its replacement is ready.
 func (m *Manager) Install(ctx context.Context, id string) (*Installed, error) {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	listings, err := m.Market.List(ctx)
 	if err != nil {
 		return nil, err
@@ -373,20 +383,39 @@ func (m *Manager) Install(ctx context.Context, id string) (*Installed, error) {
 		return nil, fmt.Errorf("plugin: no plugin named %q is offered by the configured orgs", id)
 	}
 
-	m.stop(id)
-
-	record, err := m.Market.Install(ctx, m.Store, *listing)
+	record, err := m.Market.Stage(ctx, m.Store, *listing)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.launch(ctx, *record); err != nil {
+
+	socketID := "candidate-" + newID()
+	running, secrets, err := m.prepare(ctx, *record, m.Store.BinaryFor(*record), socketID)
+	if err != nil {
 		return record, err
 	}
+	if result := conformance.ValidateDescribe(running.Describe); !result.OK() {
+		running.Stop()
+		return record, fmt.Errorf("plugin: %s has an incompatible description: %s", id, result.Error())
+	}
+	if running.Version != record.Version {
+		running.Stop()
+		return record, fmt.Errorf("plugin: %s release is %s but its process reports %s", id, record.Version, running.Version)
+	}
+	if err := m.Store.Write(*record); err != nil {
+		running.Stop()
+		return record, err
+	}
+
+	m.stop(id)
+	m.adopt(ctx, *record, running, secrets)
 	return record, nil
 }
 
 // Uninstall stops a plugin and removes it from disk.
 func (m *Manager) Uninstall(id string) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	m.stop(id)
 	m.forget(id)
 	return m.Store.Remove(id)
@@ -417,6 +446,9 @@ func (m *Manager) Settings(id, instance string) (map[string]any, []Field, error)
 // Empty names the plugin's own; a named instance is how one plugin observes a
 // second source without being installed twice.
 func (m *Manager) Configure(ctx context.Context, id, instance string, config map[string]any) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	record, err := m.Store.Read(id)
 	if err != nil {
 		return fmt.Errorf("plugin: %q is not installed", id)
@@ -526,6 +558,9 @@ func (m *Manager) Asset(plugin, sha string) (Asset, bool) {
 
 // Stop shuts every plugin down, for a graceful exit.
 func (m *Manager) Stop() {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+
 	m.mu.Lock()
 	running := make([]*Running, 0, len(m.running))
 	for id, plugin := range m.running {
@@ -550,29 +585,41 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) start(ctx context.Context, record Installed) error {
-	secrets, err := m.Store.ReadSecrets(record.ID)
+	running, secrets, err := m.prepare(ctx, record, m.Store.BinaryFor(record), "")
 	if err != nil {
 		return err
+	}
+	m.adopt(ctx, record, running, secrets)
+	return nil
+}
+
+func (m *Manager) prepare(ctx context.Context, record Installed, binary, socketID string) (*Running, *Secrets, error) {
+	secrets, err := m.Store.ReadSecrets(record.ID)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	config, err := configured(record.Config, secrets.For(""))
 	if err != nil {
-		return fmt.Errorf("plugin: %s has unusable configuration: %w", record.ID, err)
+		return nil, nil, fmt.Errorf("plugin: %s has unusable configuration: %w", record.ID, err)
 	}
 
 	dir, err := m.socketDir()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	running, err := Start(ctx, Exec{
-		ID: record.ID, Binary: m.Store.Binary(record.ID), Dir: dir,
+		ID: record.ID, Binary: binary, SocketID: socketID, Dir: dir,
 		Config: config, Log: m.log(), Kept: m.printed(record.ID),
 	})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
+	return running, secrets, nil
+}
 
+func (m *Manager) adopt(ctx context.Context, record Installed, running *Running, secrets *Secrets) {
 	m.mu.Lock()
 	if m.running == nil {
 		m.running = map[string]*Running{}
@@ -601,7 +648,6 @@ func (m *Manager) start(ctx context.Context, record Installed) error {
 	// rotation. Supervised for as long as Dusk runs rather than for as long as
 	// the request that installed it, which ends when the browser is answered.
 	go m.supervise(context.WithoutCancel(ctx), record.ID, running, m.up(record.ID))
-	return nil
 }
 
 // socketDir is the directory this Dusk binds in, minted on first use. One per

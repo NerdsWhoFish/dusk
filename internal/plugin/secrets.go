@@ -98,13 +98,20 @@ func (s *Store) WriteSecrets(id string, secrets *Secrets) error {
 }
 
 func atomicWrite(dir, path string, body []byte) error {
+	return atomicWriteMode(dir, path, body, 0o600)
+}
+
+func atomicWriteMode(dir, path string, body []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*")
 	if err != nil {
 		return fmt.Errorf("plugin: create a temporary file: %w", err)
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
 
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		return fmt.Errorf("plugin: chmod: %w", err)
 	}
 	if _, err := tmp.Write(body); err != nil {

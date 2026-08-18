@@ -61,8 +61,27 @@ func (s *Store) dir(id string) string    { return filepath.Join(s.Dir, id) }
 func (s *Store) binary(id string) string { return filepath.Join(s.dir(id), "plugin") }
 func (s *Store) record(id string) string { return filepath.Join(s.dir(id), "installed.json") }
 
+func (s *Store) versionBinary(id, digest string) string {
+	return filepath.Join(s.dir(id), "versions", digest, "plugin")
+}
+
 // Binary is the path to an installed plugin's executable.
 func (s *Store) Binary(id string) string { return s.binary(id) }
+
+// BinaryFor resolves the immutable binary selected by record. Records written
+// before versioned storage fall back to the legacy path until their next update.
+func (s *Store) BinaryFor(record Installed) string {
+	if record.SHA256 != "" {
+		versioned := s.versionBinary(record.ID, record.SHA256)
+		if _, err := os.Stat(versioned); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return versioned
+		}
+		if _, err := os.Stat(s.binary(record.ID)); err != nil && errors.Is(err, os.ErrNotExist) {
+			return versioned
+		}
+	}
+	return s.binary(record.ID)
+}
 
 // List returns every installed plugin, so Dusk starts from disk rather than
 // from GitHub and boots with no network at all.
@@ -113,7 +132,29 @@ func (s *Store) Write(record Installed) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.record(record.ID), body, 0o600)
+	return atomicWrite(s.dir(record.ID), s.record(record.ID), body)
+}
+
+func (s *Store) stageBinary(id, digest string, binary []byte) error {
+	versioned := s.versionBinary(id, digest)
+	versionDir := filepath.Dir(versioned)
+	if err := os.MkdirAll(versionDir, 0o700); err != nil {
+		return fmt.Errorf("plugin: make the directory for %s: %w", id, err)
+	}
+
+	if info, err := os.Stat(versioned); err == nil {
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o100 == 0 {
+			return fmt.Errorf("plugin: immutable binary %s is not an executable regular file", versioned)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("plugin: inspect %s: %w", id, err)
+	}
+
+	if err := atomicWriteMode(versionDir, versioned, binary, 0o700); err != nil {
+		return fmt.Errorf("plugin: write %s: %w", id, err)
+	}
+	return nil
 }
 
 // Remove deletes an installed plugin from disk.
@@ -124,10 +165,9 @@ func (s *Store) Remove(id string) error {
 	return nil
 }
 
-// Install downloads a release, verifies it, and writes it to disk. The
-// checksum match is the only automated check between trusting an org and
-// running a binary from the internet, so nothing executes before it passes.
-func (m *Market) Install(ctx context.Context, store *Store, listing Listing) (*Installed, error) {
+// Stage downloads and verifies a release, then writes its binary under an
+// immutable digest path without changing which version is active.
+func (m *Market) Stage(ctx context.Context, store *Store, listing Listing) (*Installed, error) {
 	release, err := m.latest(ctx, listing.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("plugin: find a release for %s: %w", listing.Repository, err)
@@ -156,11 +196,8 @@ func (m *Market) Install(ctx context.Context, store *Store, listing Listing) (*I
 		return nil, err
 	}
 
-	if err := os.MkdirAll(store.dir(listing.ID), 0o700); err != nil {
-		return nil, fmt.Errorf("plugin: make the directory for %s: %w", listing.ID, err)
-	}
-	if err := os.WriteFile(store.binary(listing.ID), binary, 0o700); err != nil {
-		return nil, fmt.Errorf("plugin: write %s: %w", listing.ID, err)
+	if err := store.stageBinary(listing.ID, digest, binary); err != nil {
+		return nil, err
 	}
 
 	record := Installed{
@@ -177,9 +214,6 @@ func (m *Market) Install(ctx context.Context, store *Store, listing Listing) (*I
 		record.Enabled = previous.Enabled
 	}
 
-	if err := store.Write(record); err != nil {
-		return nil, err
-	}
 	return &record, nil
 }
 

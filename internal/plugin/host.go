@@ -64,6 +64,10 @@ type Exec struct {
 	ID     string
 	Binary string
 
+	// SocketID may differ while an update candidate runs beside the active
+	// process. The plugin's logical identity remains ID.
+	SocketID string
+
 	// Dir is where the socket is bound. One directory per Dusk rather than one
 	// per machine, so two of them cannot remove each other's (ADR-0054).
 	Dir string
@@ -117,7 +121,11 @@ func Start(ctx context.Context, spec Exec) (*Running, error) {
 		log = slog.Default()
 	}
 
-	socket, err := socketFor(spec.Dir, spec.ID)
+	socketID := spec.SocketID
+	if socketID == "" {
+		socketID = spec.ID
+	}
+	socket, err := socketFor(spec.Dir, socketID)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +177,10 @@ func Start(ctx context.Context, spec Exec) (*Running, error) {
 	if err != nil {
 		running.stop()
 		return nil, err
+	}
+	if described.GetPluginId() != spec.ID {
+		running.stop()
+		return nil, fmt.Errorf("plugin: expected %s but the process identified itself as %s", spec.ID, described.GetPluginId())
 	}
 	running.Describe = described
 	running.Version = described.GetVersion()
