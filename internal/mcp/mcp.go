@@ -133,7 +133,7 @@ type Options struct {
 // instructions is the portable half of ADR-0014's context injection: an
 // interaction manual, not a knowledge dump, because it is spent on every
 // session before any work happens.
-const instructions = `Dusk is a catalog of this operator's systems: services, hosts, datastores, and how they connect.
+const instructions = `Dusk is the internal developer platform for this operator's homelab. It is the catalog and operational memory shared by one trusted operator and their agents: services, hosts, datastores, how they connect, and what has been learned about them.
 
 Use it before guessing at infrastructure. If a question mentions a service, a host, a cluster, or "how do I", search here first.
 

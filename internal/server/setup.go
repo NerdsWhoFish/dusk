@@ -97,7 +97,7 @@ func (s *Server) manifest(mode store.AccessMode) githubapp.Manifest {
 	return githubapp.Manifest{
 		Name:        "Dusk",
 		URL:         s.cfg.PrivateHost,
-		Description: "A service catalog that maintains itself.",
+		Description: "The internal developer platform for homelabbers.",
 		HookAttributes: githubapp.HookAttributes{
 			URL:    s.cfg.WebhookURL(),
 			Active: true,

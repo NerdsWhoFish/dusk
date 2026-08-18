@@ -1,6 +1,6 @@
 # Dusk
 
-A service catalog that maintains itself.
+The internal developer platform for homelabbers: one trusted operator and their agents, sharing a catalog, operational memory, and actions.
 Read [DESIGN.md](DESIGN.md) before writing code, and [docs/philosophy.md](docs/philosophy.md) for the posture behind it.
 
 ## Before you change anything

@@ -6,7 +6,8 @@
 
 ## What Dusk is
 
-Dusk is a service catalog and knowledge layer that **maintains itself**, because the agents doing the work also do the documenting.
+Dusk is the internal developer platform for homelabbers: one trusted operator and their agents, sharing a catalog, operational memory, and actions.
+It **maintains itself** because the agents doing the work also do the documenting.
 
 It answers two questions that get harder as a system grows:
 
@@ -16,6 +17,9 @@ It answers two questions that get harder as a system grows:
 Humans browse it.
 Agents read and write it over MCP.
 Git is the source of truth for both.
+
+Backstage is a comparison, not the design target.
+Dusk does not need a platform team, a second permission model, an org chart, or a software factory before it becomes useful.
 
 ## The thesis
 

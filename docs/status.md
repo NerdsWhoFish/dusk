@@ -17,6 +17,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 
 ## Foundations
 
+- [x] **The product names its user**: Dusk is the internal developer platform for homelabbers, built for one trusted operator and their agents. The README, design, CLI, setup flow, web metadata, GitHub App manifest, and MCP instructions all carry the same boundary. Backstage is a comparison rather than the roadmap, so enterprise identity, org charts, software factories, and compliance machinery do not become defaults by implication ([0027](../adr/0027-design-target.md)).
 - [x] **`v1alpha1` plugin contract**: `dusk-plugin-sdk`, entity/relation/note/observation, plugin service, actions, config fields ([0002](../adr/0002-plugin-protocol.md), [0007](../adr/0007-entity-schema.md), [0015](../adr/0015-plugin-actions-and-events.md), [0023](../adr/0023-plugin-configuration.md))
 - [x] **Conformance package**: batch validation, ref canonicalisation, config field validation ([0016](../adr/0016-plugin-sdk-repo.md))
 - [x] **Release pipeline**: multi-arch image to GHCR, dispatch with scope and bump, dry run before tagging, untag on failure ([0021](../adr/0021-release-tooling.md))

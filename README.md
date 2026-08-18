@@ -1,22 +1,30 @@
 # Dusk
 
-**A service catalog that maintains itself.**
+**The internal developer platform for homelabbers.**
 
-Dusk is a catalog and knowledge layer for your systems.
-Humans browse it, agents read and write it over MCP, and git is the source of truth for both.
+Dusk gives one person and their agents a shared place to understand and operate a homelab.
+It is self-hosted, Git-backed, and built around the assumption that one trusted operator owns the whole thing.
+
+The catalog says what exists, where it runs, and what depends on it.
+Notes keep the gotchas, runbooks, decisions, and half-remembered details beside the things they describe.
+Plugin actions let a human or an agent inspect and change those systems without hiding what ran.
+
+Backstage is the useful comparison, not the roadmap.
+Backstage gives platform teams a portal; Dusk gives a homelabber and their agents a smaller place to remember how the estate works and safely do things to it.
+There is no enterprise permission maze, org chart, software factory, or compliance layer to administer.
 
 Every knowledge tool dies the same way: the curation burden falls on a human who has better things to do.
 Dusk assumes the agents doing the work can also do the documenting, so the catalog updates as a byproduct of the work rather than as a chore after it.
 
-> Status: **1.0.0.** Running in production against a real estate, with plugins observing Kubernetes, Flux, container hosts, OCI registries and a router. [DESIGN.md](DESIGN.md) is the architecture, [docs/status.md](docs/status.md) is what is built and what is not.
+> Status: running in production against a real homelab, with plugins observing Kubernetes, Flux, container hosts, OCI registries, and a router. [DESIGN.md](DESIGN.md) is the architecture, [docs/status.md](docs/status.md) is what is built and what is not.
 
 ![The Dusk homepage: a search box, a count of every kind in the catalog, what has drifted, what Dusk last read, and the notes agents have written](docs/images/home.png)
 
-The homepage is declared, not configured: `.dusk/home.md` in a config repository, where every block is a query ([docs/pages.md](docs/pages.md)).
+This is the catalog: the homepage is declared in `.dusk/home.md`, and every block is a query ([docs/pages.md](docs/pages.md)).
 
 ![An entity page for a checkout service: its ref, its description, a Gotchas section, and the notes attached to it rendered in full](docs/images/entity.png)
 
-An entity is one markdown file in the repository that owns it, and the notes agents attach to it are rendered where somebody will be standing when they need them.
+This is the memory: an entity is one markdown file in the repository that owns it, and the notes an operator or agent attaches to it appear where they will need them.
 
 ## What makes it different
 
@@ -24,6 +32,8 @@ An entity is one markdown file in the repository that owns it, and the notes age
 - **Git is the source of truth.** Entities are markdown with frontmatter in the repos they describe. Agents read files directly, and agent writes are file edits, so review and history come for free.
 - **Pull requests are first class.** Any open PR renders as the catalog as it would be after merge, with a semantic diff of what actually changed.
 - **Plugins are subprocesses.** A plugin can be a shell script that prints JSON. Write one in any language.
+
+Together, the catalog, memory, and actions are the platform.
 
 ![The plugins page: each plugin with its version and an install button, above the sentence that a plugin runs as a subprocess with Dusk's permissions](docs/images/plugins.png)
 

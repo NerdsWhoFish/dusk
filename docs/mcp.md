@@ -1,7 +1,10 @@
 # MCP
 
-The MCP surface is how agents read the catalog.
-It is the product's main interface rather than an integration, because agents are the primary consumer.
+The MCP surface is how agents use the same homelab platform and operational memory as their human.
+It is the product's main interface rather than an integration, because agents do much of the reading, documenting, and operating.
+
+Dusk assumes one trusted operator.
+The browser and MCP surface are two doors into that operator's catalog, not separate enterprise identities or permission domains.
 
 Settled in [ADR-0010](../adr/0010-mcp-surface.md) and [ADR-0014](../adr/0014-agent-context-injection.md), implemented in `internal/mcp`.
 

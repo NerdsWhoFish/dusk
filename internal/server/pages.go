@@ -52,8 +52,9 @@ button,.btn{width:auto;min-width:14rem}}
 
 {{define "setup"}}{{template "head"}}
 <h1>Set up Dusk</h1>
-<p class="sub">Dusk registers its own GitHub App. You accept it and choose which
-repositories it can see. Nothing is created until you confirm on GitHub.</p>
+<p class="sub">Dusk is built for one trusted operator and their agents. It
+registers its own GitHub App; you choose which repositories make up your
+homelab catalog. Nothing is created until you confirm on GitHub.</p>
 
 <form method="get" action="/setup">
   <div class="card">
@@ -119,8 +120,8 @@ you will have to register a new App.</p>
 
 {{define "login"}}{{template "head"}}
 <h1>Dusk</h1>
-<p class="sub">The catalog is behind the same token as the agent surface.
-Sign in once and this browser stays signed in.</p>
+<p class="sub">You and your agents share this catalog and its operational memory.
+The browser is behind the same token as the agent surface.</p>
 
 <form method="post" action="/login">
   <div class="card">

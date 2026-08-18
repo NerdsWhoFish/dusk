@@ -44,7 +44,7 @@ func main() {
 func command() *cli.Command {
 	return &cli.Command{
 		Name:    "dusk",
-		Usage:   "a service catalog that maintains itself",
+		Usage:   "the internal developer platform for homelabbers",
 		Version: version,
 
 		// The image's entrypoint is the bare binary, so no arguments has to
