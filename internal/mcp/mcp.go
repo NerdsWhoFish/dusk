@@ -292,9 +292,10 @@ func (s *Server) noteWrites() bool {
 }
 
 type searchInput struct {
-	Query string `json:"query" jsonschema:"words to search for"`
-	Kind  string `json:"kind,omitempty" jsonschema:"restrict to one kind, such as service or host"`
-	Limit int    `json:"limit,omitempty" jsonschema:"maximum results, default 25"`
+	Query  string `json:"query" jsonschema:"words to search for"`
+	Kind   string `json:"kind,omitempty" jsonschema:"restrict to one kind, such as service or host"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"maximum results, default 25"`
+	Offset int    `json:"offset,omitempty" jsonschema:"skip this many hits before the page. Use it with limit to walk a result too large to answer at once"`
 }
 
 func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchInput) (*sdk.CallToolResult, any, error) {
@@ -303,7 +304,7 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	}
 
 	results, total, err := s.opts.Catalog.Search(ctx, "", index.SearchFilter{
-		Query: in.Query, Kind: in.Kind, Limit: in.Limit,
+		Query: in.Query, Kind: in.Kind, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return failure("catalog_search_failed", err), nil, nil
@@ -333,11 +334,16 @@ func (s *Server) search(ctx context.Context, _ *sdk.CallToolRequest, in searchIn
 	issued := s.issue(proof.FromSearch, seen,
 		fmt.Sprintf("Pass it to %s to write any of the above. It also authorizes creating what this search did not find.",
 			s.catalogWrites()))
-	return success(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
-		searchHeadline(len(results), total, in.Query, in.Kind),
-		out.String(), issued.markdown), issued.withData(map[string]any{
+	page := map[string]any{
 		"query": in.Query, "kind": in.Kind, "results": results, "total": total,
-	})), nil, nil
+		"limit": len(results), "offset": in.Offset,
+	}
+	if in.Offset+len(results) < total {
+		page["next_offset"] = in.Offset + len(results)
+	}
+	return success(fmt.Sprintf("%s Pass a ref to `get` for the full picture.\n\n%s%s",
+		searchHeadline(len(results), total, in.Offset, in.Query, in.Kind),
+		out.String(), issued.markdown), issued.withData(page)), nil, nil
 }
 
 // catalogWrites is what a token covering catalog content can be spent on. A
@@ -352,12 +358,17 @@ func (s *Server) catalogWrites() string {
 
 // searchHeadline says how many matched as well as how many are shown, which
 // ADR-0059 makes the difference between a short answer and a wrong one.
-func searchHeadline(shown, total int, query, kind string) string {
-	if shown >= total {
+func searchHeadline(shown, total, offset int, query, kind string) string {
+	if offset == 0 && shown >= total {
 		return fmt.Sprintf("%d result(s) for %q%s.", shown, query, ofKind(kind))
 	}
-	return fmt.Sprintf("%d of %d result(s) for %q%s, the highest ranked. Raise `limit` for the rest.",
-		shown, total, query, ofKind(kind))
+
+	said := fmt.Sprintf("%d-%d of %d result(s) for %q%s, highest ranked first.",
+		offset+1, offset+shown, total, query, ofKind(kind))
+	if offset+shown < total {
+		said += fmt.Sprintf(" Ask again with `offset` %d for the next page.", offset+shown)
+	}
+	return said
 }
 
 // ofKind names the kind a search was narrowed to, so an empty answer says what
@@ -492,7 +503,7 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	// is deliberately fat for exactly this reason (ADR-0041).
 	issued := s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))
 	return success(renderEntity(entity, relations, omittedRelations, titles, sources)+
-		renderNotes(notes, len(notes), getNotesBudget(in.Titles))+s.actionsFor(entity.GetKind())+
+		renderNotes(notes, len(notes), 0, getNotesBudget(in.Titles))+s.actionsFor(entity.GetKind())+
 		issued.markdown, issued.withData(map[string]any{
 		"entity": entity, "relations": relations, "relations_omitted": omittedRelations,
 		"notes": notes, "sources": sources, "actions": s.entityActions(entity.GetKind()),
@@ -540,7 +551,7 @@ const notesBudget = 12000
 // renderNotes lists notes under a line saying how many matched and how many
 // arrived whole, printing them whole while they fit budget and naming the rest.
 // A note an agent knows exists is one it can ask for (ADR-0059).
-func renderNotes(notes []*duskv1alpha1.Note, total, budget int) string {
+func renderNotes(notes []*duskv1alpha1.Note, total, offset, budget int) string {
 	if len(notes) == 0 {
 		return ""
 	}
@@ -556,16 +567,19 @@ func renderNotes(notes []*duskv1alpha1.Note, total, budget int) string {
 		body.WriteString(nameNote(note))
 	}
 
-	return "\n## Notes\n\n" + notesHeading(len(notes), total, whole) + body.String()
+	return "\n## Notes\n\n" + notesHeading(len(notes), total, offset, whole) + body.String()
 }
 
-// notesHeading says how many matched, how many arrived and how many of those
-// arrived whole. The advice to raise the limit is only reachable from a read
-// that has one: attached notes are never limited, so shown always equals total.
-func notesHeading(shown, total, whole int) string {
+// notesHeading says how many matched, which of them arrived and how many of
+// those arrived whole. The paging advice is only reachable from a read that has
+// a limit: attached notes are never limited, so shown always equals total.
+func notesHeading(shown, total, offset, whole int) string {
 	said := fmt.Sprintf("%d note(s).", total)
 	if shown < total {
-		said = fmt.Sprintf("%d of %d note(s), newest first. Raise `limit`, or narrow by `kind`, `status` or `ref`, for the rest.", shown, total)
+		// Naming the next offset rather than advising a larger limit, which
+		// re-sends this page and so cannot get past a caller's size cap.
+		said = fmt.Sprintf("%d-%d of %d note(s), newest first. Ask again with `offset` %d for the next page, or narrow by `kind`, `status`, `pinned` or `ref`.",
+			offset+1, offset+shown, total, offset+shown)
 	}
 
 	switch {
@@ -777,11 +791,12 @@ type noteInput struct {
 
 	// A pointer because the schema needs three states, not two: leaving the
 	// field out is how an update says nothing about pinning at all.
-	Pinned *bool `json:"pinned,omitempty" jsonschema:"keep this note at the top of what it attaches to. Leave it out to change nothing, true to pin, false to unpin"`
+	Pinned *bool `json:"pinned,omitempty" jsonschema:"when reading, true for only the pinned and false for only the unpinned. When writing, true pins and false unpins. Leave it out for every note, or to change nothing"`
 
 	Status string `json:"status,omitempty" jsonschema:"for a note that is work: open, done or dropped. A filter when reading, and what closes one when writing"`
 	Ref    string `json:"ref,omitempty" jsonschema:"when reading, limit to notes about this entity"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"when reading, how many to return"`
+	Offset int    `json:"offset,omitempty" jsonschema:"when reading, skip this many before the page. Use it with limit to walk a result too large to answer at once"`
 }
 
 // defaultNoteLimit bounds the query above what notesBudget could ever name, so
@@ -794,7 +809,8 @@ const defaultNoteLimit = 100
 // asking "my open ideas" and then finishing one is two calls, not four.
 func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResult, any, error) {
 	filter := index.NoteFilter{
-		Id: in.Id, Kind: in.Kind, Status: in.Status, Ref: in.Ref, Limit: in.Limit,
+		Id: in.Id, Kind: in.Kind, Status: in.Status, Ref: in.Ref,
+		Pinned: in.Pinned, Limit: in.Limit, Offset: in.Offset,
 	}
 	if filter.Limit <= 0 {
 		filter.Limit = defaultNoteLimit
@@ -816,14 +832,20 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 
 	// A read that matched nothing issues no token: it covers nothing, and a new
 	// note needs none, so the token would be a key offered to no door.
+	page := map[string]any{
+		"notes": notes, "total": total, "limit": filter.Limit, "offset": filter.Offset,
+	}
+	if filter.Offset+len(notes) < total {
+		page["next_offset"] = filter.Offset + len(notes)
+	}
+
 	if len(notes) == 0 {
-		return success(describeNothing(in), map[string]any{"notes": notes, "total": total}), nil, nil
+		return success(describeNothing(in), page), nil, nil
 	}
 	issued := s.issue(proof.FromNote, seen,
 		"Pass it to `note` with the `id` of one of the above to replace or close it.")
-	return success(renderNotes(notes, total, notesBudget)+issued.markdown, issued.withData(map[string]any{
-		"notes": notes, "total": total,
-	})), nil, nil
+	return success(renderNotes(notes, total, filter.Offset, notesBudget)+issued.markdown,
+		issued.withData(page)), nil, nil
 }
 
 func describeNothing(in noteInput) string {

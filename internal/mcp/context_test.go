@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
@@ -532,5 +534,51 @@ func note(id, kind, body string, pinned bool, refs ...string) *duskv1alpha1.Note
 		Id: ".dusk/" + id + ".md", Kind: kind, Body: body, Pinned: pinned, Refs: refs,
 		ContentHash: "hash-" + id,
 		Provenance:  &duskv1alpha1.Provenance{Source: "dusk.md"},
+	}
+}
+
+// Every other test here reads the content block, which is the half a client
+// holding an output schema may discard. Against one that does, this answered
+// three summary fields and a status of ok: no pinned notes, and no way to tell.
+func TestContextSurvivesAClientThatReadsOnlyStructuredContent(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("global", "gotcha", "# Traps that belong to no system", true),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	result, err := session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "dusk_context", Arguments: map[string]any{"root": homelabRoot},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content = %#v, want an object", result.StructuredContent)
+	}
+	data, ok := structured["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("structured data = %#v, want an object", structured["data"])
+	}
+
+	rendered, _ := data["context"].(string)
+	if !strings.Contains(rendered, ".dusk/global.md") {
+		t.Errorf("structured half does not name the pinned note:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "service:home/jellyfin") {
+		t.Errorf("structured half does not carry the inventory:\n%s", rendered)
+	}
+
+	var text string
+	for _, content := range result.Content {
+		if block, ok := content.(*sdk.TextContent); ok {
+			text += block.Text
+		}
+	}
+	if rendered != text {
+		t.Error("the two halves disagree, so which one a client reads changes the answer")
 	}
 }

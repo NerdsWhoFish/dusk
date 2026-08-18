@@ -48,7 +48,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 
 | Tool | What it answers |
 | --- | --- |
-| `search(query, kind?, limit?)` | "Where is the thing called X", by any word in it or any part of its name |
+| `search(query, kind?, limit?, offset?)` | "Where is the thing called X", by any word in it or any part of its name |
 | `get(ref, repository?, titles?)` | Everything about one entity, including its connections and every declaration or observation contributing it. `repository` selects one side of a duplicate |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
@@ -58,7 +58,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `configure(plugin, settings?, instance?, version?, proof?)` | Read a plugin's non-sensitive configuration and its version/proof, or pass both back to change it |
 | `declare(ref, proof, …)` | Create, correct, decommission, reactivate, or remove an entity declaration |
 | `relate(from, to, type, proof, …)` | Add, correct, or withdraw one exact outbound relation |
-| `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
+| `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?, limit?, offset?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
@@ -113,6 +113,11 @@ Use trusted-network mode only when network reachability itself is the operator b
 
 Every tool keeps a readable Markdown result for the model and human transcript.
 The same response carries compact `structuredContent` for clients that should not scrape prose, using a shared envelope with `status`, an optional stable `code`, and tool-specific `data`.
+
+**Neither half may be the only one carrying the answer** ([ADR-0074](../adr/0074-a-result-is-whole-in-whichever-half-a-client-reads.md)).
+Every tool here publishes an output schema, and a client is entitled to read the structured half and discard the content block; at least one major one does.
+Where `data` already holds the answer in typed form nothing is repeated, but where the prose *is* the answer it must appear in both.
+`dusk_context` is that case, and returns its rendered body as `data.context`: without it, a session gets a repository name, a count, and `status: ok`, with every pinned note silently dropped.
 
 An expected empty result is successful and says what was searched.
 An operational failure sets MCP `isError: true` and a stable snake-case code such as `catalog_read_failed`, `action_failed` or `stale_or_invalid_proof`.
@@ -301,7 +306,7 @@ Applied afterwards, a kind reports "nothing matches" whenever the page it was ha
 It is also why **a list says how many matched, not only how many it is showing**.
 
 ```text
-3 of 12 result(s), the highest ranked. Raise `limit` for more.
+1-3 of 12 result(s) for "shelf", highest ranked first. Ask again with `offset` 3 for the next page.
 ```
 
 A limit is how much an agent asked for, and a total is how much there is.
@@ -309,6 +314,10 @@ Reporting only the first teaches an agent that it has seen everything, which is 
 The count is exact: SQLite computes it in the same statement as the search, over every row the match produced and before the limit applies.
 
 `note` says the same thing about notes, at the cost of a second query.
+
+**The step it names is `offset`, not a larger limit** ([ADR-0075](../adr/0075-a-read-can-ask-for-the-next-page-and-for-the-unpinned.md)).
+A limit is the size of a page that always starts at the first row, so asking for the rest asks for everything already read as well, and a caller whose client rejects a result over some size can never reach past it.
+`search` and `note` both take `offset`, and the last page names none, because pointing past the end is its own small lie.
 
 **And a list too large to print whole names its tail rather than cutting it.**
 Notes arrive whole while they fit a byte budget; past it they arrive as their kind, their id and their opening line, which is what to pass back as `id`:
