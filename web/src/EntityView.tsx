@@ -170,10 +170,21 @@ export function EntityView({
         </>
       )}
 
-      {entity.provenance?.version && (
-        <p className="ref" style={{ marginTop: "2rem" }}>
-          Read from {entity.provenance.source} at {entity.provenance.version.slice(0, 7)}
-        </p>
+      {!!detail.sources?.length && (
+        <section aria-labelledby="provenance-heading">
+          <h2 id="provenance-heading">Provenance</h2>
+          {detail.sources.map((source) => (
+            <p className="ref" key={`${source.Repository}:${source.Path}:${source.Source}`}>
+              {source.Observed ? "Observed" : "Declared"} by{" "}
+              {source.Observed ? source.Source : source.Repository}
+              {source.Path ? ` in ${source.Path}` : ""}
+              {source.Version ? ` at ${shortVersion(source.Version)}` : ""}
+            </p>
+          ))}
+          {!detail.sources.some((source) => !source.Observed) && (
+            <p className="ref">Observed only — no repository declares this entity.</p>
+          )}
+        </section>
       )}
     </>
   );
@@ -184,6 +195,10 @@ export function EntityView({
 function url(attributes: Record<string, unknown> | undefined): string | undefined {
   const value = String(attributes?.url ?? "");
   return value.startsWith("http") ? value : undefined;
+}
+
+function shortVersion(version: string): string {
+  return /^[0-9a-f]{8,}$/i.test(version) ? version.slice(0, 7) : version;
 }
 
 // A url attribute is the most useful thing on the page for an operator, so it

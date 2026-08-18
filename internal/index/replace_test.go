@@ -89,14 +89,14 @@ func TestPutCatalogRollsBackGraphAndVocabularyTogether(t *testing.T) {
 
 	if err := db.PutCatalog(ctx, testRepo, mainRef,
 		declare([]*duskv1alpha1.Entity{entity(oldRef, "Old", "")}), nil, nil,
-		[]vocab.Kind{oldKind}); err != nil {
+		[]vocab.Kind{oldKind}, nil); err != nil {
 		t.Fatalf("seed PutCatalog: %v", err)
 	}
 
 	duplicate := vocab.Kind{Namespace: vocab.Entity, Name: "duplicate", Role: vocab.Infrastructure}
 	err := db.PutCatalog(ctx, testRepo, mainRef,
 		declare([]*duskv1alpha1.Entity{entity(newRef, "New", "")}), nil, nil,
-		[]vocab.Kind{duplicate, duplicate})
+		[]vocab.Kind{duplicate, duplicate}, nil)
 	if err == nil {
 		t.Fatal("PutCatalog accepted duplicate minted kinds")
 	}

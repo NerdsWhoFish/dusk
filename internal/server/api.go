@@ -24,6 +24,7 @@ import (
 type Catalog interface {
 	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
+	Sources(ctx context.Context, gitRef, entityRef string) ([]index.EntitySource, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
 	List(ctx context.Context, gitRef, kind string) ([]*duskv1alpha1.Entity, error)
@@ -233,6 +234,11 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	sources, err := s.catalog.Sources(r.Context(), refOf(r), ref)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 
 	// Views and actions ride along with the entity rather than costing a second
 	// request, for the same reason `get` is fat: this is one question.
@@ -249,6 +255,7 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		"notes":     asNotes(notes),
 		"views":     views,
 		"actions":   actions,
+		"sources":   sources,
 	}
 
 	// The browser meets the same read-before-write contract an agent does, so

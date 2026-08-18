@@ -37,6 +37,11 @@ func TestChangesReportsWhatIsWrongWithTheCatalog(t *testing.T) {
 	if !strings.Contains(body, "problem") {
 		t.Errorf("changes did not label it as a problem:\n%s", body)
 	}
+	for _, want := range []string{"service:home/jellyfin runs_on host:home/typo", "`get`", "remove: true", "confirm: true"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("changes did not turn the problem into the repair %q:\n%s", want, body)
+		}
+	}
 }
 
 // A sound catalog has to say so out loud. Silence would be indistinguishable

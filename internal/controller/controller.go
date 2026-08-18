@@ -344,6 +344,15 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 	complete := true
 	for _, repository := range repositories {
 		gitRef := "refs/heads/" + repository.DefaultBranch
+		if repository.ID != 0 {
+			if previous, err := c.opts.Index.TrackRepository(ctx, repository.ID, repository.Slug()); err != nil {
+				c.opts.Logger.Error("could not record repository identity", "repository", repository.Slug(), "error", err)
+				complete = false
+				continue
+			} else if previous != "" {
+				c.opts.Logger.Info("repository moved", "from", previous, "to", repository.Slug())
+			}
+		}
 		seen[index.Scope{Repository: repository.Slug(), GitRef: gitRef}] = true
 		c.remember(repository.Slug(), installation.ID)
 
@@ -375,6 +384,7 @@ func (c *Controller) SyncRepository(ctx context.Context, installationID int64, a
 
 // Push is one delivery's worth of work.
 type Push struct {
+	RepositoryID   int64
 	InstallationID int64
 	Account        string
 	Owner          string
@@ -400,6 +410,13 @@ func (c *Controller) SyncPush(ctx context.Context, push Push) error {
 		c.opts.Logger.Warn("delivery ignored: account is not allowed",
 			"account", push.Account, "repository", push.slug())
 		return nil
+	}
+	if push.RepositoryID != 0 {
+		if previous, err := c.opts.Index.TrackRepository(ctx, push.RepositoryID, push.slug()); err != nil {
+			return err
+		} else if previous != "" {
+			c.opts.Logger.Info("repository moved", "from", previous, "to", push.slug())
+		}
 	}
 	if c.irrelevant(ctx, push) {
 		return nil

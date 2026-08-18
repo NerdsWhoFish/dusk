@@ -106,6 +106,10 @@ func fixtureEntity() string {
   "notes": [
     {"id":"note/9f2c1b","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary.","pinned":true}
   ],
+  "sources": [
+    {"Repository":"example/platform","Path":"services/checkout/dusk.md","Source":"services/checkout/dusk.md","Version":"0f4c1ab9d2e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0","Observed":false},
+    {"Repository":"ingester:plugin:kubernetes","Path":"","Source":"plugin:kubernetes","Version":"refs/dusk/observed","Observed":true}
+  ],
   "views": [
     {"plugin":"example","title":"Replicas","spec":{"layout":"table","empty":"No replicas.","fields":[
       {"source":"name","label":"Replica"},

@@ -43,6 +43,7 @@ import (
 type Catalog interface {
 	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
+	GetFrom(ctx context.Context, gitRef, entityRef, repository string) (*duskv1alpha1.Entity, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Titles(ctx context.Context, gitRef string, refs []string) (map[string]string, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
@@ -56,6 +57,9 @@ type Catalog interface {
 	Scopes(ctx context.Context) ([]index.Scope, error)
 	LastRead(ctx context.Context) (map[string]time.Time, error)
 	Vocabulary(ctx context.Context, gitRef string) ([]vocab.Kind, error)
+	ResolveRepository(ctx context.Context, candidate string) (string, error)
+	Context(ctx context.Context, gitRef, repository string) ([]byte, error)
+	Sources(ctx context.Context, gitRef, entityRef string) ([]index.EntitySource, error)
 }
 
 // Syncs reports what the controller last did, so an agent can tell a stale
@@ -261,7 +265,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		sdk.AddTool(server, &sdk.Tool{
 			Name:        "declare",
-			Description: "Create or update an entity. Requires the proof token from a read, which is why every read returns one.",
+			Description: "Create, correct, decommission, reactivate, or remove an entity declaration. Fields are merged unless unset names them. Removing an included declaration is destructive and needs confirm. Requires the proof token from a read; use get with repository to select one side of a duplicate.",
 		}, s.declare)
 
 		// A separate tool from declare because it writes a different thing: an
@@ -269,7 +273,7 @@ func (s *Server) sdkServer() *sdk.Server {
 		// repository may assert it (ADR-0026).
 		sdk.AddTool(server, &sdk.Tool{
 			Name:        "relate",
-			Description: "Connect one entity to another, such as a service to the host it runs on. The relation is declared in the file of the entity it points from, so the token comes from a read of that one. What it points at does not have to be in the catalog.",
+			Description: "Declare, correct, or withdraw one outbound relation. The relation lives in the file of the entity it points from, so the token comes from a read of that one. Removing an edge needs confirm. What it points at does not have to be in the catalog.",
 		}, s.relate)
 
 		// A deployment with nowhere to put notes still reads them, but the page
@@ -389,8 +393,9 @@ func noteMark(hit index.SearchResult) string {
 }
 
 type getInput struct {
-	Ref    string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
-	Titles bool   `json:"titles,omitempty" jsonschema:"list the notes attached to it by kind, id and opening line instead of printing any of them whole, for finding out what is attached without reading it"`
+	Ref        string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
+	Repository string `json:"repository,omitempty" jsonschema:"read the declaration from this exact owner/name repository when integrity reports the ref more than once"`
+	Titles     bool   `json:"titles,omitempty" jsonschema:"list the notes attached to it by kind, id and opening line instead of printing any of them whole, for finding out what is attached without reading it"`
 }
 
 // getPlugin answers for a plugin, listing what it can be asked to do.
@@ -459,7 +464,7 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 		return s.getPlugin(id)
 	}
 
-	entity, err := s.opts.Catalog.Get(ctx, "", in.Ref)
+	entity, err := s.opts.Catalog.GetFrom(ctx, "", in.Ref, in.Repository)
 	// Only absence becomes a friendly answer. A storage failure reported as
 	// "no such entity" would have the agent believe the thing does not exist.
 	if errors.Is(err, index.ErrNotFound) {
@@ -483,6 +488,10 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	if err != nil {
 		return nil, nil, err
 	}
+	sources, err := s.opts.Catalog.Sources(ctx, "", in.Ref)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// The notes go in the token too, so replacing one needs proof of the read
 	// that surfaced it, the same as changing the entity does.
@@ -493,21 +502,25 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 
 	// What can be done to a thing is part of the picture of that thing, and get
 	// is deliberately fat for exactly this reason (ADR-0041).
-	actions := ""
-	if s.opts.Plugins != nil {
-		actions = renderActions(s.opts.Plugins.Actions(entity.GetKind()))
-	}
-
-	// Attached notes are never limited, so every one of them matched. What
-	// varies is how much of each arrives, and no budget names them all.
-	budget := notesBudget
-	if in.Titles {
-		budget = 0
-	}
-
-	return text(renderEntity(entity, relations, titles) +
-		renderNotes(notes, len(notes), budget) + actions +
+	return text(renderEntity(entity, relations, titles, sources) +
+		renderNotes(notes, len(notes), getNotesBudget(in.Titles)) + s.actionsFor(entity.GetKind()) +
 		s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))), nil, nil
+}
+
+func (s *Server) actionsFor(kind string) string {
+	if s.opts.Plugins == nil {
+		return ""
+	}
+	return renderActions(s.opts.Plugins.Actions(kind))
+}
+
+// Attached notes are never limited, so every one of them matched. What varies
+// is how much of each arrives, and no budget names them all.
+func getNotesBudget(titlesOnly bool) int {
+	if titlesOnly {
+		return 0
+	}
+	return notesBudget
 }
 
 // changeThis is what a get's token can be spent on: the entity, an edge out of
@@ -674,21 +687,31 @@ func (s *Server) undeclared(ctx context.Context, ref string) (*sdk.CallToolResul
 }
 
 type declareInput struct {
-	Ref         string            `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name"`
-	Proof       string            `json:"proof" jsonschema:"the proof token from the read that found it"`
-	Title       string            `json:"title,omitempty" jsonschema:"human facing name"`
-	Description string            `json:"description,omitempty" jsonschema:"markdown prose describing it, replacing what is there"`
-	Attributes  map[string]string `json:"attributes,omitempty" jsonschema:"attributes to set, merged with the existing ones"`
-	Repository  string            `json:"repository,omitempty" jsonschema:"owner/name to declare a new entity in, required only when creating"`
+	Ref            string            `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name"`
+	Proof          string            `json:"proof" jsonschema:"the proof token from the read that found it"`
+	Title          string            `json:"title,omitempty" jsonschema:"human facing name"`
+	Description    string            `json:"description,omitempty" jsonschema:"markdown prose describing it, replacing what is there"`
+	Attributes     map[string]string `json:"attributes,omitempty" jsonschema:"attributes to set, merged with the existing ones"`
+	ObservedAs     []string          `json:"observed_as,omitempty" jsonschema:"replace the refs observation plugins use for this declaration; an explicit empty list clears them"`
+	Unset          []string          `json:"unset,omitempty" jsonschema:"fields to remove: title, description, observed_as, or attributes.<name>"`
+	Decommissioned *bool             `json:"decommissioned,omitempty" jsonschema:"true keeps this as retired history and clears missing drift; false reactivates it; omit to leave lifecycle alone"`
+	Repository     string            `json:"repository,omitempty" jsonschema:"owner/name for a new entity, or the exact declaring repository to change when the ref is duplicated"`
+	Remove         bool              `json:"remove,omitempty" jsonschema:"delete the included declaration file instead of keeping it as decommissioned history"`
+	Confirm        bool              `json:"confirm,omitempty" jsonschema:"required with remove because the entity and its outbound relations disappear from the catalog"`
 }
 
 func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declareInput) (*sdk.CallToolResult, any, error) {
 	result, err := s.opts.Writer.Declare(ctx, in.Proof, write.Declaration{
-		Ref:         in.Ref,
-		Title:       in.Title,
-		Description: in.Description,
-		Attributes:  in.Attributes,
-		Repository:  in.Repository,
+		Ref:            in.Ref,
+		Title:          in.Title,
+		Description:    in.Description,
+		Attributes:     in.Attributes,
+		ObservedAs:     in.ObservedAs,
+		Unset:          in.Unset,
+		Decommissioned: in.Decommissioned,
+		Repository:     in.Repository,
+		Remove:         in.Remove,
+		Confirm:        in.Confirm,
 	})
 	// A refused write is an answer, not a transport failure: the agent has to
 	// read the reason and act on it.
@@ -698,10 +721,16 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	if result.Proposed {
 		return text(proposal(result)), nil, nil
 	}
+	if result.Existing {
+		return text(fmt.Sprintf("`%s` already has the requested declaration state in %s at `%s`, so nothing was written.",
+			result.Ref, result.Repository, result.Path)), nil, nil
+	}
 
 	verb := "Updated"
 	if result.Created {
 		verb = "Created"
+	} else if result.Removed {
+		verb = "Removed"
 	}
 
 	// A kind already in the catalog resolves and says nothing, so this only
@@ -862,11 +891,21 @@ func (s *Server) renderIntegrity(ctx context.Context, out *strings.Builder) erro
 		for _, where := range problem.Where {
 			fmt.Fprintf(out, "- %s\n", where)
 		}
+		renderRepair(out, problem)
 		out.WriteString("\n")
 	}
 
-	out.WriteString("These are not read failures. Each is a place the catalog answers confidently and may be wrong.\n")
+	out.WriteString("These are not read failures. Each is a place the catalog answers confidently and may be wrong; the repair lines name the guarded reads and writes that resolve it.\n")
 	return nil
+}
+
+func renderRepair(out *strings.Builder, problem index.Problem) {
+	switch problem.Kind {
+	case index.ProblemDuplicate:
+		out.WriteString("\nRepair: read each copy with `get(ref, repository)`, choose the declaration to keep, then use that copy's proof with `declare(repository, remove: true, confirm: true)` on every unwanted copy.\n")
+	case index.ProblemDanglingRelation:
+		out.WriteString("\nRepair: if the target is real, declare it. If the edge is wrong, read its source with `get`, then pass that proof to `relate` with the exact `from`, `type`, and `to` shown above plus `remove: true, confirm: true`.\n")
+	}
 }
 
 type changesInput struct{}
@@ -921,7 +960,7 @@ func (s *Server) freshness(out *strings.Builder) []SyncStatus {
 	return statuses
 }
 
-func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation, titles map[string]string) string {
+func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relation, titles map[string]string, sources []index.EntitySource) string {
 	var out strings.Builder
 
 	fmt.Fprintf(&out, "# %s\n\n", displayName(entity.GetTitle(), entity.GetRef()))
@@ -942,8 +981,18 @@ func renderEntity(entity *duskv1alpha1.Entity, relations []*duskv1alpha1.Relatio
 
 	out.WriteString(renderRelations(entity.GetRef(), relations, titles))
 
-	if provenance := entity.GetProvenance(); provenance.GetVersion() != "" {
-		fmt.Fprintf(&out, "\nDeclared in %s at `%s`.\n", provenance.GetSource(), short(provenance.GetVersion()))
+	if len(sources) > 0 {
+		out.WriteString("\n## Provenance\n\n")
+		for _, source := range sources {
+			if source.Observed {
+				fmt.Fprintf(&out, "- Observed by **%s** from `%s` at `%s`.\n", source.Source, source.Repository, short(source.Version))
+				continue
+			}
+			fmt.Fprintf(&out, "- Declared in `%s` at `%s` from `%s`.\n", source.Repository, source.Path, short(source.Version))
+		}
+		if !slices.ContainsFunc(sources, func(source index.EntitySource) bool { return !source.Observed }) {
+			out.WriteString("\nNo repository declares this entity; it is observed only.\n")
+		}
 	}
 	return out.String()
 }
@@ -997,7 +1046,7 @@ func nameOf(titles map[string]string, ref string) string {
 	if title := strings.TrimSpace(titles[ref]); title != "" {
 		return "**" + title + "** "
 	}
-	return ""
+	return "**external or undeclared** "
 }
 
 // relatedRefs is every ref a relation names other than the one being read,

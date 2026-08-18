@@ -130,10 +130,19 @@ export type EntityDetail = {
   notes: Note[];
   views?: PluginView[];
   actions?: Action[];
+  sources?: EntitySource[];
 
   // proof is the token an action presents, from this very read. The browser
   // meets the same read-before-write contract an agent does (ADR-0009).
   proof?: string;
+};
+
+export type EntitySource = {
+  Repository: string;
+  Path: string;
+  Source: string;
+  Version: string;
+  Observed: boolean;
 };
 
 export type Event = {

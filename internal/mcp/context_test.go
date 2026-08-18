@@ -15,7 +15,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
-const homelabRoot = "/Users/somebody/projects/src/github.com/example/homelab"
+const homelabRoot = "example/homelab"
 
 // ADR-0014: the injected content is an interaction manual and an inventory.
 // An agent that has to ask three questions before it knows what exists will
@@ -55,9 +55,9 @@ func TestContextSaysWhenARepositoryIsUnknown(t *testing.T) {
 	}
 }
 
-// An absolute path is what an agent actually has, so matching has to work on
-// the trailing owner/name rather than requiring the slug.
-func TestContextMatchesARepositoryFromItsPath(t *testing.T) {
+// The hook resolves a checkout to its exact GitHub slug before asking, so the
+// server never guesses from a coincidental path suffix.
+func TestContextMatchesAnExactRepository(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 
@@ -75,6 +75,51 @@ func TestContextMatchesARepositoryFromItsPath(t *testing.T) {
 	// Declared existed.
 	if !strings.Contains(body, "What this repository declares (2)") {
 		t.Errorf("context did not say what the repository declares:\n%s", body)
+	}
+}
+
+func TestContextDoesNotGuessARepositoryFromAPathSuffix(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": "/tmp/example/homelab"})
+	if !strings.Contains(body, "not in the catalog") {
+		t.Errorf("a coincidental path suffix matched a repository:\n%s", body)
+	}
+}
+
+func TestContextProfileControlsInjection(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	profile := []byte(`---
+dusk: context/v1
+budget: 4096
+sections: [inventory]
+inventory: counts
+kind_order: [host, service]
+---
+Ask before restarting the NAS.
+`)
+	if err := idx.PutCatalog(t.Context(), "example/config", mainRef, nil, nil, nil, nil, profile); err != nil {
+		t.Fatalf("PutCatalog: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/config", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+	writer := &recordingWriter{notesGo: "example/config"}
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Writer: writer}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+	if !strings.Contains(body, "Ask before restarting the NAS") {
+		t.Errorf("operator instructions missing:\n%s", body)
+	}
+	if strings.Contains(body, "Pinned, across the estate") || strings.Contains(body, "What this repository declares") {
+		t.Errorf("disabled sections were still injected:\n%s", body)
+	}
+	if strings.Index(body, "**host**") > strings.Index(body, "**service**") {
+		t.Errorf("kind order was ignored:\n%s", body)
+	}
+	if !strings.Contains(body, "names not listed") {
+		t.Errorf("counts-only inventory printed names:\n%s", body)
 	}
 }
 
@@ -386,7 +431,7 @@ func lineWith(t *testing.T, body, marker string) string {
 func mint(t *testing.T, idx *index.DB, kinds ...vocab.Kind) {
 	t.Helper()
 
-	if err := idx.PutCatalog(t.Context(), "example/vocabulary", mainRef, nil, nil, nil, kinds); err != nil {
+	if err := idx.PutCatalog(t.Context(), "example/vocabulary", mainRef, nil, nil, nil, kinds, nil); err != nil {
 		t.Fatalf("PutCatalog: %v", err)
 	}
 	if err := idx.SetDefaultView(t.Context(), "example/vocabulary", mainRef); err != nil {

@@ -170,7 +170,7 @@ func (db *DB) danglingRelations(ctx context.Context, gitRef string, v Visibility
 
 	query := db.gorm.WithContext(ctx).
 		Model(&relationRow{}).
-		Select("relations.to_ref as target, group_concat(DISTINCT relations.from_ref) as places").
+		Select("relations.to_ref as target, group_concat(DISTINCT relations.from_ref || ' ' || relations.type || ' ' || relations.to_ref || ' in ' || relations.repository) as places").
 		Where(clause, args...).
 		Where("NOT EXISTS (SELECT 1 FROM entities e WHERE e.ref = relations.to_ref AND "+entityScope+")", entityArgs...)
 

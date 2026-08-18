@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -54,7 +56,7 @@ type hookOutput struct {
 // is in, and writes what the client injects to out. Failures are silent and go
 // only to diag: a hook that errors where Dusk is irrelevant is worse than none.
 func Run(ctx context.Context, opts Options, in io.Reader, out, diag io.Writer) {
-	body, err := Fetch(ctx, opts, rootOf(in, diag))
+	body, err := Fetch(ctx, opts, repositoryOf(ctx, rootOf(in, diag), diag))
 	if err != nil {
 		say(diag, "nothing injected: %v", err)
 		return
@@ -71,6 +73,28 @@ func Run(ctx context.Context, opts Options, in io.Reader, out, diag io.Writer) {
 	if _, err := fmt.Fprintln(out, string(encoded)); err != nil {
 		say(diag, "writing the answer: %v", err)
 	}
+}
+
+var githubRemote = regexp.MustCompile(`(?i)(?:github\.com[:/])([^/]+)/([^/]+?)(?:\.git)?$`)
+
+// repositoryOf asks Git for the checkout's configured origin instead of
+// guessing from directory names. A non-GitHub checkout falls back to its path,
+// which Dusk will correctly report as unknown rather than suffix-matching it.
+func repositoryOf(ctx context.Context, root string, diag io.Writer) string {
+	if root == "" {
+		return ""
+	}
+	output, err := exec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return root
+	}
+	remote := strings.TrimSpace(string(output))
+	match := githubRemote.FindStringSubmatch(remote)
+	if len(match) != 3 {
+		say(diag, "origin %q is not a GitHub repository", remote)
+		return root
+	}
+	return match[1] + "/" + match[2]
 }
 
 // PayloadFrom reports where a hook payload can be read from, or nil when there

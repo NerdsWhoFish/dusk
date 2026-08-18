@@ -66,6 +66,11 @@ type FileCommit struct {
 	Message string
 	Content []byte
 
+	// Delete removes the file instead of replacing its contents. GitHub still
+	// creates one commit and requires the blob sha, so deletion belongs to the
+	// same collision-safe operation rather than a second write path.
+	Delete bool
+
 	// ReplacingSHA is the blob sha being overwritten, empty when creating. A
 	// wrong one is rejected by GitHub rather than silently overwriting.
 	ReplacingSHA string
@@ -80,25 +85,11 @@ type Commit struct {
 // CommitFile writes one file as one commit, returning where it landed so an
 // agent can hand a human a link rather than asserting it worked (ADR-0010).
 func (r *Repository) CommitFile(ctx context.Context, write FileCommit) (*Commit, error) {
-	if write.Branch == "" || write.Path == "" || write.Message == "" {
-		return nil, fmt.Errorf("githubapp: a commit needs a branch, a path, and a message")
-	}
-
-	body := map[string]any{
-		"message": write.Message,
-		"content": base64.StdEncoding.EncodeToString(write.Content),
-		"branch":  write.Branch,
-	}
-	if write.ReplacingSHA != "" {
-		body["sha"] = write.ReplacingSHA
-	}
-
-	encoded, err := json.Marshal(body)
+	method, encoded, err := fileCommitRequest(write)
 	if err != nil {
-		return nil, fmt.Errorf("githubapp: encode commit: %w", err)
+		return nil, err
 	}
-
-	resp, err := r.send(ctx, http.MethodPut, "/contents/"+escapePath(write.Path), encoded)
+	resp, err := r.send(ctx, method, "/contents/"+escapePath(write.Path), encoded)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +100,7 @@ func (r *Repository) CommitFile(ctx context.Context, write FileCommit) (*Commit,
 	if resp.StatusCode == http.StatusConflict {
 		return nil, fmt.Errorf("githubapp: %q in %s changed since it was read: %w", write.Path, r.slug(), statusError(resp))
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if !fileCommitAccepted(resp.StatusCode, write.Delete) {
 		return nil, fmt.Errorf("githubapp: commit %q to %s: %w", write.Path, r.slug(), statusError(resp))
 	}
 
@@ -123,6 +114,35 @@ func (r *Repository) CommitFile(ctx context.Context, write FileCommit) (*Commit,
 		return nil, fmt.Errorf("githubapp: decode commit result: %w", err)
 	}
 	return &Commit{SHA: result.Commit.SHA, URL: result.Commit.HTMLURL}, nil
+}
+
+func fileCommitRequest(write FileCommit) (string, []byte, error) {
+	if write.Branch == "" || write.Path == "" || write.Message == "" {
+		return "", nil, fmt.Errorf("githubapp: a commit needs a branch, a path, and a message")
+	}
+	if write.Delete && write.ReplacingSHA == "" {
+		return "", nil, fmt.Errorf("githubapp: deleting %q needs the blob sha that was read", write.Path)
+	}
+
+	body := map[string]any{"message": write.Message, "branch": write.Branch}
+	method := http.MethodPut
+	if write.Delete {
+		method = http.MethodDelete
+	} else {
+		body["content"] = base64.StdEncoding.EncodeToString(write.Content)
+	}
+	if write.ReplacingSHA != "" {
+		body["sha"] = write.ReplacingSHA
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return "", nil, fmt.Errorf("githubapp: encode commit: %w", err)
+	}
+	return method, encoded, nil
+}
+
+func fileCommitAccepted(status int, deleting bool) bool {
+	return status == http.StatusOK || (!deleting && status == http.StatusCreated)
 }
 
 // DefaultBranch reports the branch a write mode commit lands on.

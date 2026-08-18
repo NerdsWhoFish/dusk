@@ -64,6 +64,39 @@ func TestGetReportsNotFound(t *testing.T) {
 	}
 }
 
+func TestRepositoryIdentitySurvivesTransfer(t *testing.T) {
+	db := newDB(t)
+	const oldSlug = "old-owner/homelab"
+	const newSlug = "new-owner/homelab"
+	if _, err := db.TrackRepository(t.Context(), 42, oldSlug); err != nil {
+		t.Fatalf("TrackRepository old: %v", err)
+	}
+	mustPut(t, db, oldSlug, mainRef, []*duskv1alpha1.Entity{
+		entity("service:home/jellyfin", "Jellyfin", ""),
+	}, nil)
+	if err := db.SetDefaultView(t.Context(), oldSlug, mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+
+	previous, err := db.TrackRepository(t.Context(), 42, newSlug)
+	if err != nil {
+		t.Fatalf("TrackRepository new: %v", err)
+	}
+	if previous != oldSlug {
+		t.Errorf("previous = %q, want %q", previous, oldSlug)
+	}
+	for _, candidate := range []string{oldSlug, newSlug} {
+		resolved, err := db.ResolveRepository(t.Context(), candidate)
+		if err != nil || resolved != newSlug {
+			t.Errorf("ResolveRepository(%q) = %q, %v; want %q", candidate, resolved, err, newSlug)
+		}
+	}
+	declared, err := db.Declared(t.Context(), "", newSlug)
+	if err != nil || len(declared) != 1 {
+		t.Errorf("moved declaration = %v, %v", declared, err)
+	}
+}
+
 // ADR-0008 keys the index by git ref so that several are materialized at once,
 // which is what makes rendering an unmerged pull request nearly free.
 func TestADR0008_GitRefsAreIsolated(t *testing.T) {

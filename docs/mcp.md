@@ -47,15 +47,15 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | Tool | What it answers |
 | --- | --- |
 | `search(query, kind?, limit?)` | "Where is the thing called X", by any word in it or any part of its name |
-| `get(ref, titles?)` | Everything about one entity, including its connections |
+| `get(ref, repository?, titles?)` | Everything about one entity, including its connections and every declaration or observation contributing it. `repository` selects one side of a duplicate |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
-| `dusk_context(directory?)` | The operator's estate and what they pinned worth knowing, tailored to the repository being worked in |
+| `dusk_context(repository?)` | The operator's estate and what they pinned worth knowing, tailored to an exact `owner/name` repository |
 | `invoke(ref?, action, params?, proof?, confirm?, preview?)` | Do something to an entity, from what `get` said could be done |
 | `configure(plugin, settings?, instance?)` | Read or set a plugin's non-sensitive configuration |
-| `declare(ref, proof, …)` | Create or update an entity, which becomes a commit |
-| `relate(from, to, type, proof)` | Connect one entity to another, written in the file of the one it points from |
+| `declare(ref, proof, …)` | Create, correct, decommission, reactivate, or remove an entity declaration |
+| `relate(from, to, type, proof, …)` | Add, correct, or withdraw one exact outbound relation |
 | `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
@@ -162,6 +162,26 @@ Below either, and under the heading it belongs to, a line **names** what was lef
 
 The closing also names the kinds that carry actions, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one.
 
+### Configuring the injected context
+
+The config repository may declare `.dusk/context.md` ([ADR-0069](../adr/0069-agent-context-is-operator-configured-in-git.md)):
+
+```markdown
+---
+dusk: context/v1
+budget: 12000
+sections: [repository-notes, repository-entities, inventory]
+inventory: counts
+kind_order: [service, host, datastore]
+---
+Ask before restarting storage or changing network policy.
+```
+
+`sections` accepts `repository-notes`, `repository-entities`, `estate-notes`, and `inventory` in the order they should be printed and funded.
+`inventory` is `full`, `counts`, or `off`.
+The budget is 1024 through 32768 bytes, and the markdown body is operator instruction included in the same budget.
+The file is optional; omitting it keeps the default policy described above.
+
 ## Injecting it at the start of a session
 
 [ADR-0014](../adr/0014-agent-context-injection.md) delivers context three ways, each an accelerator over the one below.
@@ -203,11 +223,11 @@ A hook is installed by an entry in a settings file, settings files are committed
 
 ### What it sends, and what it does not
 
-It passes the working directory the client reported, verbatim, as `dusk_context`'s `root`, and injects the answer unchanged.
+It asks Git for the checkout's `origin`, normalizes a GitHub SSH or HTTPS remote to exact `owner/name`, passes that as `dusk_context`'s `root`, and injects the answer unchanged.
 The budget, the ranking, and what is dropped to stay inside it are decided here rather than there, so there is no second content policy on the client.
 
-Dusk matches that directory against `owner/name` by suffix, so a checkout at `~/src/example/homelab` is tailored to `example/homelab`.
-A checkout somewhere else gets the estate-wide answer instead, and nothing says so.
+Dusk matches that slug exactly and follows a historical slug through a rename or transfer when its stable GitHub repository id has been observed ([ADR-0068](../adr/0068-repositories-are-resolved-by-git-identity.md)).
+A non-GitHub checkout gets an explicit not-in-catalog answer rather than a guessed match.
 
 ### When it cannot ask
 

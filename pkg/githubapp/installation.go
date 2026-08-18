@@ -22,6 +22,7 @@ type Installation struct {
 
 // RepositoryRef names a repository and the branch it is tracked at.
 type RepositoryRef struct {
+	ID            int64  `json:"id"`
 	Owner         string `json:"-"`
 	Name          string `json:"name"`
 	DefaultBranch string `json:"default_branch"`

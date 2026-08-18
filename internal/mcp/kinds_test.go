@@ -314,7 +314,7 @@ func TestAnAliasIsReportedAsOneRatherThanGuessedAt(t *testing.T) {
 	err := idx.PutCatalog(t.Context(), "example/homelab", mainRef, nil, nil, nil, []vocab.Kind{{
 		Namespace: vocab.Entity, Name: "service",
 		Role: vocab.Infrastructure, Aliases: []string{"svc"},
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("PutCatalog: %v", err)
 	}

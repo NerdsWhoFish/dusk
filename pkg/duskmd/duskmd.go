@@ -36,6 +36,15 @@ const SchemaVersion = "v1alpha1"
 // file, distinguishing it from data a plugin observed.
 const Source = "dusk.md"
 
+// LifecycleAttribute is the conventional declaration attribute whose value
+// affects whether absence is drift. It stays an attribute because lifecycle
+// is operator policy rather than a fact every observation plugin must emit.
+const LifecycleAttribute = "lifecycle"
+
+// LifecycleDecommissioned keeps a retired entity as searchable history while
+// removing it from the declared-not-observed maintenance queue.
+const LifecycleDecommissioned = "decommissioned"
+
 // frontmatterLineOffset converts a line number within the frontmatter block to
 // a line number within the file, which is the only one an author can act on.
 const frontmatterLineOffset = 1

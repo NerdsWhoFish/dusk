@@ -45,11 +45,14 @@ const (
 
 	// KindsPath is the minted kind vocabulary (ADR-0048).
 	KindsPath = DuskDir + "/kinds.md"
+
+	// ContextPath is the operator-owned agent orientation profile.
+	ContextPath = DuskDir + "/context.md"
 )
 
 // reserved is the whole list, kept here rather than assembled from the packages
 // that own each file, because two owners of one rule is how they drift apart.
-var reserved = map[string]bool{HomePath: true, KindsPath: true}
+var reserved = map[string]bool{HomePath: true, KindsPath: true, ContextPath: true}
 
 // IsReserved reports whether a path is Dusk's own configuration. A reconcile
 // skips these: they are read by whatever declared them, not as catalog content.

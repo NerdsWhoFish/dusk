@@ -12,10 +12,15 @@ import (
 )
 
 type relateInput struct {
-	From  string `json:"from" jsonschema:"the entity the relation points from, of the form kind:namespace/name. Its file is what declares the relation, so the proof token has to come from a read of this one"`
-	To    string `json:"to" jsonschema:"the entity it points at, of the form kind:namespace/name. It does not have to be in the catalog"`
-	Type  string `json:"type" jsonschema:"what the relation is, such as runs_on, depends_on, backs_up_to or stores_in"`
-	Proof string `json:"proof" jsonschema:"the proof token from the read that returned the entity it points from"`
+	From       string            `json:"from" jsonschema:"the entity the relation points from, of the form kind:namespace/name. Its file is what declares the relation, so the proof token has to come from a read of this one"`
+	To         string            `json:"to" jsonschema:"the entity it points at, of the form kind:namespace/name. It does not have to be in the catalog"`
+	Type       string            `json:"type" jsonschema:"what the relation is, such as runs_on, depends_on, backs_up_to or stores_in"`
+	Proof      string            `json:"proof" jsonschema:"the proof token from the read that returned the entity it points from"`
+	Repository string            `json:"repository,omitempty" jsonschema:"the exact owner/name repository whose edge to change when the source ref is declared more than once"`
+	Attributes map[string]string `json:"attributes,omitempty" jsonschema:"attributes to set on the edge, merged with what is there"`
+	Unset      []string          `json:"unset,omitempty" jsonschema:"relation attribute names to remove"`
+	Remove     bool              `json:"remove,omitempty" jsonschema:"withdraw this exact edge"`
+	Confirm    bool              `json:"confirm,omitempty" jsonschema:"required with remove because the connection disappears from the graph"`
 }
 
 // relate declares one outbound edge. Only outbound: the from side is the file's
@@ -23,7 +28,8 @@ type relateInput struct {
 // entities it does not own (ADR-0026).
 func (s *Server) relate(ctx context.Context, _ *sdk.CallToolRequest, in relateInput) (*sdk.CallToolResult, any, error) {
 	result, err := s.opts.Writer.Relate(ctx, in.Proof, write.Relation{
-		From: in.From, To: in.To, Type: in.Type,
+		From: in.From, To: in.To, Type: in.Type, Repository: in.Repository,
+		Attributes: in.Attributes, Unset: in.Unset, Remove: in.Remove, Confirm: in.Confirm,
 	})
 	if err != nil {
 		return text(fmt.Sprintf("The relation was not declared.\n\n%s", err)), nil, nil
@@ -32,9 +38,18 @@ func (s *Server) relate(ctx context.Context, _ *sdk.CallToolRequest, in relateIn
 		return text(proposal(result)), nil, nil
 	}
 	if result.Existing {
+		state := "already declares"
+		if in.Remove {
+			state = "already does not declare"
+		}
 		return text(fmt.Sprintf(
-			"`%s` already says %s `%s`, so nothing was written.\n\nIt is declared in `%s` in %s.",
-			result.Ref, in.Type, in.To, result.Path, result.Repository)), nil, nil
+			"`%s` %s %s `%s`, so nothing was written.\n\nThe declaration file is `%s` in %s.",
+			result.Ref, state, in.Type, in.To, result.Path, result.Repository)), nil, nil
+	}
+	if in.Remove {
+		return text(fmt.Sprintf(
+			"`%s` no longer says %s `%s`; the edge was withdrawn from %s at `%s`.\n\nCommit: %s\n\nIt leaves the catalog on the next reconcile, which the push already triggered.",
+			result.Ref, in.Type, in.To, result.Repository, result.Path, result.URL)), nil, nil
 	}
 
 	return text(fmt.Sprintf(

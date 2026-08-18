@@ -132,3 +132,12 @@ And it is you saying an ingester sees this thing, which is the witness drift nee
 
 An `observed_as` naming something no ingester sees is therefore still reported.
 The mapping is a claim, and a claim that does not hold is exactly what drift is for.
+
+### Decommissioning without erasing history
+
+`lifecycle: decommissioned` is the conventional declaration attribute for something intentionally retired.
+The entity, its relations, and its attached knowledge remain readable, while drift stops reporting it as declared but missing.
+The `declare` tool sets or removes this marker with `decommissioned: true` or `false` ([ADR-0067](../adr/0067-catalog-writes-have-explicit-inverses.md)).
+
+Physical removal is different.
+`declare(remove: true, confirm: true)` deletes an included declaration file and its outbound relations, but refuses the root `dusk.md` because that would opt the whole repository out.

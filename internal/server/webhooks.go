@@ -127,6 +127,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 type deliveryPayload struct {
 	Ref        string `json:"ref"`
 	Repository struct {
+		ID    int64  `json:"id"`
 		Name  string `json:"name"`
 		Owner struct {
 			Login string `json:"login"`
@@ -225,6 +226,7 @@ func (s *Server) reconcileRepository(ctx context.Context, delivery string, paylo
 	}
 
 	work := controller.Push{
+		RepositoryID:   payload.Repository.ID,
 		InstallationID: payload.Installation.ID,
 		Account:        account,
 		Owner:          owner,

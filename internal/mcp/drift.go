@@ -51,7 +51,7 @@ func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInpu
 				drift.Ref, displayName(drift.Title, ""), drift.Declared)
 		}
 		out.WriteString("\nEach of these is watched: something observes its kind in its namespace, or its declaration names an `observed_as` that should have matched. Nothing reported them, so each one is gone, or is known to an ingester by another name, or sits behind a filter its ingester does not cross. Only the first is a declaration to remove.\n")
-		out.WriteString("\nWhere an ingester uses a different ref, `observed_as` in the declaration names it and clears the row without removing anything. `drift undeclared` lists the refs in use.\n\n")
+		out.WriteString("\nFor each, read the exact declaration with `get(ref, repository)`. Then use that proof with `declare`: replace `observed_as` when the ingester uses another ref, set `decommissioned: true` to preserve retired history, or use `remove: true, confirm: true` only when the declaration file should disappear. `drift undeclared` lists the refs in use.\n\n")
 	}
 
 	if len(notes) > 0 {
@@ -59,7 +59,7 @@ func (s *Server) drift(ctx context.Context, _ *sdk.CallToolRequest, in driftInpu
 		for _, drift := range notes {
 			fmt.Fprintf(&out, "- `%s`, written down in %s\n", drift.Ref, drift.Declared)
 		}
-		out.WriteString("\nThe notes are findable by search and will never appear on the thing they are about. Repoint them with `note`, or close them with status done or dropped.\n\n")
+		out.WriteString("\nThe notes are findable by search and will never appear on the thing they are about. Read each note by `id` for its proof, then replace its `refs` with `note`, or close it with status done or dropped.\n\n")
 	}
 
 	if len(undeclared) > 0 {

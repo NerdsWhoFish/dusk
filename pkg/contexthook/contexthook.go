@@ -59,8 +59,8 @@ type Options struct {
 }
 
 // Fetch asks Dusk what an agent working in root should know, and returns what
-// `dusk_context` rendered, unchanged. root is a directory Dusk matches against
-// the repositories it has read; an empty one asks about the whole estate.
+// `dusk_context` rendered, unchanged. root is the exact owner/name repository
+// resolved from the checkout; an empty one asks about the whole estate.
 func Fetch(ctx context.Context, opts Options, root string) (string, error) {
 	endpoint, err := normalize(opts.Endpoint)
 	if err != nil {

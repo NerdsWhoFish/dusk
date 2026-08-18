@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -161,6 +162,27 @@ func TestRunTakesTheDirectoryFromThePayload(t *testing.T) {
 				t.Errorf("dusk_context was asked about %v, want [%s]", asked, test.want)
 			}
 		})
+	}
+}
+
+func TestRunResolvesTheCheckoutFromItsGitHubOrigin(t *testing.T) {
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", dir},
+		{"-C", dir, "remote", "add", "origin", "git@github.com:NerdsWhoFish/dusk.git"},
+	} {
+		if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+
+	dusk := &stub{answer: orientation}
+	stdout, stderr := run(t, contexthook.Options{Endpoint: dusk.serve(t)}, `{"cwd":"`+dir+`"}`)
+	if stdout == "" || stderr != "" {
+		t.Fatalf("hook output = %q, stderr = %q", stdout, stderr)
+	}
+	if asked := dusk.asked(); len(asked) != 1 || asked[0] != "NerdsWhoFish/dusk" {
+		t.Errorf("dusk_context was asked about %v, want the exact GitHub origin", asked)
 	}
 }
 

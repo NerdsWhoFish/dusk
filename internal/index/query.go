@@ -41,13 +41,48 @@ type Dependent struct {
 	Depth int
 }
 
+// EntitySource is one declaration or observation contributing a ref. The
+// protobuf provenance says when and by what, while this says where it lives and
+// whether it was written by the operator or inferred by a plugin.
+type EntitySource struct {
+	Repository string
+	Path       string
+	Source     string
+	Version    string
+	Observed   bool
+}
+
+// Sources lists every declaration and observation contributing one ref.
+func (db *DB) Sources(ctx context.Context, gitRef, entityRef string) ([]EntitySource, error) {
+	clause, args := scopeClause("", gitRef)
+	var rows []EntitySource
+	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
+		Select("repository, path, source, version, observed").
+		Where(clause, args...).Where("ref = ?", entityRef).
+		Order("observed, repository").Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: sources for %q: %w", entityRef, err)
+	}
+	return rows, nil
+}
+
 // Get returns one entity at gitRef, across every repository contributing to it.
 // Ordering keeps the answer stable when more than one source has the ref, and
 // Integrity reports the cases where that ordering is the only tiebreak.
 func (db *DB) Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error) {
+	return db.GetFrom(ctx, gitRef, entityRef, "")
+}
+
+// GetFrom returns one entity, optionally selecting an exact declaring
+// repository. The selector is how an integrity repair can read either side of
+// a duplicate instead of being forced through the sort-order winner.
+func (db *DB) GetFrom(ctx context.Context, gitRef, entityRef, repository string) (*duskv1alpha1.Entity, error) {
 	var row entityRow
-	err := scoped(db.gorm.WithContext(ctx), gitRef).
-		Where("ref = ?", entityRef).
+	query := scoped(db.gorm.WithContext(ctx), gitRef).Where("ref = ?", entityRef)
+	if repository != "" {
+		query = query.Where("repository = ? AND observed = ?", repository, false)
+	}
+	err := query.
 		// A human who wrote it down beats an ingester that inferred it
 		// (ADR-0034). Repository is the tiebreak among equals.
 		Order("observed, repository").
@@ -273,9 +308,20 @@ type Location struct {
 // Declarations only: an observation fills the repository slot with an ingester
 // scope nothing can commit to, and an entity nobody declared is a create.
 func (db *DB) Locate(ctx context.Context, gitRef, entityRef string) (*Location, error) {
+	return db.LocateIn(ctx, gitRef, entityRef, "")
+}
+
+// LocateIn finds the file declaring an entity, optionally in one exact
+// repository. A ref alone is ambiguous precisely when integrity reports a
+// duplicate, so a repair needs the repository as a disambiguator.
+func (db *DB) LocateIn(ctx context.Context, gitRef, entityRef, repository string) (*Location, error) {
 	var row entityRow
-	err := scoped(db.gorm.WithContext(ctx), gitRef).
-		Where("ref = ? AND observed = ?", entityRef, false).
+	query := scoped(db.gorm.WithContext(ctx), gitRef).
+		Where("ref = ? AND observed = ?", entityRef, false)
+	if repository != "" {
+		query = query.Where("repository = ?", repository)
+	}
+	err := query.
 		Order("repository").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

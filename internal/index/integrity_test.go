@@ -177,8 +177,10 @@ func TestIntegrityFindsADanglingRelation(t *testing.T) {
 	if problems[0].Ref != "host:home/typo" {
 		t.Errorf("ref = %q, want the missing target", problems[0].Ref)
 	}
-	if !slices.Contains(problems[0].Where, "service:home/jellyfin") {
-		t.Errorf("Where = %v, want the entity that points at it", problems[0].Where)
+	if !slices.ContainsFunc(problems[0].Where, func(where string) bool {
+		return strings.Contains(where, "service:home/jellyfin runs_on host:home/typo")
+	}) {
+		t.Errorf("Where = %v, want the complete edge and repository needed to repair it", problems[0].Where)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
+	"github.com/NerdsWhoFish/dusk/internal/contextconfig"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
@@ -85,6 +86,9 @@ type Graph struct {
 	// Kinds are what this repository mints, from the reserved vocabulary file.
 	// They are read here so `dusk validate` catches a bad one locally.
 	Kinds []vocab.Kind
+
+	// Context is the validated operator-owned session orientation profile.
+	Context []byte
 }
 
 // declarations pairs each entity with the file that declared it. Files and
@@ -144,17 +148,36 @@ func (l *Loader) Load(ctx context.Context, gitRef string, observedAt time.Time) 
 	if err != nil {
 		return nil, err
 	}
+	contextProfile, err := readContext(tree)
+	if err != nil {
+		return nil, err
+	}
 
 	graph := &Graph{
 		GitRef: gitRef, Commit: commit, Participating: true,
-		Files: make([]string, 0, len(files)),
-		Notes: notes,
-		Kinds: kinds,
+		Files:   make([]string, 0, len(files)),
+		Notes:   notes,
+		Kinds:   kinds,
+		Context: contextProfile,
 	}
 	if err := graph.merge(files); err != nil {
 		return nil, err
 	}
 	return graph, nil
+}
+
+func readContext(tree *catalogfs.Tree) ([]byte, error) {
+	data, err := tree.Read(contextconfig.Path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: read %s: %w", contextconfig.Path, err)
+	}
+	if _, err := contextconfig.Parse(data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // readRoot returns nil when the repository has no root dusk.md.
@@ -328,7 +351,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, o
 		}
 		return graph, nil
 	}
-	if err := r.index.PutCatalog(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes, graph.Kinds); err != nil {
+	if err := r.index.PutCatalog(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes, graph.Kinds, graph.Context); err != nil {
 		return nil, err
 	}
 	return graph, nil

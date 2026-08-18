@@ -6,9 +6,26 @@ import (
 	"testing"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
 )
+
+func TestDecommissionedDeclarationIsNotReportedMissing(t *testing.T) {
+	db := newDB(t)
+	retired := entity("service:home/retired", "Retired", "")
+	retired.Attributes, _ = structpb.NewStruct(map[string]any{"lifecycle": "decommissioned"})
+	mustPut(t, db, testRepo, mainRef, []*duskv1alpha1.Entity{retired}, nil)
+	observe(t, db, "kubernetes", entity("service:home/running", "Running", ""))
+
+	drifts, err := db.Drift(t.Context(), mainRef, index.DriftFilter{}, index.Unrestricted())
+	if err != nil {
+		t.Fatalf("Drift: %v", err)
+	}
+	if slices.ContainsFunc(drifts, func(d index.Drift) bool { return d.Ref == retired.GetRef() }) {
+		t.Errorf("decommissioned declaration reported missing: %+v", drifts)
+	}
+}
 
 // observe stores entities the way an ingester does, so drift has two sides.
 func observe(t *testing.T, db *index.DB, name string, entities ...*duskv1alpha1.Entity) {

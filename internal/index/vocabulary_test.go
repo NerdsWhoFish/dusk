@@ -80,7 +80,7 @@ func TestVocabularyCountsAnAliasAgainstWhatItAliases(t *testing.T) {
 	}), nil, nil, []vocab.Kind{{
 		Namespace: vocab.Entity, Name: "service",
 		Role: vocab.Infrastructure, Aliases: []string{"svc"},
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("PutCatalog: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestAMintedNoteKindRanks(t *testing.T) {
 			kindNote(".dusk/b-postmortem.md", "postmortem", ref),
 		}, []vocab.Kind{{
 			Namespace: vocab.Note, Name: "postmortem", Role: vocab.Warning,
-		}})
+		}}, nil)
 	if err != nil {
 		t.Fatalf("PutCatalog: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestMintingOverAWellKnownKindReRolesIt(t *testing.T) {
 		{Id: ".dusk/a-todo.md", Kind: "todo", Body: "jellyfin"},
 	}, []vocab.Kind{{
 		Namespace: vocab.Note, Name: "todo", Role: vocab.Knowledge,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("PutCatalog: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestADR0048_MintingAKindAsReferenceQuietsItInDrift(t *testing.T) {
 
 	err = db.PutCatalog(t.Context(), testRepo, mainRef, nil, nil, nil, []vocab.Kind{{
 		Namespace: vocab.Entity, Name: "airport", Role: vocab.Reference,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("PutCatalog: %v", err)
 	}

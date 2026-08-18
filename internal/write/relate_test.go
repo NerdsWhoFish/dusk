@@ -260,3 +260,42 @@ func TestRelateAnswersAnEdgeTheFileAlreadyDeclares(t *testing.T) {
 		}
 	})
 }
+
+func TestRelateCanUpdateAndUnsetAttributes(t *testing.T) {
+	withRelation := strings.Replace(jellyfinFile, "title: Jellyfin\n", "title: Jellyfin\nrelations:\n  - type: runs_on\n    to: host:home/nas\n    attributes:\n      port: old\n      protocol: https\n", 1)
+	writer, target, tokens := newWriter(t, locatedContents(jellyfinPath, withRelation), map[string]string{
+		RootPath: rootFile, jellyfinPath: withRelation,
+	})
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err := writer.Relate(t.Context(), token.ID, write.Relation{
+		From: jellyfin, To: "host:home/nas", Type: "runs_on",
+		Attributes: map[string]string{"port": "8096"}, Unset: []string{"protocol"},
+	})
+	if err != nil {
+		t.Fatalf("Relate: %v", err)
+	}
+	written := string(target.commits[0].Content)
+	if !strings.Contains(written, "port: \"8096\"") || strings.Contains(written, "protocol:") {
+		t.Errorf("relation attributes not updated:\n%s", written)
+	}
+}
+
+func TestRelateWithdrawNeedsConfirmationAndRemovesOnlyThatEdge(t *testing.T) {
+	withRelations := strings.Replace(jellyfinFile, "title: Jellyfin\n", "title: Jellyfin\nrelations:\n  - type: runs_on\n    to: host:home/nas\n  - type: backs_up_to\n    to: host:home/nas\n", 1)
+	writer, target, tokens := newWriter(t, locatedContents(jellyfinPath, withRelations), map[string]string{
+		RootPath: rootFile, jellyfinPath: withRelations,
+	})
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	relation := write.Relation{From: jellyfin, To: "host:home/nas", Type: "runs_on", Remove: true}
+	if _, err := writer.Relate(t.Context(), token.ID, relation); err == nil {
+		t.Fatal("withdraw without confirmation succeeded")
+	}
+	relation.Confirm = true
+	if _, err := writer.Relate(t.Context(), token.ID, relation); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+	written := string(target.commits[0].Content)
+	if strings.Contains(written, "type: runs_on") || !strings.Contains(written, "type: backs_up_to") {
+		t.Errorf("withdraw removed the wrong edges:\n%s", written)
+	}
+}

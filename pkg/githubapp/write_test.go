@@ -36,7 +36,7 @@ func (w *writeServer) repository(t *testing.T) *githubapp.Repository {
 		}
 
 		w.method, w.path = req.Method, req.URL.Path
-		if req.Method == http.MethodPut {
+		if req.Method == http.MethodPut || req.Method == http.MethodDelete {
 			_ = json.NewDecoder(req.Body).Decode(&w.body)
 		}
 		if w.status != 0 {
@@ -142,6 +142,43 @@ func TestCommitFileOmitsTheShaWhenCreating(t *testing.T) {
 	}
 	if _, present := server.body["sha"]; present {
 		t.Errorf("a create sent a sha: %v", server.body)
+	}
+}
+
+func TestCommitFileDeletesWithTheBlobItRead(t *testing.T) {
+	server := &writeServer{
+		status: http.StatusOK,
+		reply:  `{"commit":{"sha":"gone1","html_url":"https://github.com/example/homelab/commit/gone1"}}`,
+	}
+
+	commit, err := server.repository(t).CommitFile(t.Context(), githubapp.FileCommit{
+		Branch: "main", Path: "services/old/dusk.md", Message: "declare: remove service:home/old",
+		ReplacingSHA: "blob-old", Delete: true,
+	})
+	if err != nil {
+		t.Fatalf("CommitFile: %v", err)
+	}
+	if server.method != http.MethodDelete {
+		t.Errorf("method = %s, want DELETE", server.method)
+	}
+	if got := server.body["sha"]; got != "blob-old" {
+		t.Errorf("sha = %v, want blob-old", got)
+	}
+	if _, present := server.body["content"]; present {
+		t.Errorf("delete sent content: %v", server.body)
+	}
+	if commit.SHA != "gone1" {
+		t.Errorf("commit = %+v, want deletion commit", commit)
+	}
+}
+
+func TestCommitFileDeleteRequiresTheBlobItRead(t *testing.T) {
+	repo := (&writeServer{}).repository(t)
+	_, err := repo.CommitFile(t.Context(), githubapp.FileCommit{
+		Branch: "main", Path: "services/old/dusk.md", Message: "declare: remove", Delete: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "sha") {
+		t.Errorf("error = %v, want the missing sha rejected", err)
 	}
 }
 

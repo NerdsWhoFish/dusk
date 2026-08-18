@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
+	"github.com/NerdsWhoFish/dusk/internal/contextconfig"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 	"github.com/NerdsWhoFish/dusk/pkg/vocab"
@@ -25,7 +25,7 @@ const ContextBudget = 8000
 // contextNotes bounds the note queries above what the budget could ever name,
 // so ADR-0050's ranking decides what is shown rather than a query limit nobody
 // would see hit. No line naming a note is shorter than twenty bytes.
-const contextNotes = ContextBudget / 20
+const contextNotes = contextconfig.MaxBudget / 20
 
 // noteSummary is how much of a note's opening line stands in for it when the
 // whole note does not fit.
@@ -41,7 +41,7 @@ const sectionShare = 50
 const overflowNames = 12
 
 type contextInput struct {
-	Root string `json:"root,omitempty" jsonschema:"the repository being worked in, as a path or owner/name. Omit for an inventory of everything"`
+	Root string `json:"root,omitempty" jsonschema:"the exact owner/name repository being worked in. The dusk-context hook resolves this from the checkout. Omit for an inventory of everything"`
 }
 
 // duskContext tailors the catalog to the repository an agent is working in.
@@ -49,6 +49,11 @@ type contextInput struct {
 // client can reach it and a hook is an accelerator rather than a requirement.
 func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in contextInput) (*sdk.CallToolResult, any, error) {
 	repository, err := s.matchRepository(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	profile, err := s.contextProfile(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -63,6 +68,7 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 		return nil, nil, err
 	}
 	held := takeInventory(entities, vocabulary)
+	held.kinds = orderKinds(held.kinds, profile.KindOrder)
 
 	var declared []string
 	if repository != "" {
@@ -81,10 +87,83 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 		return nil, nil, err
 	}
 
-	reading, priority := contextSections(declared, here, elsewhere, held)
-	body := assemble(header(in.Root, repository, len(declared), held.total), tail, reading, priority)
+	reading, _ := contextSections(declared, here, elsewhere, held)
+	reading, priority := profileSections(profile, reading)
+	body := assemble(contextHeader(in.Root, repository, len(declared), held.total, profile.Instructions), tail, reading, priority)
 
-	return text(truncate(body, ContextBudget)), nil, nil
+	return text(truncate(body, profile.Budget)), nil, nil
+}
+
+func (s *Server) contextProfile(ctx context.Context) (contextconfig.Profile, error) {
+	profile := contextconfig.Default()
+	if s.opts.Writer == nil || s.opts.Writer.NoteDestination() == "" {
+		return profile, nil
+	}
+	body, err := s.opts.Catalog.Context(ctx, "", s.opts.Writer.NoteDestination())
+	if err != nil || len(body) == 0 {
+		return profile, err
+	}
+	return contextconfig.Parse(body)
+}
+
+func contextHeader(root, repository string, declared, total int, instructions string) string {
+	out := header(root, repository, declared, total)
+	if instructions != "" {
+		out += "\n## Operator instructions\n\n" + instructions + "\n"
+	}
+	return out
+}
+
+func orderKinds(groups []kindGroup, wanted []string) []kindGroup {
+	if len(wanted) == 0 {
+		return groups
+	}
+	rank := make(map[string]int, len(wanted))
+	for i, kind := range wanted {
+		rank[kind] = i
+	}
+	ordered := slices.Clone(groups)
+	slices.SortStableFunc(ordered, func(a, b kindGroup) int {
+		ar, aok := rank[a.kind]
+		br, bok := rank[b.kind]
+		switch {
+		case aok && bok:
+			return ar - br
+		case aok:
+			return -1
+		case bok:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return ordered
+}
+
+func profileSections(profile contextconfig.Profile, defaults []*section) (reading, priority []*section) {
+	byName := map[string]*section{
+		"repository-notes": defaults[0], "repository-entities": defaults[1],
+		"estate-notes": defaults[2], "inventory": defaults[3],
+	}
+	if profile.Inventory == "counts" {
+		for i := range defaults[3].items {
+			defaults[3].items[i].full = defaults[3].items[i].short
+		}
+	}
+	if len(profile.Sections) == 0 {
+		reading = defaults
+		priority = []*section{defaults[0], defaults[2], defaults[1], defaults[3]}
+	} else {
+		for _, name := range profile.Sections {
+			reading = append(reading, byName[name])
+		}
+		priority = slices.Clone(reading)
+	}
+	if profile.Inventory == "off" {
+		reading = slices.DeleteFunc(reading, func(section *section) bool { return section == defaults[3] })
+		priority = slices.DeleteFunc(priority, func(section *section) bool { return section == defaults[3] })
+	}
+	return reading, priority
 }
 
 // estate is what the operator has, deduplicated, grouped by kind and ranked by
@@ -502,21 +581,7 @@ func (s *Server) matchRepository(ctx context.Context, root string) (string, erro
 		return "", nil
 	}
 
-	scopes, err := s.opts.Catalog.Scopes(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	cleaned := strings.Trim(path.Clean(root), "/")
-	for _, scope := range scopes {
-		if index.IsObserved(scope.Repository) {
-			continue
-		}
-		if cleaned == scope.Repository || strings.HasSuffix(cleaned, "/"+scope.Repository) {
-			return scope.Repository, nil
-		}
-	}
-	return "", nil
+	return s.opts.Catalog.ResolveRepository(ctx, strings.TrimSpace(root))
 }
 
 // truncate is the backstop under ADR-0050's allocation, which is meant to keep
@@ -535,7 +600,7 @@ func truncate(body string, budget int) string {
 }
 
 func displayRoot(root string) string {
-	cleaned := strings.Trim(path.Clean(root), "/")
+	cleaned := strings.Trim(root, "/")
 	if cleaned == "" {
 		return root
 	}

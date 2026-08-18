@@ -68,7 +68,11 @@ func (f *fakeTarget) ReadFileContents(_ context.Context, _, filePath string) (*g
 
 func (f *fakeTarget) CommitFile(_ context.Context, commit githubapp.FileCommit) (*githubapp.Commit, error) {
 	f.commits = append(f.commits, commit)
-	f.files[commit.Path] = string(commit.Content)
+	if commit.Delete {
+		delete(f.files, commit.Path)
+	} else {
+		f.files[commit.Path] = string(commit.Content)
+	}
 	return &githubapp.Commit{SHA: "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee"}, nil
 }
 
@@ -91,6 +95,17 @@ func (f fakeCatalog) Locate(_ context.Context, _, entityRef string) (*index.Loca
 		return nil, fmt.Errorf("locate %q: %w", entityRef, index.ErrNotFound)
 	}
 	return f.at, nil
+}
+
+func (f fakeCatalog) LocateIn(ctx context.Context, gitRef, entityRef, repository string) (*index.Location, error) {
+	at, err := f.Locate(ctx, gitRef, entityRef)
+	if err != nil {
+		return nil, err
+	}
+	if repository != "" && at.Repository != repository {
+		return nil, fmt.Errorf("locate %q in %q: %w", entityRef, repository, index.ErrNotFound)
+	}
+	return at, nil
 }
 
 func (f fakeCatalog) Get(context.Context, string, string) (*duskv1alpha1.Entity, error) {
@@ -365,5 +380,94 @@ func TestDeclareCreateNeedsARepository(t *testing.T) {
 	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{Ref: "service:home/navidrome"})
 	if err == nil || !strings.Contains(err.Error(), "which repository") {
 		t.Fatalf("err = %v, want it to ask which repository declares it", err)
+	}
+}
+
+func TestDeclareCanUnsetOwnedFields(t *testing.T) {
+	withAttributes := strings.Replace(jellyfinFile, "title: Jellyfin\n", "title: Jellyfin\nobserved_as:\n  - service:cluster/media\nattributes:\n  backup: nightly\n  owner: joey\n", 1)
+	writer, target, tokens := newWriter(t, locatedContents(jellyfinPath, withAttributes), map[string]string{
+		RootPath: rootFile, jellyfinPath: withAttributes,
+	})
+
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{
+		Ref: jellyfin, Unset: []string{"title", "observed_as", "attributes.backup"},
+	})
+	if err != nil {
+		t.Fatalf("Declare: %v", err)
+	}
+	written := string(target.commits[0].Content)
+	for _, absent := range []string{"title: Jellyfin", "observed_as:", "backup: nightly"} {
+		if strings.Contains(written, absent) {
+			t.Errorf("unset field remains %q:\n%s", absent, written)
+		}
+	}
+	if !strings.Contains(written, "owner: joey") {
+		t.Errorf("unrelated attribute was lost:\n%s", written)
+	}
+}
+
+func TestDeclareDecommissionsAndRecommissions(t *testing.T) {
+	decommissioned := true
+	writer, target, tokens := newWriter(t, located(jellyfinPath), map[string]string{
+		RootPath: rootFile, jellyfinPath: jellyfinFile,
+	})
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{Ref: jellyfin, Decommissioned: &decommissioned})
+	if err != nil {
+		t.Fatalf("decommission: %v", err)
+	}
+	if !strings.Contains(string(target.commits[0].Content), "lifecycle: decommissioned") {
+		t.Fatalf("decommission marker missing:\n%s", target.commits[0].Content)
+	}
+
+	active := false
+	updated := string(target.commits[0].Content)
+	writer, target, tokens = newWriter(t, locatedContents(jellyfinPath, updated), map[string]string{
+		RootPath: rootFile, jellyfinPath: updated,
+	})
+	token = tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err = writer.Declare(t.Context(), token.ID, write.Declaration{Ref: jellyfin, Decommissioned: &active})
+	if err != nil {
+		t.Fatalf("recommission: %v", err)
+	}
+	if strings.Contains(string(target.commits[0].Content), "decommissioned") {
+		t.Errorf("lifecycle marker remains:\n%s", target.commits[0].Content)
+	}
+}
+
+func TestDeclareRemoveNeedsConfirmationAndDeletesIncludedFile(t *testing.T) {
+	files := map[string]string{RootPath: rootFile, jellyfinPath: jellyfinFile}
+	writer, target, tokens := newWriter(t, located(jellyfinPath), files)
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+
+	if _, err := writer.Declare(t.Context(), token.ID, write.Declaration{Ref: jellyfin, Remove: true}); err == nil {
+		t.Fatal("remove without confirmation succeeded")
+	}
+	if len(target.commits) != 0 {
+		t.Fatalf("unconfirmed remove committed: %+v", target.commits)
+	}
+
+	result, err := writer.Declare(t.Context(), token.ID, write.Declaration{Ref: jellyfin, Remove: true, Confirm: true})
+	if err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if !result.Removed || !target.commits[0].Delete || target.commits[0].ReplacingSHA == "" {
+		t.Errorf("result = %+v, commit = %+v; want a guarded deletion", result, target.commits[0])
+	}
+	if _, present := target.files[jellyfinPath]; present {
+		t.Error("included declaration remains after deletion")
+	}
+}
+
+func TestDeclareWillNotRemoveTheRepositoryRoot(t *testing.T) {
+	writer, target, tokens := newWriter(t, locatedContents(RootPath, rootFile), map[string]string{RootPath: rootFile})
+	token := tokens.Issue(proof.FromGet, map[string]string{jellyfin: "v1"})
+	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{Ref: jellyfin, Remove: true, Confirm: true})
+	if err == nil || !strings.Contains(err.Error(), "opt the whole repository out") {
+		t.Fatalf("error = %v, want root removal refused", err)
+	}
+	if len(target.commits) != 0 {
+		t.Fatalf("root removal committed: %+v", target.commits)
 	}
 }

@@ -114,6 +114,32 @@ func TestLocateReturnsTheDeclaringFileContentHash(t *testing.T) {
 	}
 }
 
+func TestGetFromAndLocateInSelectOneDuplicateDeclaration(t *testing.T) {
+	db := newDB(t)
+	ref := "service:home/jellyfin"
+	for _, repository := range []string{"example/one", "example/two"} {
+		declaration := index.Declaration{
+			Path: repository + "/dusk.md", ContentHash: "hash-" + repository,
+			Entity: entity(ref, repository, ""),
+		}
+		if err := db.Put(t.Context(), repository, mainRef, []index.Declaration{declaration}, nil, nil); err != nil {
+			t.Fatalf("Put %s: %v", repository, err)
+		}
+		if err := db.SetDefaultView(t.Context(), repository, mainRef); err != nil {
+			t.Fatalf("SetDefaultView %s: %v", repository, err)
+		}
+	}
+
+	entity, err := db.GetFrom(t.Context(), "", ref, "example/two")
+	if err != nil || entity.GetTitle() != "example/two" {
+		t.Fatalf("GetFrom = %+v, %v", entity, err)
+	}
+	location, err := db.LocateIn(t.Context(), "", ref, "example/two")
+	if err != nil || location.Repository != "example/two" || location.ContentHash != "hash-example/two" {
+		t.Fatalf("LocateIn = %+v, %v", location, err)
+	}
+}
+
 // A note about what a repository declares usually lives in the config
 // repository, so the two halves of "notes about this repository" are stored
 // apart and only the refs connect them.

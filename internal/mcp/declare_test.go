@@ -38,6 +38,23 @@ type recordingWriter struct {
 	notesGo string
 }
 
+func TestDeclareCarriesInverseOperationsThrough(t *testing.T) {
+	session, writer := writableSession(t)
+	token := tokenFrom(t, call(t, session, "get", map[string]any{"ref": "service:home/jellyfin"}))
+	body := call(t, session, "declare", map[string]any{
+		"ref": "service:home/jellyfin", "proof": token,
+		"repository": "example/homelab", "observed_as": []any{},
+		"unset": []any{"title", "attributes.owner"}, "decommissioned": true,
+	})
+	if len(writer.got) != 1 {
+		t.Fatalf("writer got %d declarations:\n%s", len(writer.got), body)
+	}
+	got := writer.got[0]
+	if got.Repository != "example/homelab" || got.ObservedAs == nil || len(got.Unset) != 2 || got.Decommissioned == nil || !*got.Decommissioned {
+		t.Errorf("declaration = %+v, want every inverse field passed through", got)
+	}
+}
+
 func (w *recordingWriter) NoteDestination() string { return w.notesGo }
 
 func (w *recordingWriter) Record(_ context.Context, token string, n write.Note) (*write.Result, error) {
@@ -71,7 +88,8 @@ func (w *recordingWriter) Declare(_ context.Context, token string, d write.Decla
 	w.got = append(w.got, d)
 	return &write.Result{
 		Ref: d.Ref, Repository: "example/homelab", Path: "services/x/dusk.md",
-		Commit: "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee",
+		Removed: d.Remove,
+		Commit:  "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee",
 	}, nil
 }
 

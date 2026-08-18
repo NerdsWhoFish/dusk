@@ -34,6 +34,12 @@ func (d dirTarget) ReadFileContents(_ context.Context, _, filePath string) (*git
 
 func (d dirTarget) CommitFile(_ context.Context, commit githubapp.FileCommit) (*githubapp.Commit, error) {
 	path := filepath.Join(d.dir, commit.Path)
+	if commit.Delete {
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		return &githubapp.Commit{SHA: "c0ffee", URL: "https://example.com/commit/c0ffee"}, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}

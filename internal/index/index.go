@@ -162,7 +162,7 @@ func (db *DB) migrate() error {
 	if err := db.gorm.Exec(`PRAGMA foreign_keys=ON`).Error; err != nil {
 		return fmt.Errorf("index: enable foreign keys: %w", err)
 	}
-	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &defaultView{}); err != nil {
+	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &contextRow{}, &defaultView{}, &repositoryIdentity{}, &repositoryAlias{}); err != nil {
 		return fmt.Errorf("index: migrate: %w", err)
 	}
 	for _, stmt := range ftsSchema {
@@ -262,15 +262,15 @@ func aliasRows(repository, gitRef string, declarations []Declaration) []aliasRow
 // failed reconcile leaves the previous contents rather than a half-built graph.
 // Scoping to one repository keeps a push to one from re-reading all the others.
 func (db *DB) Put(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note) error {
-	return db.put(ctx, repository, gitRef, declarations, relations, notes, nil)
+	return db.put(ctx, repository, gitRef, declarations, relations, notes, nil, nil)
 }
 
 // PutCatalog replaces a repository's graph and minted vocabulary in one transaction.
-func (db *DB) PutCatalog(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note, kinds []vocab.Kind) error {
-	return db.put(ctx, repository, gitRef, declarations, relations, notes, kindRows(repository, gitRef, kinds))
+func (db *DB) PutCatalog(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note, kinds []vocab.Kind, contextProfile []byte) error {
+	return db.put(ctx, repository, gitRef, declarations, relations, notes, kindRows(repository, gitRef, kinds), contextProfile)
 }
 
-func (db *DB) put(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note, kinds []kindRow) error {
+func (db *DB) put(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note, kinds []kindRow, contextProfile []byte) error {
 	if repository == "" || gitRef == "" {
 		return errors.New("index: put: a repository and a git ref are both required")
 	}
@@ -307,6 +307,11 @@ func (db *DB) put(ctx context.Context, repository, gitRef string, declarations [
 			}
 			if err := tx.CreateInBatches(batch.rows, batchSize).Error; err != nil {
 				return fmt.Errorf("index: put %s: %w", batch.what, err)
+			}
+		}
+		if len(contextProfile) > 0 {
+			if err := tx.Create(&contextRow{Repository: repository, GitRef: gitRef, Body: contextProfile}).Error; err != nil {
+				return fmt.Errorf("index: put context: %w", err)
 			}
 		}
 		return nil
@@ -371,6 +376,7 @@ func deleteWhere(tx *gorm.DB, query string, args ...any) error {
 		{"notes", &noteRow{}},
 		{"aliases", &aliasRow{}},
 		{"kinds", &kindRow{}},
+		{"context", &contextRow{}},
 		{"entities", &entityRow{}},
 	} {
 		if err := tx.Where(query, args...).Delete(target.row).Error; err != nil {
@@ -380,12 +386,114 @@ func deleteWhere(tx *gorm.DB, query string, args ...any) error {
 	return nil
 }
 
+type contextRow struct {
+	Repository string `gorm:"primaryKey"`
+	GitRef     string `gorm:"primaryKey"`
+	Body       []byte
+}
+
+func (contextRow) TableName() string { return "context_profiles" }
+
+// Context returns the profile contributed by one exact repository.
+func (db *DB) Context(ctx context.Context, gitRef, repository string) ([]byte, error) {
+	var row contextRow
+	err := scoped(db.gorm.WithContext(ctx), gitRef).Where("repository = ?", repository).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("index: context for %q: %w", repository, err)
+	}
+	return row.Body, nil
+}
+
 // defaultView records which ref is a repository's default branch. Repositories
 // disagree about that, so no single ref means "the catalog as it stands" and a
 // query given no ref spans these rows instead.
 type defaultView struct {
 	Repository string `gorm:"primaryKey"`
 	GitRef     string
+}
+
+// repositoryIdentity follows a repository through a rename or transfer using
+// GitHub's stable numeric id. The catalog rows keep the current human-readable
+// slug; aliases exist only to resolve an old checkout remote to that slug.
+type repositoryIdentity struct {
+	ID   int64  `gorm:"primaryKey"`
+	Slug string `gorm:"uniqueIndex"`
+}
+
+func (repositoryIdentity) TableName() string { return "repository_identities" }
+
+type repositoryAlias struct {
+	Alias        string `gorm:"primaryKey"`
+	RepositoryID int64  `gorm:"index"`
+}
+
+func (repositoryAlias) TableName() string { return "repository_aliases" }
+
+// TrackRepository records the stable identity behind a slug and moves the
+// disposable materialized rows when GitHub reports that identity under a new
+// owner or name. It returns the previous slug when one was superseded.
+func (db *DB) TrackRepository(ctx context.Context, id int64, slug string) (string, error) {
+	if id == 0 || strings.TrimSpace(slug) == "" {
+		return "", errors.New("index: track repository: an id and slug are required")
+	}
+
+	var previous string
+	err := db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var identity repositoryIdentity
+		err := tx.First(&identity, "id = ?", id).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(&repositoryIdentity{ID: id, Slug: slug}).Error
+		}
+		if err != nil {
+			return err
+		}
+		if identity.Slug == slug {
+			return nil
+		}
+
+		previous = identity.Slug
+		if err := tx.Save(&repositoryAlias{Alias: previous, RepositoryID: id}).Error; err != nil {
+			return err
+		}
+		for _, table := range []string{"relations", "note_refs", "notes", "entity_aliases", "kinds", "context_profiles", "entities", "default_views"} {
+			if err := tx.Table(table).Where("repository = ?", previous).Update("repository", slug).Error; err != nil {
+				return fmt.Errorf("move %s: %w", table, err)
+			}
+		}
+		identity.Slug = slug
+		return tx.Save(&identity).Error
+	})
+	if err != nil {
+		return "", fmt.Errorf("index: track repository %q: %w", slug, err)
+	}
+	return previous, nil
+}
+
+// ResolveRepository returns the current slug for an exact current slug or a
+// historical slug retained after a rename or transfer.
+func (db *DB) ResolveRepository(ctx context.Context, candidate string) (string, error) {
+	var exact int64
+	if err := db.gorm.WithContext(ctx).Model(&defaultView{}).Where("repository = ?", candidate).Count(&exact).Error; err != nil {
+		return "", fmt.Errorf("index: resolve repository %q: %w", candidate, err)
+	}
+	if exact > 0 {
+		return candidate, nil
+	}
+
+	var identity repositoryIdentity
+	err := db.gorm.WithContext(ctx).
+		Where("slug = ? OR id IN (SELECT repository_id FROM repository_aliases WHERE alias = ?)", candidate, candidate).
+		First(&identity).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("index: resolve repository %q: %w", candidate, err)
+	}
+	return identity.Slug, nil
 }
 
 func (defaultView) TableName() string { return "default_views" }

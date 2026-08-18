@@ -33,6 +33,26 @@ func TestRelateCarriesTheEdgeThrough(t *testing.T) {
 	}
 }
 
+func TestRelateCarriesWithdrawalAndAttributesThrough(t *testing.T) {
+	session, writer := writableSession(t)
+	token := tokenFrom(t, call(t, session, "get", map[string]any{"ref": "service:home/jellyfin"}))
+	body := call(t, session, "relate", map[string]any{
+		"from": "service:home/jellyfin", "to": "host:home/nas", "type": "runs_on", "proof": token,
+		"repository": "example/homelab", "attributes": map[string]any{"port": "8096"},
+		"unset": []any{"protocol"}, "remove": true, "confirm": true,
+	})
+	if len(writer.relations) != 1 {
+		t.Fatalf("writer got %d relations:\n%s", len(writer.relations), body)
+	}
+	got := writer.relations[0]
+	if got.Repository != "example/homelab" || got.Attributes["port"] != "8096" || len(got.Unset) != 1 || !got.Remove || !got.Confirm {
+		t.Errorf("relation = %+v, want every inverse field passed through", got)
+	}
+	if !strings.Contains(body, "withdrawn") {
+		t.Errorf("withdrawal answer is ambiguous:\n%s", body)
+	}
+}
+
 // The read of the entity an edge points from is the one that can witness what
 // it already declares, so that is the token relate takes.
 func TestRelateTakesTheTokenFromAReadOfWhatItPointsFrom(t *testing.T) {

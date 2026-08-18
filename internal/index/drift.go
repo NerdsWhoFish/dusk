@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
@@ -193,6 +194,11 @@ func (db *DB) compare(ctx context.Context, gitRef string, observed bool, v Visib
 		Where(matched, append(append([]any{!observed}, otherArgs...), aliasArgs...)...)
 
 	if !observed {
+		// A decommissioned declaration is retained history rather than a claim
+		// that the thing still runs, so its expected absence is not drift.
+		query = query.Where(
+			"COALESCE(json_extract(CAST(attributes AS TEXT), ?), '') <> ?",
+			"$."+duskmd.LifecycleAttribute, duskmd.LifecycleDecommissioned)
 		watchedClause, watchedArgs := watched(gitRef, v)
 		query = query.Where(watchedClause, watchedArgs...)
 	}

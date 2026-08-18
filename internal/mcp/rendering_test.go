@@ -88,19 +88,19 @@ func TestAVersionIsAbbreviatedOnlyWhenItIsASha(t *testing.T) {
 			name:    "a commit is abbreviated",
 			source:  "dusk.md",
 			version: "abc1234def5678901234",
-			want:    "Declared in dusk.md at `abc1234`.",
+			want:    "from `abc1234`.",
 		},
 		{
 			name:    "a git ref is left whole",
 			source:  "ingester:plugin:example",
 			version: "refs/dusk/observed",
-			want:    "Declared in ingester:plugin:example at `refs/dusk/observed`.",
+			want:    "from `refs/dusk/observed`.",
 		},
 		{
 			name:    "a branch is left whole",
 			source:  "dusk.md",
 			version: "refs/heads/main",
-			want:    "Declared in dusk.md at `refs/heads/main`.",
+			want:    "from `refs/heads/main`.",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,5 +118,19 @@ func TestAVersionIsAbbreviatedOnlyWhenItIsASha(t *testing.T) {
 				t.Errorf("provenance does not read %q:\n%s", tt.want, body)
 			}
 		})
+	}
+}
+
+func TestObservedOnlyEntitySaysItHasNoDeclaration(t *testing.T) {
+	session, idx := connect(t, nil)
+	put(t, idx, index.ObservedScope("plugin:example"), []*duskv1alpha1.Entity{entity(
+		"service:cluster/surprise", "service", "Surprise", "Observed at runtime.",
+	)})
+
+	body := call(t, session, "get", map[string]any{"ref": "service:cluster/surprise"})
+	for _, want := range []string{"Observed by", "No repository declares this entity", "observed only"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("observed-only provenance does not say %q:\n%s", want, body)
+		}
 	}
 }
