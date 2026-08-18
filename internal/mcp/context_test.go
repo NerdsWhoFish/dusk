@@ -114,13 +114,13 @@ Ask before restarting the NAS.
 	if !strings.Contains(body, "Ask before restarting the NAS") {
 		t.Errorf("operator instructions missing:\n%s", body)
 	}
-	if strings.Contains(body, "Pinned, across the estate") || strings.Contains(body, "What this repository declares") {
+	if strings.Contains(body, "Pinned notes, across the estate") || strings.Contains(body, "What this repository declares") {
 		t.Errorf("disabled sections were still injected:\n%s", body)
 	}
 	if strings.Index(body, "**host**") > strings.Index(body, "**service**") {
 		t.Errorf("kind order was ignored:\n%s", body)
 	}
-	if !strings.Contains(body, "names not listed") {
+	if strings.Contains(lineWith(t, body, "**service**"), "service:home/") {
 		t.Errorf("counts-only inventory printed names:\n%s", body)
 	}
 }
@@ -141,9 +141,9 @@ func TestADR0050_PinnedNotesReachTheContext(t *testing.T) {
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
 	for _, want := range []string{
-		"Pinned, about this repository",
+		"Pinned notes, about this repository",
 		"Transcoding is off on purpose.",
-		"Pinned, across the estate",
+		"Pinned notes, across the estate",
 		"The registry runs out of disk quarterly.",
 	} {
 		if !strings.Contains(body, want) {
@@ -208,7 +208,7 @@ func TestADR0050_NothingIsDroppedSilently(t *testing.T) {
 	named := strings.Count(body, "`.dusk/pinned-")
 	missing := 0
 	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "more pinned note(s) about this repository did not fit") {
+		if strings.Contains(line, "more pinned note(s) about this repository are not listed") {
 			if _, err := fmt.Sscanf(line, "%d more pinned note", &missing); err != nil {
 				t.Fatalf("could not read what was left out of %q: %v", line, err)
 			}
@@ -248,7 +248,7 @@ func TestADR0050_WrittenKnowledgeOutranksTheInventory(t *testing.T) {
 	if !strings.Contains(body, "The source repository is gone, so this cannot be rebuilt.") {
 		t.Errorf("a pinned note lost the budget to an inventory:\n%s", body)
 	}
-	if !strings.Contains(body, "names not listed") {
+	if strings.Contains(lineWith(t, body, "**service**"), "service:home/") {
 		t.Errorf("the inventory should give up its names first:\n%s", body)
 	}
 }
@@ -313,6 +313,24 @@ func TestADR0057_TheOverflowNamesTheKindsItLeftOut(t *testing.T) {
 	spread(t, idx)
 	crowd(t, idx)
 
+	// More kinds than any budget prints, because a kind now costs a count and
+	// a name rather than a sentence, so ten of them always fit.
+	var declarations []index.Declaration
+	for i := range 60 {
+		kind := fmt.Sprintf("widget-%02d", i)
+		ref := kind + ":estate/only"
+		declarations = append(declarations, index.Declaration{
+			Path:   "dusk.md",
+			Entity: &duskv1alpha1.Entity{Ref: ref, Kind: kind, Namespace: "estate", Name: "only"},
+		})
+	}
+	if err := idx.Put(t.Context(), "example/many-kinds", mainRef, declarations, nil, nil); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/many-kinds", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+
 	var pinned []*duskv1alpha1.Note
 	for i := range 20 {
 		pinned = append(pinned, note(
@@ -324,8 +342,8 @@ func TestADR0057_TheOverflowNamesTheKindsItLeftOut(t *testing.T) {
 	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
-	overflow := lineWith(t, body, "Kinds not listed:")
-	if !strings.Contains(overflow, "datastore") {
+	overflow := lineWith(t, body, "Other kinds:")
+	if !strings.Contains(overflow, "widget-") {
 		t.Errorf("the overflow counted what it left out instead of naming it: %q\n%s", overflow, body)
 	}
 }
@@ -366,10 +384,10 @@ func TestADR0057_AnOverflowLineCarriesItsHeading(t *testing.T) {
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
 	for _, block := range []struct{ heading, overflow string }{
-		{"## Pinned, about this repository", "more pinned note(s) about this repository did not fit"},
+		{"## Pinned notes, about this repository", "more pinned note(s) about this repository are not listed"},
 		{"## What this repository declares", "more it declares are not listed"},
-		{"## Pinned, across the estate", "more pinned note(s) did not fit"},
-		{"## What this operator has", "Kinds not listed:"},
+		{"## Pinned notes, across the estate", "more pinned note(s) are not listed"},
+		{"## What this operator has", "Other kinds:"},
 	} {
 		heading := strings.Index(body, block.heading)
 		if heading < 0 {
@@ -397,6 +415,85 @@ func TestADR0057_TheContextSaysWhatCanBeDone(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("the context never says %s is possible:\n%s", want, body)
 		}
+	}
+}
+
+// ADR-0076: an agent concluded Dusk could not record an architecture decision.
+// `decision` was a note kind the whole time, holding nothing, named nowhere an
+// agent would look. A vocabulary is data, and was being treated as prose.
+func TestADR0076_TheManualNamesTheNoteKindsAndOnlyRegisteredTools(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	for _, want := range []string{"decision", "incident", "runbook", "gotcha"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the manual never names the %q note kind:\n%s", want, body)
+		}
+	}
+	if !strings.Contains(body, `note(kind: "decision")`) {
+		t.Errorf("the manual does not say a decision is written with `note`:\n%s", body)
+	}
+
+	// ADR-0057's rule over the whole manual: this deployment registers none of
+	// these. Matched backticked, since "declares" is a word in a heading above.
+	for _, absent := range []string{"`declare`", "`relate`", "`configure`", "`invoke`"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("the manual offered %s on a deployment that did not register it:\n%s", absent, body)
+		}
+	}
+}
+
+// A convention restated on every line is one a reader skips and pays for twice.
+func TestADR0076_TheManualStatesAConventionOnce(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	spread(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("one", "gotcha", strings.Repeat("A long note. ", 300), true, "service:home/jellyfin"),
+		note("two", "gotcha", strings.Repeat("Another long note. ", 300), true, "service:home/jellyfin"),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	if got := strings.Count(body, "read it whole"); got != 1 {
+		t.Errorf("the named-note convention appears %d times, want once:\n%s", got, body)
+	}
+	if strings.Contains(body, "not shown; ask") || strings.Contains(body, "names not listed") {
+		t.Errorf("a per-item restatement survived:\n%s", body)
+	}
+	// ADR-0031 leaves a note its opening line as a title, and it lands inside a
+	// list item, where the heading marker reads as broken markdown.
+	if strings.Contains(body, "` — #") {
+		t.Errorf("a note title kept its heading marker:\n%s", body)
+	}
+}
+
+// A note is markdown with its own headings, spliced under a section heading. At
+// their written level they read as siblings of the context's own sections, so
+// one long gotcha looks like several, and the outline stops meaning anything.
+func TestADR0076_AWholeNoteDoesNotOutrankTheSectionItIsUnder(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("structured", "gotcha",
+			"# The title\n\n## A part of it\n\nProse.\n\n```sh\n# not a heading, a shell comment\n```\n\n### Deeper\n",
+			true, "service:home/jellyfin"),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	for _, want := range []string{"\n### The title", "\n#### A part of it", "\n##### Deeper"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("a note heading was not sunk below its section (%q):\n%s", want, body)
+		}
+	}
+	if !strings.Contains(body, "\n# not a heading, a shell comment") {
+		t.Errorf("a comment inside a fenced block was rewritten as a heading:\n%s", body)
 	}
 }
 
