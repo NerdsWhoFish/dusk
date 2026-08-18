@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"gorm.io/gorm"
-
 	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
@@ -45,14 +43,7 @@ func (r kindRow) kind() vocab.Kind {
 	}
 }
 
-// PutVocabulary replaces the kinds repository mints at gitRef. It is its own
-// write because the vocabulary is about the graph rather than part of it, and
-// losing it degrades to the derived one (ADR-0048).
-func (db *DB) PutVocabulary(ctx context.Context, repository, gitRef string, kinds []vocab.Kind) error {
-	if repository == "" || gitRef == "" {
-		return fmt.Errorf("index: put vocabulary: a repository and a git ref are both required")
-	}
-
+func kindRows(repository, gitRef string, kinds []vocab.Kind) []kindRow {
 	rows := make([]kindRow, 0, len(kinds))
 	for _, kind := range kinds {
 		rows = append(rows, kindRow{
@@ -62,20 +53,7 @@ func (db *DB) PutVocabulary(ctx context.Context, repository, gitRef string, kind
 			Aliases: strings.Join(kind.Aliases, aliasSeparator),
 		})
 	}
-
-	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.Where("repository = ? AND git_ref = ?", repository, gitRef).Delete(&kindRow{}).Error
-		if err != nil {
-			return fmt.Errorf("index: drop vocabulary: %w", err)
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-		if err := tx.CreateInBatches(rows, batchSize).Error; err != nil {
-			return fmt.Errorf("index: put vocabulary: %w", err)
-		}
-		return nil
-	})
+	return rows
 }
 
 // Minted returns the kinds somebody declared. It is what resolves a role, and

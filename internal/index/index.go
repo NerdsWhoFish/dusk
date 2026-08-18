@@ -25,6 +25,8 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/glebarez/sqlite"
+
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // ErrNotFound is returned when a ref is not present at the git ref asked for.
@@ -260,6 +262,15 @@ func aliasRows(repository, gitRef string, declarations []Declaration) []aliasRow
 // failed reconcile leaves the previous contents rather than a half-built graph.
 // Scoping to one repository keeps a push to one from re-reading all the others.
 func (db *DB) Put(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note) error {
+	return db.put(ctx, repository, gitRef, declarations, relations, notes, nil)
+}
+
+// PutCatalog replaces a repository's graph and minted vocabulary in one transaction.
+func (db *DB) PutCatalog(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note, kinds []vocab.Kind) error {
+	return db.put(ctx, repository, gitRef, declarations, relations, notes, kindRows(repository, gitRef, kinds))
+}
+
+func (db *DB) put(ctx context.Context, repository, gitRef string, declarations []Declaration, relations []*duskv1alpha1.Relation, notes []*duskv1alpha1.Note, kinds []kindRow) error {
 	if repository == "" || gitRef == "" {
 		return errors.New("index: put: a repository and a git ref are both required")
 	}
@@ -289,6 +300,7 @@ func (db *DB) Put(ctx context.Context, repository, gitRef string, declarations [
 			{"notes", noteRows, len(noteRows)},
 			{"note refs", noteRefRows, len(noteRefRows)},
 			{"aliases", aliasRows, len(aliasRows)},
+			{"vocabulary", kinds, len(kinds)},
 		} {
 			if batch.n == 0 {
 				continue

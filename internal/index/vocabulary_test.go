@@ -74,19 +74,15 @@ func TestVocabularyCountsWhatIsCarried(t *testing.T) {
 // follows the alias rather than splitting the catalog in two.
 func TestVocabularyCountsAnAliasAgainstWhatItAliases(t *testing.T) {
 	db := newDB(t)
-	err := db.Put(t.Context(), testRepo, mainRef, declare([]*duskv1alpha1.Entity{
+	err := db.PutCatalog(t.Context(), testRepo, mainRef, declare([]*duskv1alpha1.Entity{
 		entity("service:home/jellyfin", "Jellyfin", ""),
 		entity("svc:home/navidrome", "Navidrome", ""),
-	}), nil, nil)
-	if err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	err = db.PutVocabulary(t.Context(), testRepo, mainRef, []vocab.Kind{{
+	}), nil, nil, []vocab.Kind{{
 		Namespace: vocab.Entity, Name: "service",
 		Role: vocab.Infrastructure, Aliases: []string{"svc"},
 	}})
 	if err != nil {
-		t.Fatalf("PutVocabulary: %v", err)
+		t.Fatalf("PutCatalog: %v", err)
 	}
 
 	kinds, err := db.Vocabulary(t.Context(), mainRef)
@@ -184,11 +180,16 @@ func TestAMintedNoteKindRanks(t *testing.T) {
 		t.Fatalf("unminted, the first note is %q, want runbook by id", before[0].GetKind())
 	}
 
-	err = db.PutVocabulary(t.Context(), testRepo, mainRef, []vocab.Kind{{
-		Namespace: vocab.Note, Name: "postmortem", Role: vocab.Warning,
-	}})
+	err = db.PutCatalog(t.Context(), testRepo, mainRef,
+		declare([]*duskv1alpha1.Entity{entity(ref, "Jellyfin", "")}), nil,
+		[]*duskv1alpha1.Note{
+			kindNote(".dusk/a-runbook.md", "runbook", ref),
+			kindNote(".dusk/b-postmortem.md", "postmortem", ref),
+		}, []vocab.Kind{{
+			Namespace: vocab.Note, Name: "postmortem", Role: vocab.Warning,
+		}})
 	if err != nil {
-		t.Fatalf("PutVocabulary: %v", err)
+		t.Fatalf("PutCatalog: %v", err)
 	}
 
 	after, err := db.NotesFor(t.Context(), mainRef, ref)
@@ -236,11 +237,13 @@ func TestMintingOverAWellKnownKindReRolesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	err = db.PutVocabulary(t.Context(), testRepo, mainRef, []vocab.Kind{{
+	err = db.PutCatalog(t.Context(), testRepo, mainRef, nil, nil, []*duskv1alpha1.Note{
+		{Id: ".dusk/a-todo.md", Kind: "todo", Body: "jellyfin"},
+	}, []vocab.Kind{{
 		Namespace: vocab.Note, Name: "todo", Role: vocab.Knowledge,
 	}})
 	if err != nil {
-		t.Fatalf("PutVocabulary: %v", err)
+		t.Fatalf("PutCatalog: %v", err)
 	}
 
 	kinds, err := db.Vocabulary(t.Context(), mainRef)
@@ -298,11 +301,11 @@ func TestADR0048_MintingAKindAsReferenceQuietsItInDrift(t *testing.T) {
 		t.Fatalf("before minting, undeclared = %v, want the airport in it", got)
 	}
 
-	err = db.PutVocabulary(t.Context(), testRepo, mainRef, []vocab.Kind{{
+	err = db.PutCatalog(t.Context(), testRepo, mainRef, nil, nil, nil, []vocab.Kind{{
 		Namespace: vocab.Entity, Name: "airport", Role: vocab.Reference,
 	}})
 	if err != nil {
-		t.Fatalf("PutVocabulary: %v", err)
+		t.Fatalf("PutCatalog: %v", err)
 	}
 	if err := db.SetDefaultView(t.Context(), testRepo, mainRef); err != nil {
 		t.Fatalf("SetDefaultView: %v", err)

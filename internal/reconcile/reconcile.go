@@ -328,10 +328,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, o
 		}
 		return graph, nil
 	}
-	if err := r.index.Put(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes); err != nil {
-		return nil, err
-	}
-	if err := r.index.PutVocabulary(ctx, repository, gitRef, graph.Kinds); err != nil {
+	if err := r.index.PutCatalog(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes, graph.Kinds); err != nil {
 		return nil, err
 	}
 	return graph, nil

@@ -386,8 +386,8 @@ func lineWith(t *testing.T, body, marker string) string {
 func mint(t *testing.T, idx *index.DB, kinds ...vocab.Kind) {
 	t.Helper()
 
-	if err := idx.PutVocabulary(t.Context(), "example/vocabulary", mainRef, kinds); err != nil {
-		t.Fatalf("PutVocabulary: %v", err)
+	if err := idx.PutCatalog(t.Context(), "example/vocabulary", mainRef, nil, nil, nil, kinds); err != nil {
+		t.Fatalf("PutCatalog: %v", err)
 	}
 	if err := idx.SetDefaultView(t.Context(), "example/vocabulary", mainRef); err != nil {
 		t.Fatalf("SetDefaultView: %v", err)

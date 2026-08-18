@@ -311,12 +311,12 @@ func TestADR0048_ANearMatchWarnsAndNeverRefuses(t *testing.T) {
 // feature edit distance cannot reach.
 func TestAnAliasIsReportedAsOneRatherThanGuessedAt(t *testing.T) {
 	session, _, idx := kindsSession(t)
-	err := idx.PutVocabulary(t.Context(), "example/homelab", mainRef, []vocab.Kind{{
+	err := idx.PutCatalog(t.Context(), "example/homelab", mainRef, nil, nil, nil, []vocab.Kind{{
 		Namespace: vocab.Entity, Name: "service",
 		Role: vocab.Infrastructure, Aliases: []string{"svc"},
 	}})
 	if err != nil {
-		t.Fatalf("PutVocabulary: %v", err)
+		t.Fatalf("PutCatalog: %v", err)
 	}
 
 	found := call(t, session, "search", map[string]any{"query": "postgres"})

@@ -1,11 +1,13 @@
 package index_test
 
 import (
+	"errors"
 	"testing"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
 // A reconcile replaces everything a repository contributes. Anything left
@@ -76,4 +78,40 @@ func TestPutRemovesEverythingTheScopeHeld(t *testing.T) {
 			t.Errorf("a relation removed from the repository survived: %+v", relations)
 		}
 	})
+}
+
+func TestPutCatalogRollsBackGraphAndVocabularyTogether(t *testing.T) {
+	db := newDB(t)
+	ctx := t.Context()
+	oldRef := "service:home/old"
+	newRef := "service:home/new"
+	oldKind := vocab.Kind{Namespace: vocab.Entity, Name: "old-service", Role: vocab.Infrastructure}
+
+	if err := db.PutCatalog(ctx, testRepo, mainRef,
+		declare([]*duskv1alpha1.Entity{entity(oldRef, "Old", "")}), nil, nil,
+		[]vocab.Kind{oldKind}); err != nil {
+		t.Fatalf("seed PutCatalog: %v", err)
+	}
+
+	duplicate := vocab.Kind{Namespace: vocab.Entity, Name: "duplicate", Role: vocab.Infrastructure}
+	err := db.PutCatalog(ctx, testRepo, mainRef,
+		declare([]*duskv1alpha1.Entity{entity(newRef, "New", "")}), nil, nil,
+		[]vocab.Kind{duplicate, duplicate})
+	if err == nil {
+		t.Fatal("PutCatalog accepted duplicate minted kinds")
+	}
+
+	if _, err := db.Get(ctx, mainRef, oldRef); err != nil {
+		t.Errorf("old graph was not restored after rollback: %v", err)
+	}
+	if _, err := db.Get(ctx, mainRef, newRef); !errors.Is(err, index.ErrNotFound) {
+		t.Errorf("new graph survived a failed transaction: %v", err)
+	}
+	minted, err := db.Minted(ctx, mainRef)
+	if err != nil {
+		t.Fatalf("Minted: %v", err)
+	}
+	if len(minted) != 1 || minted[0].Name != oldKind.Name {
+		t.Errorf("minted vocabulary after rollback = %+v, want only %q", minted, oldKind.Name)
+	}
 }
