@@ -339,41 +339,34 @@ func (m *Manager) resolve(ctx context.Context, request Request) (*chosen, error)
 			if action.Name != request.Action || !slices.Contains(action.Kinds, entity.GetKind()) {
 				continue
 			}
-			candidates = append(candidates, chosen{
-				action:   action,
-				running:  running,
-				instance: instanceObserving(running.ID, observers),
-				entity:   entity,
-			})
+			for _, instance := range instancesObserving(running.ID, observers) {
+				candidates = append(candidates, chosen{
+					action: action, running: running, instance: instance, entity: entity,
+				})
+			}
 		}
 	}
 
-	return pick(candidates, observers, request, entity.GetKind())
+	return pick(candidates, request, entity.GetKind())
 }
 
-func pick(candidates []chosen, observers []string, request Request, kind string) (*chosen, error) {
+func pick(candidates []chosen, request Request, kind string) (*chosen, error) {
 	switch len(candidates) {
 	case 0:
-		return nil, fmt.Errorf("plugin: nothing running offers %q on a %s. Read the entity to see what can be done to it", request.Action, kind)
+		return nil, fmt.Errorf("plugin: no plugin that observed %q offers %q on a %s. Read the entity to see what can be done to it", request.Ref, request.Action, kind)
 	case 1:
 		return &candidates[0], nil
 	}
 
-	var watching []chosen
-	for _, candidate := range candidates {
-		if observedBy(candidate.running.ID, observers) {
-			watching = append(watching, candidate)
-		}
-	}
-	if len(watching) == 1 {
-		return &watching[0], nil
-	}
-
 	named := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		named = append(named, candidate.running.ID)
+		named = append(named, candidate.scope())
 	}
-	return nil, fmt.Errorf("plugin: %s is offered on %q by %s. Name which one",
+	if request.Plugin != "" {
+		return nil, fmt.Errorf("plugin: %s observed %q through multiple instances: %s. Invoke cannot choose an instance",
+			request.Plugin, request.Ref, strings.Join(named, ", "))
+	}
+	return nil, fmt.Errorf("plugin: %s is offered on %q by observing scopes %s. Name a plugin with one matching scope",
 		request.Action, request.Ref, strings.Join(named, ", "))
 }
 
@@ -403,29 +396,21 @@ func (m *Manager) resolvePluginScoped(request Request) (*chosen, error) {
 	return nil, fmt.Errorf("plugin: %s declares no action named %q", request.Plugin, request.Action)
 }
 
-// instanceObserving picks which of a plugin's configurations saw this entity,
-// so an action reaches the cluster the target actually lives in.
-func instanceObserving(id string, observers []string) string {
+// instancesObserving returns every configuration of a plugin that saw this
+// entity, so no action is routed to a default or arbitrary instance.
+func instancesObserving(id string, observers []string) []string {
 	prefix := "plugin:" + id
+	var instances []string
 	for _, observer := range observers {
 		if observer == prefix {
-			return ""
+			instances = append(instances, "")
+			continue
 		}
-		if instance, ok := strings.CutPrefix(observer, prefix+":"); ok {
-			return instance
-		}
-	}
-	return ""
-}
-
-func observedBy(id string, observers []string) bool {
-	prefix := "plugin:" + id
-	for _, observer := range observers {
-		if observer == prefix || strings.HasPrefix(observer, prefix+":") {
-			return true
+		if instance, ok := strings.CutPrefix(observer, prefix+":"); ok && instance != "" {
+			instances = append(instances, instance)
 		}
 	}
-	return false
+	return instances
 }
 
 // config is the configuration of the instance an action runs against, so a

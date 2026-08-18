@@ -236,7 +236,7 @@ func TestAnActionRoutesToThePluginThatObservedTheEntity(t *testing.T) {
 
 func TestAnAmbiguousActionAsksWhichPlugin(t *testing.T) {
 	manager, _ := manager(t)
-	manager.Catalog = &catalog{kind: "widget", version: "v1"}
+	manager.Catalog = &catalog{kind: "widget", version: "v1", observers: []string{"plugin:alpha", "plugin:beta"}}
 	manager.Proof = &proof.Store{}
 	manager.Events = &events.Log{}
 
@@ -253,7 +253,7 @@ func TestAnAmbiguousActionAsksWhichPlugin(t *testing.T) {
 	}
 
 	_, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:x/one", Action: "poke"})
-	if err == nil || !strings.Contains(err.Error(), "Name which one") {
+	if err == nil || !strings.Contains(err.Error(), "Name a plugin") {
 		t.Fatalf("expected an ambiguous action to ask which plugin, got %v", err)
 	}
 
@@ -261,6 +261,37 @@ func TestAnAmbiguousActionAsksWhichPlugin(t *testing.T) {
 		Ref: "widget:x/one", Action: "poke", Plugin: "beta",
 	}); err != nil {
 		t.Fatalf("naming the plugin should resolve it, got %v", err)
+	}
+}
+
+func TestAnOfferingPluginThatDidNotObserveTheEntityCannotActOnIt(t *testing.T) {
+	manager, _, _, _ := acting(t, oneAction("unrelated", readOnly), &catalog{
+		kind: "widget", version: "v1", observers: []string{"plugin:somebody-else"},
+	})
+
+	_, err := manager.Invoke(t.Context(), plugin.Request{Ref: "widget:x/one", Action: "poke"})
+	if err == nil || !strings.Contains(err.Error(), "no plugin that observed") {
+		t.Fatalf("an unobserving plugin was allowed to act: %v", err)
+	}
+	_, err = manager.Invoke(t.Context(), plugin.Request{
+		Ref: "widget:x/one", Action: "poke", Plugin: "unrelated",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no plugin that observed") {
+		t.Fatalf("naming an unobserving plugin bypassed ownership: %v", err)
+	}
+}
+
+func TestAPluginObservingThroughMultipleInstancesIsAmbiguous(t *testing.T) {
+	manager, _, _, _ := acting(t, oneAction("many", readOnly), &catalog{
+		kind: "widget", version: "v1",
+		observers: []string{"plugin:many:production", "plugin:many:staging"},
+	})
+
+	_, err := manager.Invoke(t.Context(), plugin.Request{
+		Ref: "widget:x/one", Action: "poke", Plugin: "many",
+	})
+	if err == nil || !strings.Contains(err.Error(), "multiple instances") {
+		t.Fatalf("an arbitrary observing instance was selected: %v", err)
 	}
 }
 
@@ -339,7 +370,7 @@ func TestAMissingLinkIsReportedRatherThanSkipped(t *testing.T) {
 	if len(outcome.Steps) != 1 || outcome.Steps[0].OK {
 		t.Fatalf("expected the missing step to be reported as failed, got %+v", outcome.Steps)
 	}
-	if !strings.Contains(outcome.Steps[0].Message, "nothing running offers") {
+	if !strings.Contains(outcome.Steps[0].Message, `offers "elsewhere"`) {
 		t.Fatalf("the report should name what is absent, got %q", outcome.Steps[0].Message)
 	}
 }
@@ -456,7 +487,7 @@ func TestAnInvocationIsRecordedAsAnEvent(t *testing.T) {
 // A plugin asking for input gets it, and the answer reaches the same action on
 // the turn that follows.
 func TestAPluginCanAskTheInvokerForInput(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-once:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-once"}}
 	manager, _, _, _ := acting(t, standIn{
 		ID:      "asks-once",
 		Kinds:   []string{"widget"},
@@ -490,7 +521,7 @@ func TestAPluginCanAskTheInvokerForInput(t *testing.T) {
 // The plugin is told nobody can answer and decides for itself, which is what
 // keeps one declaration usable from the UI, a chain and a schedule (ADR-0046).
 func TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-unattended:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-unattended"}}
 	manager, _, _, _ := acting(t, standIn{
 		ID:      "asks-unattended",
 		Kinds:   []string{"widget"},
@@ -512,7 +543,7 @@ func TestADR0046_AnUnattachedSurfaceAnswersRatherThanHanging(t *testing.T) {
 // A plugin that keeps asking however it is answered is looping, and Dusk stops
 // it rather than putting the same question to somebody forever.
 func TestAnEndlessElicitationIsStopped(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-forever:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-forever"}}
 	manager, _, _, _ := acting(t, standIn{
 		ID:    "asks-forever",
 		Kinds: []string{"widget"},
@@ -541,7 +572,7 @@ func TestAnEndlessElicitationIsStopped(t *testing.T) {
 // A browser cannot be held open, so a plugin's question comes back as the
 // result and the same action is invoked again with the answer (ADR-0046).
 func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-resumable:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:asks-resumable"}}
 	manager, _, log, _ := acting(t, standIn{
 		ID:      "asks-resumable",
 		Kinds:   []string{"widget"},
@@ -597,7 +628,7 @@ func TestAResumableCallerGetsTheQuestionBack(t *testing.T) {
 // that declared it. Without that, composing onto a plugin-scoped action failed
 // with "names no entity", and no chain could ever end in one.
 func TestAChainCanStepOntoAPluginScopedAction(t *testing.T) {
-	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:chainer:"}}
+	observed := &catalog{kind: "widget", version: "v1", observers: []string{"plugin:chainer"}}
 	manager, _, _, _ := acting(t, standIn{
 		ID:    "chainer",
 		Kinds: []string{"widget"},
