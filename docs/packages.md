@@ -75,7 +75,6 @@ graph TD
 | `plugin` | Everything about a plugin as a running thing: the marketplace, install and update, the process and its socket, keeping that process alive and reporting when it will not stay up, what it declares, and its configuration on disk including the sealed half | Scheduling it. A running plugin is an ordinary `ingest.Ingester` and the rotation is `ingest`'s. Keeping the *process* up is here; deciding when it is asked to observe, and backing that off, is `ingest`'s ([ADR-0039](../adr/0039-one-plugin-transport.md), [ADR-0040](../adr/0040-core-and-plugins.md), [ADR-0055](../adr/0055-supervising-plugin-processes.md)) |
 | `server` | HTTP: onboarding, health, webhooks, and mounting the agent surface | Doing the work behind a request. A handler validates, dispatches, and answers |
 | `store` | Persisting the GitHub App credentials, encrypted | Choosing the encryption. That is `vault`. Nor a plugin's credentials: those live beside that plugin's record so uninstalling takes them with it, which is `plugin`'s job |
-| `nextversion` | Release tooling ([ADR-0021](../adr/0021-release-tooling.md)) | Anything the running service does |
 
 `web/` is the React UI plus the `go:embed` that carries its build into the binary.
 It sits at the repository root rather than under `internal/` because the embed directive cannot reach outside its own directory, and copying build output into a Go package is a step that gets forgotten and ships a stale UI.
