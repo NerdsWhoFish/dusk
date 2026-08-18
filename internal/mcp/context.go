@@ -17,10 +17,10 @@ import (
 	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
-// ContextBudget caps the rendered context in bytes, standing in for ADR-0014's
-// token ceiling. Pinning is free to whoever pins and costs every future
-// session, so the limit is enforced rather than advised.
-const ContextBudget = 8000
+// ContextBudget is the default ceiling `.dusk/context.md` replaces. Aliased,
+// not restated: two ceilings disagreeing is what hid ADR-0069's budget setting
+// reaching the truncation backstop and never the allocation.
+const ContextBudget = contextconfig.DefaultBudget
 
 // contextNotes bounds the note queries above what the budget could ever name,
 // so ADR-0050's ranking decides what is shown rather than a query limit nobody
@@ -89,7 +89,9 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 
 	reading, _ := contextSections(declared, here, elsewhere, held)
 	reading, priority := profileSections(profile, reading)
-	body := assemble(contextHeader(in.Root, repository, len(declared), held.total, profile.Instructions), tail, reading, priority)
+	body := assemble(profile.Budget,
+		contextHeader(in.Root, repository, len(declared), held.total, profile.Instructions),
+		tail, reading, priority)
 	rendered := truncate(body, profile.Budget)
 
 	// Repeated because a client given an output schema may render only the
@@ -431,6 +433,8 @@ func (s *Server) actionable(held estate) string {
 		return ""
 	}
 
+	var out strings.Builder
+
 	var acts []string
 	for _, group := range held.kinds {
 		offered := s.opts.Plugins.Actions(group.kind)
@@ -438,11 +442,36 @@ func (s *Server) actionable(held estate) string {
 			acts = append(acts, "`"+group.kind+"`")
 		}
 	}
-	if len(acts) == 0 {
-		return ""
+	if len(acts) > 0 {
+		fmt.Fprintf(&out, "\nThe catalog acts as well as answers: %s carry actions. "+
+			"`get` names what an entity takes and `invoke` runs it.\n", listed(acts))
 	}
-	return fmt.Sprintf("\nThe catalog acts as well as answers: %s carry actions. "+
-		"`get` names what an entity takes and `invoke` runs it.\n", listed(acts))
+
+	if free := s.unattachedPlugins(); len(free) > 0 {
+		fmt.Fprintf(&out, "\nAnd %s offer actions that are about no single entity, so they appear on nothing "+
+			"a `search` would return. Read one with `get plugin:<name>`.\n", listed(free))
+	}
+
+	return out.String()
+}
+
+// unattachedPlugins names plugins whose enabled actions apply to no kind. They
+// are invisible otherwise: the sentence above walks entity kinds, and `get`
+// only reaches these through a `plugin:` ref nothing tells an agent to try. An
+// agent looked straight at an installed ADR plugin and reported that Dusk had
+// no way to record a decision.
+func (s *Server) unattachedPlugins() []string {
+	var free []string
+	for _, report := range s.opts.Plugins.Report() {
+		for _, action := range s.opts.Plugins.PluginActions(report.ID) {
+			if action.Enabled && len(action.Kinds) == 0 {
+				free = append(free, "`"+report.ID+"`")
+				break
+			}
+		}
+	}
+	slices.Sort(free)
+	return free
 }
 
 // names is what an overflow line calls the entries it left out.
@@ -556,8 +585,8 @@ func (s *section) grow(spent, room int) int {
 // assemble spends the budget in priority order and writes the result in reading
 // order. The two orders differ on purpose: what is worth most is not what
 // belongs at the top.
-func assemble(header, tail string, reading, priority []*section) string {
-	budget := ContextBudget - len(header) - len(tail)
+func assemble(ceiling int, header, tail string, reading, priority []*section) string {
+	budget := ceiling - len(header) - len(tail)
 	for _, block := range priority {
 		budget -= block.reserve()
 	}

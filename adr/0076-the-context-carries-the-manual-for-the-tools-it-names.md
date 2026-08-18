@@ -77,3 +77,24 @@ Dusk's own product claim is that absence means nobody wrote something down. An a
 - **The instructions** cannot name a deployment's kinds or omit its missing tools, and are capped at 700 bytes precisely because they are unconditional.
 - **Tool descriptions** are unreachable from the state that caused the failure, which was not knowing the tool was the answer.
 - **Leaving it to `kinds`** asks an agent to call a tool to disprove a conclusion it has already drawn, using the reasoning rule Dusk itself taught it.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-18: a plugin whose actions are about no entity was invisible
+
+The note kinds were half the discovery failure. The other half was found while checking this one, and is the same shape.
+
+The operator whose agent reported that Dusk could not record a decision **had an ADR plugin installed and running**, offering `render`, `validate`, `supersede`, `amend`, `retire` and three more.
+The agent was right that it could not find them and wrong about why.
+
+`actionable` walks the entity kinds in the inventory and asks which carry actions, so it names `service`, `switch`, `script` and the rest.
+An action about the plugin rather than about one entity declares no kinds, so that walk never reaches it, and the plugin appears on no entity a `search` would return.
+`get plugin:<name>` has answered for exactly this case since [ADR-0041](0041-plugins-reach-agents-as-actions.md), and nothing in the context, the instructions or any tool description tells an agent that a `plugin:` ref is a thing it may pass.
+[ADR-0057](0057-charged-for-what-was-printed.md)'s reasoning applies unchanged: an agent that never happens to try the one call that would reveal a capability never learns the capability is there.
+
+The context now names those plugins and says to read one with `get plugin:<name>`.
+It names only plugins with an **enabled** action attached to no kind, because a declared-but-not-enabled action is not capability ([ADR-0015](0015-plugin-actions-and-events.md)), and a plugin whose every action is entity-scoped is already reachable through the sentence above.
+
+This is the more embarrassing half of the two. The note-kind gap was a vocabulary nobody rendered; this was a whole installed, running, enabled integration that the orientation had no way to mention.

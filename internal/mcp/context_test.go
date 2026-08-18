@@ -497,6 +497,78 @@ func TestADR0076_AWholeNoteDoesNotOutrankTheSectionItIsUnder(t *testing.T) {
 	}
 }
 
+// ADR-0069 gives the operator the budget, and it reached the truncation
+// backstop while the allocation kept using the compiled-in default. Raising it
+// therefore bought nothing, and the answer stayed the same size.
+func TestADR0069_TheOperatorBudgetChangesWhatIsAllocated(t *testing.T) {
+	// Against the compiled-in default and twice it, because a smaller budget
+	// would shrink through the truncation backstop alone and prove nothing.
+	sizes := map[int]int{}
+	for _, budget := range []int{mcp.ContextBudget, 2 * mcp.ContextBudget} {
+		idx := newIndex(t)
+		seed(t, idx)
+
+		// Many medium notes rather than one long one. A section packs greedily
+		// and an item is all-or-nothing, so a single note too big for either
+		// budget degrades identically under both and proves nothing.
+		var pinned []*duskv1alpha1.Note
+		for i := range 40 {
+			pinned = append(pinned, note(
+				fmt.Sprintf("pinned-%02d", i), "gotcha",
+				fmt.Sprintf("Pinned note %02d. ", i)+strings.Repeat("Worth the room it takes. ", 16),
+				true, "service:home/jellyfin"))
+		}
+		// One write, because the notes and the profile share a repository and a
+		// second put replaces what the first left there.
+		profile := fmt.Appendf(nil, "---\ndusk: context/v1\nbudget: %d\n---\n", budget)
+		if err := idx.PutCatalog(t.Context(), "example/config", mainRef, nil, nil, pinned, nil, profile); err != nil {
+			t.Fatalf("PutCatalog: %v", err)
+		}
+		if err := idx.SetDefaultView(t.Context(), "example/config", mainRef); err != nil {
+			t.Fatalf("SetDefaultView: %v", err)
+		}
+
+		writer := &recordingWriter{notesGo: "example/config"}
+		session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Writer: writer}))
+		sizes[budget] = len(call(t, session, "dusk_context", map[string]any{"root": homelabRoot}))
+	}
+
+	if small, large := sizes[mcp.ContextBudget], sizes[2*mcp.ContextBudget]; large <= small {
+		t.Errorf("doubling the budget bought nothing: %d bytes at %d, %d at %d",
+			small, mcp.ContextBudget, large, 2*mcp.ContextBudget)
+	}
+	for budget, size := range sizes {
+		if size > budget {
+			t.Errorf("the context is %d bytes against a %d budget", size, budget)
+		}
+	}
+}
+
+// An action about the plugin rather than one entity hangs off nothing a search
+// returns, so walking entity kinds never reaches it. An agent looked straight
+// at an installed ADR plugin and said Dusk could not record a decision.
+func TestADR0076_APluginScopedActionIsNamed(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+
+	plugins := &offering{
+		reports: []plugin.Report{{ID: "adr", Version: "0.1.3", Running: true}},
+		actions: []plugin.Action{{
+			Plugin: "adr", Name: "render", Description: "Render a decision.",
+			Class: "read_only", Enabled: true,
+		}},
+	}
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Plugins: plugins}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	if !strings.Contains(body, "`adr`") {
+		t.Errorf("a plugin whose actions attach to no kind was never named:\n%s", body)
+	}
+	if !strings.Contains(body, "get plugin:") {
+		t.Errorf("nothing said how to read a plugin:\n%s", body)
+	}
+}
+
 // A read-only deployment does not register `invoke`, so naming it would send an
 // agent at a tool that is not there.
 func TestADR0057_NoPluginsMeansNoTalkOfActions(t *testing.T) {

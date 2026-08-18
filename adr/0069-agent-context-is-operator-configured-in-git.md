@@ -51,3 +51,20 @@ Without it, the existing ranking and 8000 byte budget remain unchanged.
 - **Option 2** was rejected because multiline policy is miserable to review in environment variables and has no useful history.
 - **Option 3** was rejected because every client would become a second content-policy implementation, contradicting the hook's pass-through contract.
 - Reusing `.dusk/home.md` was rejected because a portal layout and agent orientation have different consumers, budgets, and failure modes.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-08-18: the budget reached the backstop and never the allocation
+
+This ADR gives the operator the context budget. Half of that was built.
+
+`assemble` divided a compiled-in constant between the sections, and only `truncate` was passed the operator's number.
+So a budget **below** the default worked, by cutting the answer after it was built, and a budget **above** it did nothing at all: the sections were still allocated 8,000 bytes, and truncating that at 16,384 is a no-op.
+
+It hid well because both failures look like success. Nothing errors, the profile validates, and the answer that comes back is a perfectly good answer of exactly the size it was always going to be. The operator who raised the budget to fit their pinned notes got the same bytes back and no reason to doubt the setting. It was found by raising a real one and measuring: 7,816 bytes at a budget of 16,384.
+
+Two constants naming the same ceiling is what let them drift. `mcp.ContextBudget` is now an alias of `contextconfig.DefaultBudget` rather than a second 8,000, and `assemble` takes the ceiling as an argument.
+
+A test asserts the property rather than the plumbing: doubling the budget must return more than the default did. Getting it to fail correctly took two attempts, and both are the reason it is worth writing down. Comparing a *smaller* budget against the default proves nothing, because truncation shrinks the answer whether or not the allocation moved. And one long note proves nothing either, because a section packs greedily and an item is all-or-nothing, so a note too large for both budgets degrades identically under each. The fixture is many medium notes, where the extra room changes how many arrive whole.
