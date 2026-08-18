@@ -79,3 +79,19 @@ The release now pushes the candidate tag, pulls that exact artifact into a clean
 
 This necessarily puts a mutable image tag in GHCR before the release is declared successful.
 The existing failure path deletes the git tag, and a retry is allowed to overwrite the unreleased image tag; deleting published image bytes is still rejected because it is a worse recovery than making the same version's retry replace them.
+
+### 2026-08-18: the release workflow is [Quill](https://github.com/TheOutdoorProgrammer/quill), and the smoke test moves ahead of the tag
+
+This ADR rejected GoReleaser for Dusk on the grounds that a service publishing a container image and no binaries leaves it nothing to do but wrap `docker buildx`. That still holds, and it was read too narrowly: what was rejected was GoReleaser, and what got hand-rolled was everything GoReleaser would otherwise have carried alongside it.
+
+The workflow had grown to 150 lines of version arithmetic, a branch guard, an image-tag builder, a dry run, tagging, login, push, release notes and an untag-on-failure path. None of that is about Dusk. Quill is that workflow as an action, with a `docker` publisher, so the reasoning against GoReleaser does not transfer to it: the part quill wraps is the part Dusk actually has.
+
+`internal/nextversion` is deleted. Its rules are quill's rules, down to the two that surprise people, so keeping a second implementation of them would be the "one concept, one owner" failure [ADR-0017](0017-engineering-policy.md) names, with the two free to disagree about what version comes next.
+
+**The smoke test moves ahead of the tag**, which reverses the amendment above. That amendment put it after the push so it could pull the exact published artifact, and accepted a mutable image tag in GHCR before the release was declared good. Quill writes the GitHub release itself, so a smoke test after it would fail with both a tag and a release already published, which is worse than what the amendment was avoiding.
+
+Reading it again, the registry round-trip was never what the test was for. It generates a key, validates both shipped examples, starts as a non-root user against a fresh volume, and checks health, readiness and setup: every one of those is a fact about the image, and none of them is a fact about GHCR. So it now runs against a locally loaded `linux/amd64` build, before quill is reached, and a version number is no longer burnt by an image that cannot serve setup. The script already took `DUSK_SMOKE_PULL=false`, so nothing about it changed.
+
+One architecture, because `buildx --load` only accepts one and the runner is amd64. It is close to free rather than a third build, because it writes the cache quill's own dry run then reads.
+
+Quill's docker publisher also pushes the moving `1.8` and `1` tags, which the previous workflow did not. That is safe here rather than merely tolerable: the Flux `ImagePolicy` filters on `^v?(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$`, so a two-component or single-component tag is never a deployment candidate. Checked against the running policy before the change, not assumed.

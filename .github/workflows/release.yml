@@ -1,9 +1,8 @@
 name: release
 
-# Dusk publishes a container image, not archives, so this drives `docker
-# buildx` directly. The Helm chart is released by NerdsWhoFish/charts on its own
-# schedule. GoReleaser would only wrap buildx,
-# and a service with no binaries or tap leaves it nothing else to do.
+# Quill does the version, the branch guard, the tag, the image and the release.
+# Dusk ships a container and no binaries, so it names the `docker` publisher and
+# not GoReleaser (ADR-0021). The chart releases from NerdsWhoFish/charts.
 
 on:
   workflow_dispatch:
@@ -37,10 +36,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  IMAGE: ghcr.io/nerdswhofish/dusk
-  PLATFORMS: linux/amd64,linux/arm64
-
 jobs:
   snapshot:
     if: github.event_name == 'pull_request'
@@ -50,19 +45,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build both architectures
-        uses: docker/build-push-action@v6
+      - uses: TheOutdoorProgrammer/quill@v1
         with:
-          context: .
-          platforms: ${{ env.PLATFORMS }}
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            VERSION=0.0.0-pr.${{ github.event.number }}
-            COMMIT=${{ github.sha }}
+          dry-run: "true"
+          publish: docker
 
   release:
     if: github.event_name == 'workflow_dispatch'
@@ -71,117 +57,38 @@ jobs:
       contents: write
       packages: write
     steps:
-      # Releasing from a topic branch produces a tag whose history is not on
-      # main, which is unpickable afterwards.
-      - name: Refuse to release off main
-        if: github.ref != 'refs/heads/main'
-        run: |
-          echo "::error::Release from main. This ran on ${{ github.ref }}."
-          exit 1
-
       - uses: actions/checkout@v5
         with:
-          # Release notes are built from the commit log, which a shallow clone
-          # does not have.
           fetch-depth: 0
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      # Pinned rather than taken from the runner image: OCI push needs 3.8+.
-      - name: Work out the version
-        id: version
-        run: |
-          git tag --list 'v*' | go run ./internal/nextversion \
-            -bump '${{ inputs.bump }}' \
-            ${{ inputs.scope == 'Release Candidate' && '-candidate' || '' }} \
-            >> "$GITHUB_OUTPUT"
-
-      - name: Image tags
-        id: tags
-        run: |
-          {
-            echo 'list<<TAGS'
-            echo "${IMAGE}:${{ steps.version.outputs.version }}"
-            # A candidate must be installable by tag without becoming what
-            # `latest` resolves to, or the rehearsal ships itself to everyone.
-            if [ '${{ steps.version.outputs.prerelease }}' = 'false' ]; then
-              echo "${IMAGE}:latest"
-            fi
-            echo TAGS
-          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
-      # Everything above this line is side-effect free, and so is this: the full
-      # cross-build with publishing switched off. A tag is only worth cutting
-      # once we know it can be built.
-      - name: Dry run
+      # One architecture, because buildx can only `--load` one and the smoke
+      # test runs on an amd64 runner. It populates the cache quill's own build
+      # reads, so proving the image costs a cache write rather than a build.
+      - name: Build the image the smoke test runs
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{ env.PLATFORMS }}
-          push: false
+          platforms: linux/amd64
+          load: true
+          tags: dusk:smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
+            VERSION=0.0.0-smoke
             COMMIT=${{ github.sha }}
 
-      - name: Tag ${{ steps.version.outputs.next }}
-        id: tag
-        run: |
-          git config user.name  'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a '${{ steps.version.outputs.next }}' \
-            -m '${{ steps.version.outputs.next }}'
-          git push origin '${{ steps.version.outputs.next }}'
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # A cache hit off the dry run, so this pushes the bytes that were already
-      # proven to build rather than compiling them a second time.
-      - name: Push the image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: ${{ env.PLATFORMS }}
-          push: true
-          tags: ${{ steps.tags.outputs.list }}
-          cache-from: type=gha
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            COMMIT=${{ github.sha }}
-
-      # This is deliberately after push: the release artifact itself has to
-      # start with a fresh non-root volume, serve setup, generate a key, and
-      # validate the examples. Re-running may overwrite this image tag until a
-      # release exists, and the failure cleanup below removes the git tag.
-      - name: Smoke test the published image
-        run: scripts/onboarding-smoke.sh "${IMAGE}:${{ steps.version.outputs.version }}"
-
-      - name: Release ${{ steps.version.outputs.next }}
+      # Ahead of quill on purpose, because everything before it cutting a tag is
+      # side-effect free. This used to run against the pushed image, which meant
+      # an image that could not serve setup had already burnt a version number.
+      - name: Smoke test the image
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PREVIOUS: ${{ steps.version.outputs.previous }}
-        run: |
-          gh release create '${{ steps.version.outputs.next }}' \
-            --title '${{ steps.version.outputs.next }}' \
-            --verify-tag \
-            --generate-notes \
-            ${PREVIOUS:+--notes-start-tag $PREVIOUS} \
-            ${{ steps.version.outputs.prerelease == 'true' && '--prerelease' || '' }}
+          DUSK_SMOKE_PULL: "false"
+        run: scripts/onboarding-smoke.sh dusk:smoke
 
-      # A tag left behind by a failed run burns that version number: the next
-      # attempt computes the one after it. Deleting it lets a retry reuse the
-      # same version and overwrite whatever the failed run pushed.
-      - name: Untag a failed release
-        if: failure() && steps.tag.outcome == 'success'
-        run: |
-          git push --delete origin '${{ steps.version.outputs.next }}' || true
-          git tag --delete '${{ steps.version.outputs.next }}' || true
+      - uses: TheOutdoorProgrammer/quill@v1
+        with:
+          bump: ${{ inputs.bump }}
+          scope: ${{ inputs.scope }}
+          publish: docker
