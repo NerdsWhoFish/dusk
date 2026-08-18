@@ -94,14 +94,14 @@ func canElicit(session *sdk.ServerSession) bool {
 
 func (s *Server) invoke(ctx context.Context, req *sdk.CallToolRequest, in invokeInput) (*sdk.CallToolResult, any, error) {
 	if in.Handle != "" {
-		if in.Plugin == "" {
-			return failure("invalid_argument", errors.New("polling an action needs the plugin returned with its handle")), nil, nil
+		if err := pollingProblem(in); err != nil {
+			return failure("invalid_argument", err), nil, nil
 		}
 		outcome, err := s.opts.Plugins.Status(ctx, in.Plugin, in.Handle)
 		if err != nil {
 			return failure("action_status_failed", err), nil, nil
 		}
-		return actionResult(outcome), nil, nil
+		return actionResult(outcome, false), nil, nil
 	}
 	request := plugin.Request{
 		Ref: in.Ref, Action: in.Action, Params: in.Params, Proof: in.Proof,
@@ -125,11 +125,24 @@ func (s *Server) invoke(ctx context.Context, req *sdk.CallToolRequest, in invoke
 	case err != nil:
 		return failure("action_failed", err), nil, nil
 	}
-	return actionResult(outcome), nil, nil
+	return actionResult(outcome, in.Preview), nil, nil
 }
 
-func actionResult(outcome *plugin.Outcome) *sdk.CallToolResult {
-	result := success(renderOutcome(outcome), outcome)
+func pollingProblem(in invokeInput) error {
+	if in.Plugin == "" {
+		return errors.New("polling an action needs the plugin returned with its handle")
+	}
+	if in.Action != "" || in.Ref != "" || len(in.Params) > 0 || in.Proof != "" || in.Confirm || in.Preview || in.Key != "" {
+		return errors.New("polling takes only plugin and handle; action inputs would otherwise be ignored")
+	}
+	return nil
+}
+
+func actionResult(outcome *plugin.Outcome, previewRequested bool) *sdk.CallToolResult {
+	if outcome == nil {
+		return failure("invalid_plugin_response", errors.New("the plugin returned no action outcome"))
+	}
+	result := success(renderOutcome(outcome, previewRequested), outcome)
 	switch {
 	case outcome.Unknown:
 		result.IsError = true
@@ -141,12 +154,14 @@ func actionResult(outcome *plugin.Outcome) *sdk.CallToolResult {
 	return result
 }
 
-func verdictOf(outcome *plugin.Outcome) string {
+func verdictOf(outcome *plugin.Outcome, previewRequested bool) string {
 	switch {
-	case outcome.Previewed:
-		return "preview"
 	case outcome.Unknown:
 		return "unknown"
+	case previewRequested && outcome.Previewed:
+		return "preview"
+	case previewRequested:
+		return "not previewed"
 	case !outcome.OK:
 		return "failed"
 	case !outcome.Done:
@@ -171,10 +186,10 @@ func detailValue(value any) string {
 	return string(encoded)
 }
 
-func renderOutcome(outcome *plugin.Outcome) string {
+func renderOutcome(outcome *plugin.Outcome, previewRequested bool) string {
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "**%s** %s", outcome.Action, verdictOf(outcome))
+	fmt.Fprintf(&out, "**%s** %s", outcome.Action, verdictOf(outcome, previewRequested))
 	if outcome.Ref != "" {
 		fmt.Fprintf(&out, " on `%s`", outcome.Ref)
 	}
@@ -183,7 +198,7 @@ func renderOutcome(outcome *plugin.Outcome) string {
 	if outcome.Message != "" {
 		fmt.Fprintf(&out, "\n%s\n", outcome.Message)
 	}
-	if outcome.Handle != "" {
+	if outcome.Handle != "" && !outcome.Done {
 		fmt.Fprintf(&out, "\nIt is still running. Poll it with `invoke(plugin: %q, handle: %q)`.\n", outcome.Plugin, outcome.Handle)
 	}
 	if len(outcome.Detail) > 0 {
@@ -423,9 +438,10 @@ func (s *Server) configure(ctx context.Context, _ *sdk.CallToolRequest, in confi
 	}
 
 	if len(in.Settings) == 0 {
-		return success(renderSettings(in.Plugin, in.Instance, current, fields, version)+s.configurationProof(in.Plugin, in.Instance, version), map[string]any{
+		issued := s.configurationProof(in.Plugin, in.Instance, version)
+		return success(renderSettings(in.Plugin, in.Instance, current, fields, version)+issued.markdown, issued.withData(map[string]any{
 			"plugin": in.Plugin, "instance": in.Instance, "settings": current, "fields": fields, "version": version,
-		}), nil, nil
+		})), nil, nil
 	}
 	if s.opts.Tokens == nil {
 		return failure("configuration_writes_disabled", errors.New("plugin configuration writes are disabled because no proof store is configured")), nil, nil
@@ -453,9 +469,10 @@ func (s *Server) configure(ctx context.Context, _ *sdk.CallToolRequest, in confi
 	if err != nil {
 		return failure("plugin_configuration_read_failed", err), nil, nil
 	}
-	return success(renderSettings(in.Plugin, in.Instance, updated, fields, nextVersion)+s.configurationProof(in.Plugin, in.Instance, nextVersion), map[string]any{
+	issued := s.configurationProof(in.Plugin, in.Instance, nextVersion)
+	return success(renderSettings(in.Plugin, in.Instance, updated, fields, nextVersion)+issued.markdown, issued.withData(map[string]any{
 		"plugin": in.Plugin, "instance": in.Instance, "settings": updated, "fields": fields, "version": nextVersion,
-	}), nil, nil
+	})), nil, nil
 }
 
 func configurationProblem(id string, settings map[string]any, fields []plugin.Field) string {
@@ -486,13 +503,16 @@ func configurationProblem(id string, settings map[string]any, fields []plugin.Fi
 	return ""
 }
 
-func (s *Server) configurationProof(id, instance, version string) string {
+func (s *Server) configurationProof(id, instance, version string) issuedProof {
 	if s.opts.Tokens == nil {
-		return ""
+		return issuedProof{}
 	}
 	subject := proof.Configuration(id, instance)
 	token := s.opts.Tokens.Issue(proof.FromConfigure, map[string]string{subject.Ref: version})
-	return fmt.Sprintf("\n---\nConfiguration version `%s`. Proof token `%s`. Pass both back to change these settings.\n", version, token.ID)
+	return issuedProof{
+		markdown: fmt.Sprintf("\n---\nConfiguration version `%s`. Proof token `%s`. Pass both back to change these settings.\n", version, token.ID),
+		token:    token.ID,
+	}
 }
 
 func renderSettings(id, instance string, settings map[string]any, fields []plugin.Field, version string) string {

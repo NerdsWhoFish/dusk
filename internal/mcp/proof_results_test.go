@@ -33,25 +33,36 @@ func TestWritableReadsCarryProofInStructuredData(t *testing.T) {
 				t.Fatalf("CallTool(%s): %v", tt.tool, err)
 			}
 
-			var body strings.Builder
-			for _, content := range result.Content {
-				if text, ok := content.(*sdk.TextContent); ok {
-					body.WriteString(text.Text)
-				}
-			}
-			markdownProof := tokenFrom(t, body.String())
-
-			structured, ok := result.StructuredContent.(map[string]any)
-			if !ok {
-				t.Fatalf("structured result = %#v, want an object", result.StructuredContent)
-			}
-			data, ok := structured["data"].(map[string]any)
-			if !ok {
-				t.Fatalf("structured data = %#v, want an object", structured["data"])
-			}
-			if got, _ := data["proof"].(string); got != markdownProof {
-				t.Fatalf("structured proof = %q, Markdown proof = %q", got, markdownProof)
-			}
+			assertStructuredProofMatchesMarkdown(t, result)
 		})
 	}
+}
+
+func assertStructuredProofMatchesMarkdown(t *testing.T, result *sdk.CallToolResult) {
+	t.Helper()
+
+	markdownProof := proofFromResult(t, result)
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured result = %#v, want an object", result.StructuredContent)
+	}
+	data, ok := structured["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("structured data = %#v, want an object", structured["data"])
+	}
+	if got, _ := data["proof"].(string); got != markdownProof {
+		t.Fatalf("structured proof = %q, Markdown proof = %q", got, markdownProof)
+	}
+}
+
+func proofFromResult(t *testing.T, result *sdk.CallToolResult) string {
+	t.Helper()
+
+	var body strings.Builder
+	for _, content := range result.Content {
+		if text, ok := content.(*sdk.TextContent); ok {
+			body.WriteString(text.Text)
+		}
+	}
+	return tokenFrom(t, body.String())
 }

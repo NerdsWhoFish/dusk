@@ -427,6 +427,9 @@ func TestAnAsyncActionReturnsAHandleThatStatusPolls(t *testing.T) {
 	if !status.Done || !status.OK {
 		t.Fatalf("expected the handle to report completion, got %+v", status)
 	}
+	if status.Action != "poke" || status.Ref != "widget:slow/one" {
+		t.Fatalf("polling forgot what the handle was for: %+v", status)
+	}
 }
 
 func TestPreviewingNeedsNoProofBecauseItChangesNothing(t *testing.T) {

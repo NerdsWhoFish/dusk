@@ -701,14 +701,10 @@ func (m *Manager) Status(ctx context.Context, id, handle string) (*Outcome, erro
 		return nil, fmt.Errorf("plugin: %s could not report on %s: %w", id, handle, err)
 	}
 
-	outcome := &Outcome{
-		Event:   eventID,
-		Plugin:  id,
-		Handle:  handle,
-		Done:    answer.GetDone(),
-		OK:      answer.GetOk(),
-		Message: answer.GetMessage(),
-	}
+	outcome := m.outcomeForEvent(eventID, id, handle)
+	outcome.Done = answer.GetDone()
+	outcome.OK = answer.GetOk()
+	outcome.Message = answer.GetMessage()
 	if detail := answer.GetDetail(); detail != nil {
 		outcome.Detail = detail.AsMap()
 	}
@@ -733,7 +729,22 @@ func (m *Manager) unpollable(id, value, eventID string, mutating, linked bool, c
 	if event, ok := m.Events.Find(eventID); ok {
 		_ = m.Events.Settle(events.Finish(event, duskv1alpha1.EventStatus_EVENT_STATUS_UNSPECIFIED, message, nil, m.now()))
 	}
-	return &Outcome{Event: eventID, Plugin: id, Handle: value, Done: true, Unknown: true, Message: message}, nil
+	outcome := m.outcomeForEvent(eventID, id, value)
+	outcome.Done = true
+	outcome.Unknown = true
+	outcome.Message = message
+	return outcome, nil
+}
+
+func (m *Manager) outcomeForEvent(eventID, pluginID, handle string) *Outcome {
+	outcome := &Outcome{Event: eventID, Plugin: pluginID, Handle: handle}
+	if event, ok := m.Events.Find(eventID); ok {
+		outcome.Chain = event.GetChain()
+		outcome.Plugin = event.GetPlugin()
+		outcome.Action = event.GetAction()
+		outcome.Ref = event.GetRef()
+	}
+	return outcome
 }
 
 func (m *Manager) reobserve(target chosen) {

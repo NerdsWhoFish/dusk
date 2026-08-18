@@ -210,6 +210,54 @@ func TestInvokePollsAnAsynchronousHandle(t *testing.T) {
 	if !strings.Contains(body, "finished") {
 		t.Fatalf("poll result was not rendered:\n%s", body)
 	}
+	if strings.Contains(body, "still running") {
+		t.Fatalf("a completed poll was offered for polling again:\n%s", body)
+	}
+}
+
+func TestInvokeRefusesActionInputsWhilePolling(t *testing.T) {
+	plugins := &offering{outcome: &plugin.Outcome{Plugin: "slow", Handle: "job-1", Done: true, OK: true}}
+	result, err := acting(t, plugins).session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "invoke", Arguments: map[string]any{
+			"plugin": "slow", "handle": "job-1", "action": "start_another",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !result.IsError || plugins.statusHandle != "" {
+		t.Fatalf("ambiguous poll = %+v, status called with %q", result.StructuredContent, plugins.statusHandle)
+	}
+}
+
+func TestInvokeRefusesAnEmptyPluginOutcome(t *testing.T) {
+	result, err := acting(t, &offering{}).session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "invoke", Arguments: map[string]any{"plugin": "broken", "action": "nothing"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("an empty plugin outcome was reported as success")
+	}
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok || structured["code"] != "invalid_plugin_response" {
+		t.Fatalf("structured error = %#v, want invalid_plugin_response", result.StructuredContent)
+	}
+}
+
+func TestUnsupportedPreviewDoesNotSayTheActionRan(t *testing.T) {
+	plugins := &offering{outcome: &plugin.Outcome{
+		Action: "restart", Plugin: "kubernetes", Ref: "service:home/one",
+		Done: true, OK: true, Message: "this action cannot be previewed",
+	}}
+	body := call(t, acting(t, plugins).session, "invoke", map[string]any{
+		"ref": "service:home/one", "action": "restart", "preview": true,
+	})
+
+	if !strings.Contains(body, "not previewed") || strings.Contains(body, "**restart** done") {
+		t.Fatalf("an unsupported preview implied the action ran:\n%s", body)
+	}
 }
 
 // Being asked to confirm is an answer, not a failure: an agent has to be able
@@ -368,6 +416,35 @@ func TestConfigureWithNoSettingsReadsThem(t *testing.T) {
 	if !strings.Contains(body, "never here") {
 		t.Fatalf("reading should say where a credential is entered instead:\n%s", body)
 	}
+}
+
+func TestConfigureCarriesProofInStructuredData(t *testing.T) {
+	plugins := &offering{
+		settings: map[string]any{"base_url": "https://example.com"},
+		fields:   []plugin.Field{{Name: "base_url", Type: "string"}},
+	}
+	session := acting(t, plugins).session
+
+	read, err := session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "configure", Arguments: map[string]any{"plugin": "airtrail"},
+	})
+	if err != nil {
+		t.Fatalf("read configuration: %v", err)
+	}
+	assertStructuredProofMatchesMarkdown(t, read)
+
+	written, err := session.CallTool(t.Context(), &sdk.CallToolParams{
+		Name: "configure", Arguments: map[string]any{
+			"plugin":   "airtrail",
+			"settings": map[string]any{"base_url": "https://new.example.com"},
+			"version":  "v1",
+			"proof":    proofFromResult(t, read),
+		},
+	})
+	if err != nil {
+		t.Fatalf("write configuration: %v", err)
+	}
+	assertStructuredProofMatchesMarkdown(t, written)
 }
 
 // asking is a plugin that puts a question to whoever invoked it and reports
