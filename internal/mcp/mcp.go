@@ -206,10 +206,12 @@ func (s *Server) sdkServer() *sdk.Server {
 
 	sdk.AddTool(server, resultTool("dusk_context", "What this operator's catalog knows, tailored to the repository you are working in: what they pinned worth knowing before you start, what the repository declares, and what else they have. Call this once at the start of a session, before assuming anything about their infrastructure."), s.duskContext)
 
-	// One tool, however many plugins are installed. A plugin's capability is an
-	// action, not a tool, so the surface does not grow with the marketplace
-	// (ADR-0041).
+	// Two tools, however many plugins are installed. A plugin's capability is
+	// an action, not a tool, so the surface does not grow with the marketplace
+	// (ADR-0041, ADR-0077).
 	if s.opts.Plugins != nil {
+		sdk.AddTool(server, resultTool("plugin", "What this Dusk can do beyond answering: every installed integration, what each one puts in the catalog, and what each can be told to do. Name one to read it whole, with every action's parameter schema and how to invoke it. Omit the name for the roster."), s.plugins)
+
 		sdk.AddTool(server, resultTool("invoke", "Do something to an entity, from the actions get listed for it, or poll an asynchronous run by passing its plugin and handle. Anything that changes something needs the proof token from the read it names and a unique idempotency_key; reuse that key if a reply is lost. Anything destructive also needs confirm. Pass preview to see what would happen instead."), s.invoke)
 
 		sdk.AddTool(server, resultTool("configure", "Read or set a plugin's configuration. Pass settings to change fields, which are merged over what is there; omit it to see the current values. Credentials are entered in Dusk's own interface and cannot be set here."), s.configure)
@@ -398,70 +400,12 @@ type getInput struct {
 	Titles     bool   `json:"titles,omitempty" jsonschema:"list the notes attached to it by kind, id and opening line instead of printing any of them whole, for finding out what is attached without reading it"`
 }
 
-// getPlugin answers for a plugin, listing what it can be asked to do.
-func (s *Server) getPlugin(id string) (*sdk.CallToolResult, any, error) {
-	if s.opts.Plugins == nil {
-		return success("Plugins are not enabled here, so there is nothing to read.", map[string]any{"plugins": []plugin.Report{}}), nil, nil
-	}
-
-	var installed []string
-	for _, report := range s.opts.Plugins.Report() {
-		installed = append(installed, report.ID)
-		if report.ID != id {
-			continue
-		}
-
-		var out strings.Builder
-		fmt.Fprintf(&out, "# %s\n\nPlugin, version %s, %s.\n", report.ID, report.Version, runningWord(report))
-
-		declared := s.opts.Plugins.PluginActions(id)
-		if actions := renderPluginActions(declared); actions != "" {
-			out.WriteString(actions)
-		} else {
-			fmt.Fprintf(&out, "\n%s", nothingToRun(declared))
-		}
-		return success(out.String(), map[string]any{"plugin": report, "actions": declared}), nil, nil
-	}
-
-	slices.Sort(installed)
-	return success(fmt.Sprintf("No plugin `%s` is installed. These are: %s.",
-		id, strings.Join(installed, ", ")), map[string]any{"plugin": nil, "installed": installed}), nil, nil
-}
-
-// runningWord says whether a plugin is up, which decides whether an action on
-// it can be run at all. A plugin that is down says which kind of down, because
-// "wait" and "somebody has to look at this" are different answers.
-func runningWord(report plugin.Report) string {
-	if !report.Running {
-		return downWord(report.Process)
-	}
-	if report.Failing() {
-		return "running but failing"
-	}
-	return "running"
-}
-
-// downWord describes a plugin that is not answering.
-func downWord(process *plugin.Process) string {
-	switch {
-	case process == nil:
-		return "not running"
-	case process.Phase == plugin.PhaseRestarting:
-		return fmt.Sprintf("not running, being started again after it exited (%s)", process.Exit)
-	case process.Phase == plugin.PhaseFailed:
-		return fmt.Sprintf("not running, and no longer being restarted after %d attempts (%s)",
-			process.Attempts, process.Exit)
-	default:
-		return "not running"
-	}
-}
-
 func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (*sdk.CallToolResult, any, error) {
 	// A bare `plugin:name` cannot collide with an entity ref, which always
-	// carries a namespace. It is the only way to find an action about the
-	// plugin rather than about one thing, since no entity lists those.
+	// carries a namespace. Kept beside `plugin` rather than retired: ADR-0076
+	// shipped the context pointer naming it, and both call one renderer.
 	if id, ok := strings.CutPrefix(in.Ref, "plugin:"); ok && !strings.Contains(id, "/") {
-		return s.getPlugin(id)
+		return s.pluginPage(id)
 	}
 
 	entity, err := s.opts.Catalog.GetFrom(ctx, "", in.Ref, in.Repository)

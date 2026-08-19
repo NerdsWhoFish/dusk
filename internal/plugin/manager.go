@@ -618,6 +618,16 @@ func (m *Manager) Describe(id string) (*duskv1alpha1.DescribeResponse, bool) {
 	return running.Describe, true
 }
 
+// Emits is the entity kinds a plugin says it contributes. A claim rather than a
+// count of what it wrote, so it answers for one that has never run (ADR-0077).
+func (m *Manager) Emits(id string) []string {
+	described, ok := m.Describe(id)
+	if !ok {
+		return nil
+	}
+	return described.GetEmitsKinds()
+}
+
 // Views returns what running plugins contribute for an entity kind. An empty
 // kind list on a contribution means every kind, which is the common case.
 func (m *Manager) Views(kind string) []View {

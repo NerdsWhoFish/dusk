@@ -54,7 +54,8 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
 | `dusk_context(repository?)` | The operator's estate and what they pinned worth knowing, tailored to an exact `owner/name` repository |
-| `invoke(ref?, action?, params?, proof?, confirm?, preview?, idempotency_key?, plugin?, handle?)` | Do something from what `get` offered, or poll an asynchronous handle with `plugin` and `handle` |
+| `plugin(name?)` | Every installed integration, what each puts in the catalog and what each can be told to do. `name` reads one whole |
+| `invoke(ref?, action?, params?, proof?, confirm?, preview?, idempotency_key?, plugin?, handle?)` | Do something from what `get` or `plugin` offered, or poll an asynchronous handle with `plugin` and `handle` |
 | `configure(plugin, settings?, instance?, version?, proof?)` | Read a plugin's non-sensitive configuration and its version/proof, or pass both back to change it |
 | `declare(ref, proof, …)` | Create, correct, decommission, reactivate, or remove an entity declaration |
 | `relate(from, to, type, proof, …)` | Add, correct, or withdraw one exact outbound relation |
@@ -80,6 +81,16 @@ Discovery folds into `get`, because what can be done to a thing is part of the p
 
 The surface is therefore constant: a tenth plugin costs nothing, and an agent that has read an entity already knows what it can do to it.
 
+`plugin` is the fixed tool that makes any of it findable ([ADR-0077](../adr/0077-a-plugin-is-discoverable-from-the-tool-list.md)).
+It is fixed in the same sense `configure` is: one tool whether one plugin is installed or thirty, so the count is still set by design rather than by the marketplace.
+
+With no argument it is the roster: every installed integration, its version, whether it is running, the entity kinds it says it contributes, and the actions somebody enabled on it.
+With a name it is that plugin whole, with every action's parameter schema and how each is invoked.
+
+The roster is the answer to a question no ref can name.
+`get` takes one entity and `plugin:name` is a ref of that shape, but nothing names *the set*, so before this there was no call that said integrations existed at all.
+That mattered because the two facts it carries were reachable nowhere else: `emits_kinds` had been in the protocol since it was written and no agent surface ever showed it, and the [context](#what-dusk_context-spends-its-budget-on) named only the plugins whose actions happened to attach to no kind.
+
 Each action includes the complete JSON Schema its plugin declared.
 Dusk does not reduce that contract to parameter names: types, descriptions, required fields, enums, defaults and nested constraints all reach the agent unchanged.
 
@@ -96,11 +107,12 @@ If the plugin disappears after a mutation begins, Dusk reports the result as **u
 An asynchronous result names its plugin and handle.
 Poll it with `invoke(plugin: "name", handle: "value")`; this settles the event that began the action rather than creating a second event.
 
-`get plugin:name` reads a plugin, and says how each action it offers is invoked rather than saying it once for all of them.
+A plugin's page says how each action it offers is invoked rather than saying it once for all of them.
 An action that names kinds needs the ref of one, and only an action naming none takes the plugin and no ref.
 Telling an agent otherwise teaches a call `invoke` refuses.
 
-The cost is real and worth stating: an agent that never calls `get` never discovers that anything is possible.
+`get plugin:name` still reaches that page and delegates to the same renderer, so the two doors cannot drift.
+It is kept because the injected context named it before `plugin` existed, and an agent holding such a ref should not meet a wall.
 
 ### Trusted-network mutation authority
 
@@ -186,7 +198,9 @@ It carries four budgeted sections plus a fixed manual, and pinning is how someth
 | What this operator has | Every ref, grouped by kind, listed once however many sources declared it |
 | Working with this catalog | The manual: the calls, the ref and note-id shapes, the proof rule, and the note kinds |
 
-**The manual names only the tools this deployment registered**, on the same conditions the registration uses, so it can never send an agent at a tool that is not there ([ADR-0076](../adr/0076-the-context-carries-the-manual-for-the-tools-it-names.md)).
+**The manual names a tool if and only if this deployment registered it**, on the same conditions the registration uses, so it can neither send an agent at a tool that is not there nor hide one that is ([ADR-0076](../adr/0076-the-context-carries-the-manual-for-the-tools-it-names.md), [ADR-0077](../adr/0077-a-plugin-is-discoverable-from-the-tool-list.md)).
+A test drives the server, asks it for its own tool list and fails on either direction, which is what caught `page` being registered and unnamed since the day it was built.
+`dusk_context` is the one exclusion, because it is the call the reader is already inside.
 It lists the note kinds with their live counts, because the vocabulary is data: an agent once concluded Dusk could not record an architecture decision, when `decision` was a note kind holding nothing that no context, instruction or tool description had ever named.
 A convention is stated there once rather than on every line that depends on it, which is what pays for the block.
 
@@ -220,7 +234,10 @@ That naming is capped, since the room for it is reserved whether or not it ever 
 A remainder an agent cannot ask for is the defect the naming exists to fix, so leaving a bare "and 13 more" reintroduces it one level down.
 Notes recover through `note` with `pinned: true`, declared refs through `search`, and kinds through `kinds`.
 
-The closing also names the kinds that carry actions, and any plugin whose actions are about no single entity, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one and learns that a `plugin:` ref is something it may pass ([ADR-0076](../adr/0076-the-context-carries-the-manual-for-the-tools-it-names.md)).
+The closing also names the kinds that carry actions, so an agent learns that `invoke` exists without having to `get` an entity that happens to offer one ([ADR-0076](../adr/0076-the-context-carries-the-manual-for-the-tools-it-names.md)).
+
+Below it, **every installed plugin is named** with what it observes and what it runs, capped and pointing at `plugin` for the whole answer ([ADR-0077](../adr/0077-a-plugin-is-discoverable-from-the-tool-list.md)).
+That list used to hold only the plugins with an enabled action attached to no kind, which was a workaround for having no roster: a plugin that only observes has no such action and appeared nowhere at all, though it may be the source of most of the inventory printed above.
 
 Anything enumerated here is a markdown list rather than a comma run inside a sentence, including the refs under each kind in the inventory.
 

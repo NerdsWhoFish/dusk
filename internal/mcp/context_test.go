@@ -450,7 +450,7 @@ func TestADR0076_TheManualNamesTheNoteKindsAndOnlyRegisteredTools(t *testing.T) 
 
 	// ADR-0057's rule over the whole manual: this deployment registers none of
 	// these. Matched backticked, since "declares" is a word in a heading above.
-	for _, absent := range []string{"`declare`", "`relate`", "`configure`", "`invoke`"} {
+	for _, absent := range []string{"`declare`", "`relate`", "`page`", "`configure`", "`invoke`", "`plugin`"} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the manual offered %s on a deployment that did not register it:\n%s", absent, body)
 		}
@@ -575,7 +575,9 @@ func TestADR0076_APluginScopedActionIsNamed(t *testing.T) {
 	if !strings.Contains(body, "`adr`") {
 		t.Errorf("a plugin whose actions attach to no kind was never named:\n%s", body)
 	}
-	if !strings.Contains(body, "get plugin:") {
+	// ADR-0077 moved the pointer from a `plugin:` ref to the tool that lists
+	// them, which is reachable without knowing a ref shape exists.
+	if !strings.Contains(body, "`plugin` reads one whole") {
 		t.Errorf("nothing said how to read a plugin:\n%s", body)
 	}
 }

@@ -83,3 +83,11 @@ That split decides this one. Non-sensitive configuration is *already* a file in 
 An agent configures a plugin through a single fixed `configure` tool, which merges over what is stored rather than replacing it.
 The decision this ADR exists to make is unchanged: the surface does not grow when a plugin is installed, and one more fixed tool is not growth with the marketplace.
 Sensitive fields are still never settable here, for the reason given above, and are now refused by name rather than accepted and silently dropped.
+
+### 2026-08-19: discovery gets a fixed tool, on the same reasoning
+
+The first of the bad consequences above, that an agent cannot see a plugin's capabilities from the tool list, fired twice on a real catalog and was patched twice with another sentence inside `dusk_context`.
+[ADR-0077](0077-a-plugin-is-discoverable-from-the-tool-list.md) pays it with one fixed `plugin` tool, the same shape and the same reasoning as `configure` in the amendment above.
+
+Option 1 and option 2 stay rejected.
+What changes is only that discovery no longer lives exclusively inside `get`, because `get` needs a ref and no ref names the set of installed plugins.

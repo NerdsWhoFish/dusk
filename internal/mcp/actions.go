@@ -21,6 +21,11 @@ import (
 type Plugins interface {
 	Actions(kind string) []plugin.Action
 	PluginActions(id string) []plugin.Action
+
+	// Emits is the entity kinds a plugin claims to contribute, which is the
+	// half of what a plugin is for that no agent surface used to show.
+	Emits(id string) []string
+
 	Invoke(ctx context.Context, request plugin.Request) (*plugin.Outcome, error)
 	Preview(ctx context.Context, request plugin.Request) (*plugin.Outcome, error)
 	Status(ctx context.Context, id, handle string) (*plugin.Outcome, error)

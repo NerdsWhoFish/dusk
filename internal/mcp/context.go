@@ -403,14 +403,18 @@ func (s *Server) manual(vocabulary []vocab.Kind) string {
 		"| `drift` | Where the catalog and reality disagree |\n" +
 		"| `kinds` | The vocabulary, so the next kind is not a misspelling of one that exists |\n")
 
-	// Only what this deployment registered, because a manual naming a tool the
-	// server never added sends an agent at something that is not there
-	// (ADR-0057). The conditions are the registration conditions.
+	// Every tool this deployment registered and no other, on the registration
+	// conditions themselves: naming an absent tool misdirects, and omitting a
+	// registered one hides it (ADR-0057, ADR-0077).
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		out.WriteString("| `declare`, `relate` | Write an entity, or one outbound edge between two |\n")
+		if s.opts.Writer.NoteDestination() != "" {
+			out.WriteString("| `page` | Read or rewrite the homepage, as an ordered list of typed queries |\n")
+		}
 	}
 	if s.opts.Plugins != nil {
-		out.WriteString("| `invoke` | Run an action that a `get` offered |\n" +
+		out.WriteString("| `plugin` | What the integrations here observe, and what they can be told to do |\n" +
+			"| `invoke` | Run an action that `get` or `plugin` offered |\n" +
 			"| `configure` | Read or set a plugin's non-sensitive configuration |\n")
 	}
 
@@ -432,8 +436,8 @@ func (s *Server) manual(vocabulary []vocab.Kind) string {
 	return out.String()
 }
 
-// actionable is the one sentence saying the catalog does things as well as
-// answering questions. Nothing else in the context mentions actions, so an
+// actionable says the catalog does things as well as answering questions, and
+// names what does them. Nothing else in the context mentions actions, so an
 // agent that never happens to `get` an acting entity never learns `invoke`.
 func (s *Server) actionable(held estate) string {
 	if s.opts.Plugins == nil {
@@ -454,33 +458,44 @@ func (s *Server) actionable(held estate) string {
 			"and these kinds carry actions:\n%s", listed(acts))
 	}
 
-	// Phrased around the list rather than about it, so one plugin and several
-	// read the same. "`adr` offer actions" is what naming them directly gives.
-	if free := s.unattachedPlugins(); len(free) > 0 {
-		fmt.Fprintf(&out, "\nSome capability is about no single entity and so appears on nothing a `search` returns. "+
-			"Read one of these with `get plugin:<name>`:\n%s", listed(free))
+	// Independent of the sentence above, which walks entity kinds and so never
+	// reaches a plugin that only observes or whose actions name no kind.
+	if roster := s.installedPlugins(); len(roster) > 0 {
+		fmt.Fprintf(&out, "\nThese integrations are installed, and `plugin` reads one whole:\n%s", listed(roster))
 	}
 
 	return out.String()
 }
 
-// unattachedPlugins names plugins whose enabled actions apply to no kind. They
-// are invisible otherwise: the sentence above walks entity kinds, and `get`
-// only reaches these through a `plugin:` ref nothing tells an agent to try. An
-// agent looked straight at an installed ADR plugin and reported that Dusk had
-// no way to record a decision.
-func (s *Server) unattachedPlugins() []string {
-	var free []string
+// contextPluginNames caps a roster line harder than the tool does, because this
+// one is in the tail, which is reserved before any section is paid.
+const contextPluginNames = 3
+
+// installedPlugins is one line per plugin: what it observes and what it runs.
+// ADR-0076 named only those whose actions attached to no kind, which left a
+// purely observing plugin mentioned nowhere at all (ADR-0077).
+func (s *Server) installedPlugins() []string {
+	var roster []string
 	for _, report := range s.opts.Plugins.Report() {
-		for _, action := range s.opts.Plugins.PluginActions(report.ID) {
-			if action.Enabled && len(action.Kinds) == 0 {
-				free = append(free, "`"+report.ID+"`")
-				break
-			}
+		var does []string
+		if emits := s.opts.Plugins.Emits(report.ID); len(emits) > 0 {
+			does = append(does, "observes "+andList(quoted(capped(emits, contextPluginNames))))
 		}
+		if runs := runnableNames(s.opts.Plugins.PluginActions(report.ID)); len(runs) > 0 {
+			does = append(does, "runs "+andList(quoted(capped(runs, contextPluginNames))))
+		}
+		roster = append(roster, strings.TrimSpace("`"+report.ID+"` "+strings.Join(does, ", and ")))
 	}
-	slices.Sort(free)
-	return free
+	slices.Sort(roster)
+	return roster
+}
+
+func runnableNames(actions []plugin.Action) []string {
+	var names []string
+	for _, action := range enabled(actions) {
+		names = append(names, action.Name)
+	}
+	return names
 }
 
 // names is what an overflow line calls the entries it left out.

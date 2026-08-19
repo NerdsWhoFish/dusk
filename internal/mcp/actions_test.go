@@ -22,6 +22,7 @@ import (
 type offering struct {
 	actions []plugin.Action
 	reports []plugin.Report
+	emits   map[string][]string
 
 	asked   plugin.Request
 	outcome *plugin.Outcome
@@ -34,9 +35,22 @@ type offering struct {
 	statusHandle string
 }
 
-func (o *offering) Actions(string) []plugin.Action       { return o.actions }
-func (o *offering) PluginActions(string) []plugin.Action { return o.actions }
-func (o *offering) Report() []plugin.Report              { return o.reports }
+func (o *offering) Actions(string) []plugin.Action { return o.actions }
+func (o *offering) Report() []plugin.Report        { return o.reports }
+func (o *offering) Emits(id string) []string       { return o.emits[id] }
+
+// PluginActions answers per plugin the way the manager does. An action that
+// names no plugin belongs to whoever asks, which is what the tests predating
+// more than one installed plugin assume.
+func (o *offering) PluginActions(id string) []plugin.Action {
+	var mine []plugin.Action
+	for _, action := range o.actions {
+		if action.Plugin == "" || action.Plugin == id {
+			mine = append(mine, action)
+		}
+	}
+	return mine
+}
 
 func (o *offering) Invoke(_ context.Context, request plugin.Request) (*plugin.Outcome, error) {
 	o.asked = request
@@ -76,25 +90,38 @@ func acting(t *testing.T, plugins mcp.Plugins) *acted {
 	}
 }
 
-// ADR-0041: a plugin's capability reaches an agent through the tools that
-// already exist, so installing one adds exactly one tool and never more.
-func TestADR0041_APluginAddsOneToolAndNoMore(t *testing.T) {
-	acting := acting(t, &offering{})
+// ADR-0041: the tool count is set by design and never by how many plugins
+// somebody installed. ADR-0077 adds one fixed tool, which is that rule holding
+// rather than bending: thirty plugins list what one lists.
+func TestADR0041_TheToolSetIsFixedWhateverIsInstalled(t *testing.T) {
+	var many []plugin.Report
+	for i := range 30 {
+		many = append(many, plugin.Report{ID: fmt.Sprintf("plugin-%02d", i), Version: "1.0.0", Running: true})
+	}
 
-	tools, err := acting.session.ListTools(t.Context(), nil)
+	want := "changes,configure,drift,dusk_context,get,invoke,kinds,neighbors,note,plugin,search"
+	for name, plugins := range map[string]*offering{
+		"one":  {reports: []plugin.Report{{ID: "airtrail", Version: "1.0.0", Running: true}}},
+		"many": {reports: many},
+	} {
+		if got := joinSorted(toolNames(t, acting(t, plugins).session)); got != want {
+			t.Errorf("with %s installed, tools = %s, want %s", name, got, want)
+		}
+	}
+}
+
+func toolNames(t *testing.T, session *sdk.ClientSession) []string {
+	t.Helper()
+
+	tools, err := session.ListTools(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-
 	names := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
 	}
-
-	want := "changes,configure,drift,dusk_context,get,invoke,kinds,neighbors,note,search"
-	if got := joinSorted(names); got != want {
-		t.Errorf("tools = %s, want %s", got, want)
-	}
+	return names
 }
 
 // What can be done to a thing is part of the picture of that thing, which is
