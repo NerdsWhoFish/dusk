@@ -153,6 +153,37 @@ func TestADR0077_ThePluginPageSaysWhatItObserves(t *testing.T) {
 	}
 }
 
+// ADR-0059: an overflow says what it left out, and that count sits inside
+// a list of identifiers. Quoted with them it reads as an action named
+// "2 more", which an agent can try to invoke and Dusk will refuse.
+func TestADR0059_ACappedListDoesNotDressItsRemainderAsAName(t *testing.T) {
+	crowded := &offering{
+		reports: []plugin.Report{{ID: "planty", Version: "0.1.0", Running: true}},
+		emits:   map[string][]string{"planty": {"a", "b", "c", "d", "e", "f", "g", "h"}},
+	}
+	for i := range 10 {
+		crowded.actions = append(crowded.actions, plugin.Action{
+			Plugin: "planty", Name: string(rune('a' + i)), Class: plugin.ClassReadOnly, Enabled: true,
+		})
+	}
+
+	idx := newIndex(t)
+	seed(t, idx)
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Plugins: crowded}))
+
+	for _, body := range []string{
+		call(t, session, "plugin", nil),
+		call(t, session, "dusk_context", map[string]any{"root": homelabRoot}),
+	} {
+		if !strings.Contains(body, "more") {
+			t.Fatalf("nothing was capped, so the test proves nothing:\n%s", body)
+		}
+		if strings.Contains(body, "`more") || strings.Contains(body, "more`") {
+			t.Errorf("the remainder was rendered as an identifier:\n%s", body)
+		}
+	}
+}
+
 func TestADR0077_AnUnknownPluginNamesTheOnesThatExist(t *testing.T) {
 	acting := acting(t, installed())
 	body := call(t, acting.session, "plugin", map[string]any{"name": "spacelift"})

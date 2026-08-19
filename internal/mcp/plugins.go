@@ -81,11 +81,11 @@ func rosterLine(entry summary) string {
 	fmt.Fprintf(&out, "- **%s** %s, %s.", entry.ID, entry.Version, entry.State)
 
 	if len(entry.Emits) > 0 {
-		fmt.Fprintf(&out, " Puts %s in the catalog.", andList(quoted(capped(entry.Emits, rosterNames))))
+		fmt.Fprintf(&out, " Puts %s in the catalog.", andList(capped(quoted(entry.Emits), rosterNames)))
 	}
 	switch {
 	case len(entry.Runs) > 0:
-		fmt.Fprintf(&out, " Runs %s.", andList(quoted(capped(entry.Runs, rosterNames))))
+		fmt.Fprintf(&out, " Runs %s.", andList(capped(quoted(entry.Runs), rosterNames)))
 	case entry.Declared > 0:
 		// ADR-0015 makes enabling deliberate, so this is fixable by whoever is
 		// reading and "declares none" is not.
@@ -96,8 +96,9 @@ func rosterLine(entry summary) string {
 	return out.String() + "\n"
 }
 
-// capped names what it left out rather than cutting silently, and the page the
-// closing line points at is what answers with the rest (ADR-0059).
+// capped names what it left out rather than cutting silently (ADR-0059). Takes
+// names already rendered: quoting after would make "2 more" look like an
+// identifier the reader can go and ask for.
 func capped(names []string, limit int) []string {
 	if len(names) <= limit {
 		return names

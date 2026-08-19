@@ -479,10 +479,10 @@ func (s *Server) installedPlugins() []string {
 	for _, report := range s.opts.Plugins.Report() {
 		var does []string
 		if emits := s.opts.Plugins.Emits(report.ID); len(emits) > 0 {
-			does = append(does, "observes "+andList(quoted(capped(emits, contextPluginNames))))
+			does = append(does, "observes "+andList(capped(quoted(emits), contextPluginNames)))
 		}
 		if runs := runnableNames(s.opts.Plugins.PluginActions(report.ID)); len(runs) > 0 {
-			does = append(does, "runs "+andList(quoted(capped(runs, contextPluginNames))))
+			does = append(does, "runs "+andList(capped(quoted(runs), contextPluginNames)))
 		}
 		roster = append(roster, strings.TrimSpace("`"+report.ID+"` "+strings.Join(does, ", and ")))
 	}
