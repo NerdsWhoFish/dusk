@@ -26,6 +26,9 @@ func TestOpenAIChatCompletion(t *testing.T) {
 		if request["model"] != "model-a" {
 			t.Errorf("model = %v", request["model"])
 		}
+		if request["max_completion_tokens"] != float64(4_096) {
+			t.Errorf("max_completion_tokens = %v", request["max_completion_tokens"])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Grounded answer [S1]"}}]}`))
 	}))
