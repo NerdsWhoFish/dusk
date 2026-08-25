@@ -90,6 +90,7 @@ That is what stops the same argument happening again in six months.
 | [0078](0078-the-estate-map-is-progressive.md) | The estate map is a progressive graph with a touch-first fallback | Add a default `graph` block backed by a lean graph read, render a bounded wave through dynamically loaded Cytoscape.js on fine pointers, keep search over the whole estate, attach knowledge to nodes, and preserve the task as a list on touch devices |
 | [0079](0079-browser-caching-always-revalidates.md) | Browser caching paints immediately and always revalidates | Replace the homepage's per-scope full-entity reads with one aggregate, keep selected responses only for the browser session, paint them immediately while always fetching fresh, surface refresh failures, preload typed destinations on intent, and invalidate affected entries after writes |
 | [0080](0080-runtime-telemetry-uses-explicit-opentelemetry-sdks.md) | Runtime telemetry uses explicit OpenTelemetry SDKs | Stable SDK instrumentation exports vendor-neutral OTLP through a collector, without putting backend credentials in Dusk |
+| [0081](0081-ai-search-is-grounded-and-opt-in.md) | AI search is grounded in a visible catalog slice and opt-in | Keep ordinary search local, send only a bounded viewer-visible graph slice from the server to an allowlisted OpenAI-compatible model, keep credentials out of the browser, and make the non-sensitive model default a browser preference |
 
 ## Writing one
 

@@ -193,6 +193,95 @@ func TestConfigNeverRendersTheKey(t *testing.T) {
 	}
 }
 
+func TestAISearchConfiguration(t *testing.T) {
+	base := map[string]string{
+		"DUSK_PRIVATE_HOST":   "https://dusk.example.com",
+		"DUSK_ENCRYPTION_KEY": validKey(t),
+	}
+	with := func(extra map[string]string) map[string]string {
+		merged := map[string]string{}
+		for key, value := range base {
+			merged[key] = value
+		}
+		for key, value := range extra {
+			merged[key] = value
+		}
+		return merged
+	}
+
+	t.Run("absent is disabled", func(t *testing.T) {
+		cfg, err := config.Load(env(base))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AI.Enabled() {
+			t.Fatal("AI search enabled without configuration")
+		}
+	})
+
+	t.Run("complete OpenAI-compatible configuration loads", func(t *testing.T) {
+		cfg, err := config.Load(env(with(map[string]string{
+			"DUSK_AI_BASE_URL":      "https://opencode.example/v1/",
+			"DUSK_AI_API_KEY":       "provider-secret",
+			"DUSK_AI_MODELS":        "model-a, model-b, model-a",
+			"DUSK_AI_DEFAULT_MODEL": "model-b",
+		})))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !cfg.AI.Enabled() {
+			t.Fatal("complete AI configuration is disabled")
+		}
+		if cfg.AI.BaseURL != "https://opencode.example/v1" {
+			t.Errorf("BaseURL = %q", cfg.AI.BaseURL)
+		}
+		if got := strings.Join(cfg.AI.Models, ","); got != "model-a,model-b" {
+			t.Errorf("Models = %q", got)
+		}
+		if cfg.AI.DefaultModel != "model-b" {
+			t.Errorf("DefaultModel = %q", cfg.AI.DefaultModel)
+		}
+		if rendered := fmt.Sprintf("%+v", *cfg); strings.Contains(rendered, "provider-secret") {
+			t.Fatalf("Config rendered the AI API key: %s", rendered)
+		}
+	})
+
+	t.Run("first allowed model is the deployment default", func(t *testing.T) {
+		cfg, err := config.Load(env(with(map[string]string{
+			"DUSK_AI_BASE_URL": "https://provider.example/v1",
+			"DUSK_AI_API_KEY":  "provider-secret",
+			"DUSK_AI_MODELS":   "model-a,model-b",
+		})))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AI.DefaultModel != "model-a" {
+			t.Errorf("DefaultModel = %q, want first allowed model", cfg.AI.DefaultModel)
+		}
+	})
+
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"missing key", map[string]string{"DUSK_AI_BASE_URL": "https://provider.example/v1", "DUSK_AI_MODELS": "model-a"}, "DUSK_AI_API_KEY"},
+		{"missing endpoint", map[string]string{"DUSK_AI_API_KEY": "provider-secret", "DUSK_AI_MODELS": "model-a"}, "DUSK_AI_BASE_URL"},
+		{"missing models", map[string]string{"DUSK_AI_BASE_URL": "https://provider.example/v1", "DUSK_AI_API_KEY": "provider-secret"}, "DUSK_AI_MODELS"},
+		{"unknown default", map[string]string{"DUSK_AI_BASE_URL": "https://provider.example/v1", "DUSK_AI_API_KEY": "provider-secret", "DUSK_AI_MODELS": "model-a", "DUSK_AI_DEFAULT_MODEL": "model-b"}, "not listed"},
+		{"query in endpoint", map[string]string{"DUSK_AI_BASE_URL": "https://provider.example/v1?token=no", "DUSK_AI_API_KEY": "provider-secret", "DUSK_AI_MODELS": "model-a"}, "query or fragment"},
+		{"credentials in endpoint", map[string]string{"DUSK_AI_BASE_URL": "https://user:password@provider.example/v1", "DUSK_AI_API_KEY": "provider-secret", "DUSK_AI_MODELS": "model-a"}, "must not contain credentials"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := config.Load(env(with(test.env)))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 // ADR-0012 allows an unauthenticated agent surface and requires it to be
 // explicit. Two answers to "who may read the catalog" is an unanswered
 // question, not a stricter setting.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/NerdsWhoFish/dusk/internal/access"
+	"github.com/NerdsWhoFish/dusk/internal/answer"
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/events"
@@ -52,6 +53,7 @@ type Server struct {
 	syncs       Syncs
 	pages       Pages
 	notes       Notes
+	answers     *answer.Service
 	events      *events.Log
 	tokens      *proof.Store
 	access      *access.Policy
@@ -103,6 +105,10 @@ type Options struct {
 	// answers empty rather than failing.
 	Events *events.Log
 
+	// Answers backs the optional grounded AI mode in search. Without it the
+	// configuration route says disabled and the ordinary search is unchanged.
+	Answers *answer.Service
+
 	// Tokens issues the proof an action presents. The browser gets one on every
 	// entity read, which is the same read-before-write contract an agent meets
 	// and gives the UI optimistic concurrency for free (ADR-0009).
@@ -135,6 +141,7 @@ func New(opts Options) (*Server, error) {
 		plugins:     opts.Plugins,
 		rotation:    opts.Rotation,
 		notes:       opts.Notes,
+		answers:     opts.Answers,
 		events:      opts.Events,
 		tokens:      opts.Tokens,
 		mcp:         opts.MCP,
@@ -260,6 +267,8 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) apiRoutes() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /search", s.handleAPISearch)
+	api.HandleFunc("GET /ai", s.handleAPIAnswerConfig)
+	api.HandleFunc("POST /ai/ask", s.handleAPIAsk)
 	api.HandleFunc("GET /graph", s.handleAPIGraph)
 	api.HandleFunc("GET /entities", s.handleAPIEntities)
 	api.HandleFunc("GET /entities/{ref}", s.handleAPIEntity)

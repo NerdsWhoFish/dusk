@@ -102,7 +102,11 @@ export function App() {
       ) : note ? (
         <NoteView noteId={note} onBack={() => open(null)} />
       ) : (
-        <Landing onOpen={open} onOpenNote={openNote} />
+        <Landing
+          cacheScope={viewer?.cache_scope ?? ""}
+          onOpen={open}
+          onOpenNote={openNote}
+        />
       )}
     </div>
   );
