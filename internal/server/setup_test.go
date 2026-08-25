@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NerdsWhoFish/dusk/internal/answer"
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/index"
@@ -80,6 +81,7 @@ type setup struct {
 	// mounted on it. Both nil is the default page with nothing to mount.
 	pages   server.Pages
 	plugins server.Plugins
+	answers *answer.Service
 	control *fakeController
 	syncs   server.Syncs
 }
@@ -142,6 +144,7 @@ func build(t *testing.T, s setup) http.Handler {
 		Catalog:     s.catalog,
 		Pages:       s.pages,
 		Plugins:     s.plugins,
+		Answers:     s.answers,
 		Controller:  s.control,
 		Syncs:       s.syncs,
 	})

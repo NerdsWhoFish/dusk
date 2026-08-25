@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import type { Entity, Home, SearchResult } from "./api";
+import type { AIAnswer, AIConfig, Entity, Home, SearchResult } from "./api";
 import { handle } from "./App";
 import { CatalogCheckpoint } from "./CatalogCheckpoint";
 import { renderBlock } from "./blocks";
@@ -9,19 +9,39 @@ import { Rows } from "./Rows";
 import { group, useVocabulary } from "./vocabulary";
 import type { KindGroup } from "./vocabulary";
 
+const aiDefaultKey = "dusk:ai:default-model";
+type SearchMode = "search" | "ask";
+type LandingHistory = {
+  scope: string;
+  mode: SearchMode;
+  query: string;
+  model: string;
+  answer: AIAnswer | null;
+};
+
 export function Landing({
+  cacheScope,
   onOpen,
   onOpenNote,
 }: {
+  cacheScope: string;
   onOpen: (ref: string) => void;
   onOpenNote: (id: string) => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [restored] = useState(() => restoredLanding(cacheScope));
+  const [query, setQuery] = useState(restored?.query ?? "");
   const [kind, setKind] = useState<string | null>(null);
   const [home, setHome] = useState<Home | null>(null);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [entities, setEntities] = useState<Entity[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [mode, setMode] = useState<SearchMode>(restored?.mode ?? "search");
+  const [ai, setAI] = useState<AIConfig | null>(null);
+  const [model, setModel] = useState(restored?.model ?? "");
+  const [defaultModel, setDefaultModel] = useState("");
+  const [answer, setAnswer] = useState<AIAnswer | null>(restored?.answer ?? null);
+  const [asking, setAsking] = useState(false);
+  const [aiProblem, setAIProblem] = useState<string | null>(null);
 
   // Reloading is what closing a note from a block needs: the page carried the
   // proof token, and writing invalidates it along with what it described.
@@ -37,8 +57,31 @@ export function Landing({
   }, [load]);
 
   useEffect(() => {
+    api
+      .ai()
+      .then((config) => {
+        setAI(config);
+        if (!config.enabled) {
+          setMode("search");
+          setAnswer(null);
+          return;
+        }
+        const stored = storedDefaultModel();
+        const deploymentDefault = stored && config.models.includes(stored)
+          ? stored
+          : (config.default_model ?? config.models[0] ?? "");
+        const selected = restored?.model && config.models.includes(restored.model)
+          ? restored.model
+          : deploymentDefault;
+        setModel(selected);
+        setDefaultModel(deploymentDefault);
+      })
+      .catch(handle(setProblem));
+  }, []);
+
+  useEffect(() => {
     const term = query.trim();
-    if (!term) {
+    if (!term || mode !== "search") {
       setResults(null);
       return;
     }
@@ -55,7 +98,7 @@ export function Landing({
       live = false;
       clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, mode]);
 
   useEffect(() => {
     if (!kind) {
@@ -82,24 +125,142 @@ export function Landing({
   // Absent means yes: a page that says nothing about search still gets it.
   const searchable = home?.search !== false;
 
+  const ask = () => {
+    const question = query.trim();
+    if (!question || !model || asking) return;
+    setAsking(true);
+    setAnswer(null);
+    setAIProblem(null);
+    api
+      .ask(question, model)
+      .then(setAnswer)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.message === "session expired") {
+          handle(setAIProblem)(error);
+          return;
+        }
+        setAIProblem(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setAsking(false));
+  };
+
+  const rememberModel = () => {
+    if (!model) return;
+    try {
+      localStorage.setItem(aiDefaultKey, model);
+    } catch {
+      // A blocked local store makes this tab the default's lifetime. The model
+      // remains selected and asking the catalog still works.
+    }
+    setDefaultModel(model);
+  };
+
+  const preserveAnswer = () => {
+    const current = typeof history.state === "object" && history.state !== null
+      ? history.state
+      : {};
+    history.replaceState({
+      ...current,
+      duskLanding: { scope: cacheScope, mode, query, model, answer } satisfies LandingHistory,
+    }, "", location.href);
+  };
+
+  const openAnswerEntity = (ref: string) => {
+    preserveAnswer();
+    onOpen(ref);
+  };
+
+  const openAnswerNote = (id: string) => {
+    preserveAnswer();
+    onOpenNote(id);
+  };
+
   return (
     <>
       {searchable && (
         <div className="hero">
+          {ai?.enabled && (
+            <div className="search-modes" role="group" aria-label="Search mode">
+              <button
+                type="button"
+                className={mode === "search" ? "on" : ""}
+                aria-pressed={mode === "search"}
+                onClick={() => setMode("search")}
+              >
+                Search
+              </button>
+              <button
+                type="button"
+                className={mode === "ask" ? "on" : ""}
+                aria-pressed={mode === "ask"}
+                onClick={() => setMode("ask")}
+              >
+                Ask AI
+              </button>
+            </div>
+          )}
           <label className="visually-hidden" htmlFor="q">
-            Search the catalog
+            {mode === "ask" ? "Ask the catalog" : "Search the catalog"}
           </label>
-          <input
-            id="q"
-            type="search"
-            value={query}
-            autoFocus
-            spellCheck={false}
-            autoComplete="off"
-            placeholder="A service, a host, something you half remember"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {home && !searching && total > 0 && (
+          <form
+            className={`search-form ${mode}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (mode === "ask") ask();
+            }}
+          >
+            <input
+              id="q"
+              type="search"
+              value={query}
+              autoFocus
+              spellCheck={false}
+              autoComplete="off"
+              placeholder={
+                mode === "ask"
+                  ? "Where does Jellyfin run? What do we know about the NAS?"
+                  : "A service, a host, something you half remember"
+              }
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setAIProblem(null);
+                setAnswer(null);
+              }}
+            />
+            {mode === "ask" && (
+              <button
+                type="submit"
+                className="ask-submit"
+                disabled={!query.trim() || !model || asking}
+              >
+                {asking ? "Asking…" : "Ask"}
+              </button>
+            )}
+          </form>
+          {mode === "ask" && ai?.enabled && (
+            <div className="ai-controls">
+              <label>
+                <span>Model</span>
+                <select value={model} onChange={(event) => setModel(event.target.value)}>
+                  {ai.models.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className={model === defaultModel ? "model-default on" : "model-default"}
+                disabled={!model || model === defaultModel}
+                onClick={rememberModel}
+              >
+                {model === defaultModel ? "Default model" : "Make default"}
+              </button>
+              {ai.provider && (
+                <span className="ai-provider">Relevant excerpts go to {ai.provider}</span>
+              )}
+            </div>
+          )}
+          {home && !searching && mode === "search" && total > 0 && (
             <p className="hero-sub">{plural(total, "thing")} in the catalog</p>
           )}
         </div>
@@ -113,7 +274,15 @@ export function Landing({
         </p>
       )}
 
-      {searching ? (
+      {mode === "ask" && searching ? (
+        <AIResult
+          answer={answer}
+          asking={asking}
+          problem={aiProblem}
+          onOpen={openAnswerEntity}
+          onOpenNote={openAnswerNote}
+        />
+      ) : searching ? (
         <Rows
           items={(results ?? []).map((r) => ({
             key: r.Ref,
@@ -142,6 +311,85 @@ export function Landing({
       )}
     </>
   );
+}
+
+function AIResult({
+  answer,
+  asking,
+  problem,
+  onOpen,
+  onOpenNote,
+}: {
+  answer: AIAnswer | null;
+  asking: boolean;
+  problem: string | null;
+  onOpen: (ref: string) => void;
+  onOpenNote: (id: string) => void;
+}) {
+  if (problem) {
+    return <p className="problem ai-problem">{problem}</p>;
+  }
+  if (asking) {
+    return (
+      <section className="ai-answer loading" aria-live="polite" aria-busy="true">
+        <span className="ai-orbit" aria-hidden="true" />
+        <div>
+          <strong>Reading the estate</strong>
+          <p>Finding the relevant entities, relations, and notes before asking the model.</p>
+        </div>
+      </section>
+    );
+  }
+  if (!answer) {
+    return (
+      <p className="ai-empty">
+        Ask a concrete question. Dusk retrieves a small visible slice of the catalog, then
+        gives that evidence to the selected model.
+      </p>
+    );
+  }
+  return (
+    <section className="ai-answer" aria-live="polite">
+      <div className="ai-answer-head">
+        <span>Answer from the estate</span>
+        <code>{answer.model}</code>
+      </div>
+      <Markdown>{answer.answer}</Markdown>
+      {answer.sources.length > 0 && (
+        <div className="ai-sources">
+          <span className="ai-sources-title">Catalog sources</span>
+          <div className="ai-source-list">
+            {answer.sources.map((source, index) => (
+              <button
+                key={`${source.type}:${source.ref}`}
+                type="button"
+                onClick={() => source.type === "note" ? onOpenNote(source.ref) : onOpen(source.ref)}
+              >
+                <span className="source-marker">S{index + 1}</span>
+                <span className="source-title">{source.title || source.ref}</span>
+                <span className="source-kind">{source.kind}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="ai-caveat">Generated from catalog excerpts. Open the sources before acting.</p>
+    </section>
+  );
+}
+
+function storedDefaultModel(): string | null {
+  try {
+    return localStorage.getItem(aiDefaultKey);
+  } catch {
+    return null;
+  }
+}
+
+function restoredLanding(cacheScope: string): LandingHistory | null {
+  const state = history.state as { duskLanding?: LandingHistory } | null;
+  const landing = state?.duskLanding;
+  return landing?.scope === cacheScope ? landing : null;
 }
 
 function Portal({

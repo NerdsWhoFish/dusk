@@ -29,8 +29,10 @@ graph TD
   CMD --> CTL["internal/controller"]
   HOOK["cmd/dusk-context"] --> CTX["pkg/contexthook"]
   SRV --> MCP["internal/mcp"]
+  SRV --> ANS["internal/answer"]
   CTL --> REC["internal/reconcile"]
   MCP --> IDX["internal/index"]
+  ANS --> IDX
   MCP --> WRI["internal/write"]
   REC --> IDX
   REC --> CFS["pkg/catalogfs"]
@@ -63,6 +65,7 @@ graph TD
 | Package | Its job | Not its job |
 | --- | --- | --- |
 | `access` | Who may read the catalog, in both credentials: a bearer token for agents and a session cookie for browsers | Deciding *what* a reader may see. It answers yes or no for the whole catalog ([ADR-0012](../adr/0012-viewing-auth.md)) |
+| `answer` | Grounding optional AI questions in a bounded viewer-visible catalog slice and calling the configured OpenAI-compatible endpoint | General chat, model discovery, conversation history, tools, or writes. Its prompts and retrieval rules are specific to Dusk and therefore fenced under `internal/` ([0081](../adr/0081-ai-search-is-grounded-and-opt-in.md)) |
 | `config` | Reading and validating boot configuration, reporting every problem at once | Reaching the network to check whether a configured thing exists. Shape only; existence is checked at use |
 | `events` | The record of what an action invocation did, kept in a bounded buffer and logged | Persisting it. Events are never written to the index, which is disposable by contract and cannot rebuild them ([ADR-0015](../adr/0015-plugin-actions-and-events.md)) |
 | `index` | The materialized graph in SQLite, partitioned by `(repository, git ref)`, and every query over it: search, drift, integrity, visibility, which notes nearly say the same thing, and the semantic diff between two refs | Deciding what to store. It is disposable by contract and rebuilt from git |

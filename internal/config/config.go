@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,6 +83,24 @@ type Config struct {
 	// MCPSessionTimeout closes agent sessions that stopped sending requests.
 	// It bounds retained transport state without limiting an active tool call.
 	MCPSessionTimeout time.Duration
+
+	// AI configures the optional grounded question mode in catalog search.
+	// The credential stays in the server process; the browser receives only
+	// the provider host and the allowlisted model names.
+	AI AI
+}
+
+// AI is the boot configuration for an OpenAI-compatible chat endpoint.
+type AI struct {
+	BaseURL      string
+	APIKey       secret.String
+	Models       []string
+	DefaultModel string
+}
+
+// Enabled reports whether the complete AI search configuration is present.
+func (a AI) Enabled() bool {
+	return a.BaseURL != "" && !a.APIKey.IsZero() && len(a.Models) > 0
 }
 
 // ConfigRepositoryParts splits the config repository into owner and name.
@@ -128,6 +147,11 @@ func Load(getenv func(string) string) (*Config, error) {
 		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
 		ShowObservedToEveryone: strings.EqualFold(
 			strings.TrimSpace(getenv("DUSK_OBSERVED_VISIBLE_TO_ALL")), "true"),
+		AI: AI{
+			BaseURL:      strings.TrimSuffix(strings.TrimSpace(getenv("DUSK_AI_BASE_URL")), "/"),
+			Models:       splitValues(getenv("DUSK_AI_MODELS")),
+			DefaultModel: strings.TrimSpace(getenv("DUSK_AI_DEFAULT_MODEL")),
+		},
 	}
 	if s := strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_SECRET")); s != "" {
 		c.OAuthClientSecret = secret.New(s)
@@ -135,12 +159,16 @@ func Load(getenv func(string) string) (*Config, error) {
 	if token := strings.TrimSpace(getenv("DUSK_MCP_TOKEN")); token != "" {
 		c.MCPToken = secret.New(token)
 	}
+	if key := strings.TrimSpace(getenv("DUSK_AI_API_KEY")); key != "" {
+		c.AI.APIKey = secret.New(key)
+	}
 
 	problems := c.readHosts()
 	problems = append(problems, c.readEncryptionKey(getenv)...)
 	problems = append(problems, c.readAgentAccess()...)
 	problems = append(problems, c.readConfigRepository()...)
 	problems = append(problems, c.readOAuth()...)
+	problems = append(problems, c.readAI()...)
 	if c.ProofTTL <= 0 {
 		problems = append(problems, errors.New("DUSK_PROOF_TTL must be a positive Go duration such as 15m or 2h"))
 	}
@@ -152,6 +180,34 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, errors.Join(problems...)
 	}
 	return c, nil
+}
+
+func (c *Config) readAI() []error {
+	configured := c.AI.BaseURL != "" || !c.AI.APIKey.IsZero() || len(c.AI.Models) > 0 || c.AI.DefaultModel != ""
+	if !configured {
+		return nil
+	}
+
+	var problems []error
+	if c.AI.BaseURL == "" {
+		problems = append(problems, errors.New("DUSK_AI_BASE_URL is required when AI search is configured"))
+	} else if err := validateBaseURL("DUSK_AI_BASE_URL", c.AI.BaseURL); err != nil {
+		problems = append(problems, err)
+	}
+	if c.AI.APIKey.IsZero() {
+		problems = append(problems, errors.New("DUSK_AI_API_KEY is required when AI search is configured"))
+	}
+	if len(c.AI.Models) == 0 {
+		problems = append(problems, errors.New("DUSK_AI_MODELS must name at least one allowed model when AI search is configured"))
+		return problems
+	}
+	if c.AI.DefaultModel == "" {
+		c.AI.DefaultModel = c.AI.Models[0]
+	}
+	if !slices.Contains(c.AI.Models, c.AI.DefaultModel) {
+		problems = append(problems, fmt.Errorf("DUSK_AI_DEFAULT_MODEL %q is not listed in DUSK_AI_MODELS", c.AI.DefaultModel))
+	}
+	return problems
 }
 
 func proofTTL(raw string) time.Duration {
@@ -277,8 +333,31 @@ func validateHost(name, raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("%s has no host", name)
 	}
+	if u.User != nil {
+		return fmt.Errorf("%s must not contain credentials", name)
+	}
 	if u.Path != "" {
 		return fmt.Errorf("%s must be a host, not a path: drop %q", name, u.Path)
+	}
+	return nil
+}
+
+func validateBaseURL(name, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s is not a valid URL: %w", name, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%s must be http or https, got %q", name, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%s has no host", name)
+	}
+	if u.User != nil {
+		return fmt.Errorf("%s must not contain credentials", name)
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%s must not contain a query or fragment", name)
 	}
 	return nil
 }
@@ -286,9 +365,15 @@ func validateHost(name, raw string) error {
 // splitAccounts parses the comma separated allowlist, ignoring blanks so a
 // trailing comma cannot silently allow an empty account name.
 func splitAccounts(raw string) []string {
+	return splitValues(raw)
+}
+
+func splitValues(raw string) []string {
 	var accounts []string
+	seen := make(map[string]bool)
 	for account := range strings.SplitSeq(raw, ",") {
-		if trimmed := strings.TrimSpace(account); trimmed != "" {
+		if trimmed := strings.TrimSpace(account); trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
 			accounts = append(accounts, trimmed)
 		}
 	}

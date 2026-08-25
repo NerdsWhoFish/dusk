@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/ingest"
 
+	"github.com/NerdsWhoFish/dusk/internal/answer"
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/events"
@@ -93,7 +95,11 @@ func serveCommand() *cli.Command {
   DUSK_OBSERVED_VISIBLE_TO_ALL
                         Set to true to show entities no repository backs to
                         every signed-in viewer. They have no natural access
-                        control, so they are hidden unless you say this.`,
+                        control, so they are hidden unless you say this.
+  DUSK_AI_BASE_URL      Optional OpenAI-compatible API base URL, including /v1.
+  DUSK_AI_API_KEY       Provider credential. Required with DUSK_AI_BASE_URL.
+  DUSK_AI_MODELS        Comma-separated model allowlist shown in search.
+  DUSK_AI_DEFAULT_MODEL Deployment default; the first allowed model when unset.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
@@ -207,6 +213,7 @@ func run(parent context.Context, log *slog.Logger) error {
 		Plugins:     plugins,
 		Rotation:    observers,
 		Events:      ran,
+		Answers:     answersFor(cfg, idx),
 		Tokens:      tokens,
 		MCP:         agentSurface,
 		Logger:      log,
@@ -254,6 +261,23 @@ func run(parent context.Context, log *slog.Logger) error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
+	}
+}
+
+func answersFor(cfg *config.Config, catalog answer.Catalog) *answer.Service {
+	if !cfg.AI.Enabled() {
+		return nil
+	}
+	providerURL, _ := url.Parse(cfg.AI.BaseURL)
+	return &answer.Service{
+		Catalog: catalog,
+		Completer: &answer.OpenAI{
+			BaseURL: cfg.AI.BaseURL,
+			APIKey:  cfg.AI.APIKey,
+		},
+		Models:       cfg.AI.Models,
+		DefaultModel: cfg.AI.DefaultModel,
+		Provider:     providerURL.Host,
 	}
 }
 

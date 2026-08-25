@@ -56,6 +56,26 @@ export type SearchResult = {
   Snippet: string;
 };
 
+export type AIConfig = {
+  enabled: boolean;
+  models: string[];
+  default_model?: string;
+  provider?: string;
+};
+
+export type AISource = {
+  type: "entity" | "note";
+  ref: string;
+  kind: string;
+  title: string;
+};
+
+export type AIAnswer = {
+  answer: string;
+  model: string;
+  sources: AISource[];
+};
+
 // ViewField is one thing a declared view shows. Source names an entity field
 // or an attribute key; format is how it is drawn.
 export type ViewField = {
@@ -567,6 +587,9 @@ export const api = {
     get<{ results: SearchResult[]; total: number }>(
       `/search?q=${encodeURIComponent(query)}`,
     ),
+  ai: () => get<AIConfig>("/ai"),
+  ask: (question: string, model: string) =>
+    post<AIAnswer>("/ai/ask", { question, model }),
   entity: (ref: string, refresh?: Refresh<EntityDetail>) =>
     cachedGet<EntityDetail>(`/entities/${encodeURIComponent(ref)}`, refresh),
   note: (id: string, refresh?: Refresh<NoteDetail>) =>
