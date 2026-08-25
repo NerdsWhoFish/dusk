@@ -10,6 +10,8 @@ Accepted
 
 The live default homepage took roughly 3.3 seconds to answer with a catalog of about two thousand entities.
 The largest cause was not transfer size: the `reads` block loaded every entity once per materialized source, producing dozens of redundant SQLite reads before the page could paint.
+Live verification after that fix isolated another 2.8 seconds in drift's correlated declared-versus-observed comparison.
+Its predicates searched by observed ref, watched kind and namespace, and both directions of an alias while the available indexes began with repository, so SQLite repeatedly scanned the wrong shape.
 
 After fixing that query, repeat navigation still paid for reads the browser had already received.
 The operator wants fast revisits without a cache that quietly hides a catalog change, because a stale answer presented as current violates Dusk's anomaly posture.
@@ -25,6 +27,7 @@ The operator wants fast revisits without a cache that quietly hides a catalog ch
 
 First remove the avoidable work.
 The index now answers entity counts for every materialized scope in one aggregate query, and the `reads` block consumes that result instead of loading full entities once per scope.
+Composite indexes follow drift's observed-ref, observed-kind-namespace, ref-alias, and alias-ref predicates so the comparison can seek instead of rescan.
 
 For repeat reads, keep home, graph, vocabulary, entity, and note responses in memory and `sessionStorage`.
 A cached response paints immediately and starts a network read at the same time.
@@ -43,6 +46,7 @@ Successful writes invalidate affected home, graph, note, and entity entries befo
 ### Good
 
 - The homepage removes an N-plus-one query whose cost grew with the number of sources.
+- Drift's comparison indexes match the questions it actually asks at scale.
 - Back navigation and repeat entity reads can paint without waiting for the network.
 - Every cached paint is followed by a fresh read, so the acceleration does not become a freshness policy.
 - Prefetching uses an action the operator has already signaled rather than downloading every possible entity.
@@ -56,6 +60,7 @@ Successful writes invalidate affected home, graph, note, and entity entries befo
 - Session storage duplicates data already held in React state and can be unavailable or full; the UI must treat that as a cache miss.
 - Mutation invalidation is an explicit list and a new write surface can forget to add its affected reads.
 - The application waits for the small viewer read before mounting a route that can consume cached catalog data.
+- Four composite indexes add migration and write cost to an index whose source data is rebuilt regularly.
 
 ### Rejected because
 

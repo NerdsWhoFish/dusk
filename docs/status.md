@@ -132,7 +132,9 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Estate graph**: the default homepage includes a progressive map over the full visible catalog.
   The first wave emphasizes connected entities, expansion is explicit, search reaches nodes outside the wave, selection brings immediate neighbors into view, and attached notes are inside the node briefing.
   Cytoscape.js is dynamically loaded only for a fine pointer; touch gets the same graph query as a searchable list and briefing rather than a force-directed demo ([0078](../adr/0078-the-estate-map-is-progressive.md))
+  An entity drill-down restores the explorer's query, wave, selection, node coordinates, pan, zoom, and page position on return instead of rebuilding the graph from scratch.
 - [x] **Fast reads without hidden staleness**: the homepage's `reads` block uses one aggregate count instead of loading the full entity set once per source, which removed the live page's N-plus-one query.
+  Drift uses composite indexes shaped for its correlated observed-ref, watched-kind-namespace, and alias predicates, which live verification identified as the remaining first-load bottleneck.
   Home, graph, vocabulary, entity, and note reads paint from browser-session storage when present and immediately revalidate; the fresh answer replaces the cached one and a failed refresh remains visible.
   The cache namespace follows a fingerprint of the viewer's exact access set, and cached content does not mount before that identity read finishes.
   Search-result intent and graph selection preload the typed destination, while successful writes invalidate the reads they affect ([0079](../adr/0079-browser-caching-always-revalidates.md))

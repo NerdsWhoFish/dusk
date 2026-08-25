@@ -9,6 +9,28 @@ import { Rows } from "./Rows";
 const firstWave = 160;
 const waveSize = 160;
 
+type GraphPosition = { x: number; y: number };
+
+// The route is intentionally smaller than a router, so the homepage unmounts
+// while an entity is open. Keep the explorer's working state outside that
+// component: opening a node is a drill-down, not a request to start over.
+const explorerMemory: {
+  query: string;
+  limit: number;
+  selected?: string;
+  positions: Map<string, GraphPosition>;
+  pan?: GraphPosition;
+  zoom?: number;
+  scrollY: number;
+  restoreScroll: boolean;
+} = {
+  query: "",
+  limit: firstWave,
+  positions: new Map(),
+  scrollY: 0,
+  restoreScroll: false,
+};
+
 export function EstateGraph({
   title,
   onOpen,
@@ -18,9 +40,9 @@ export function EstateGraph({
 }) {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [problem, setProblem] = useState<string>();
-  const [selected, setSelected] = useState<string>();
-  const [query, setQuery] = useState("");
-  const [limit, setLimit] = useState(firstWave);
+  const [selected, setSelected] = useState<string | undefined>(() => explorerMemory.selected);
+  const [query, setQuery] = useState(() => explorerMemory.query);
+  const [limit, setLimit] = useState(() => explorerMemory.limit);
 
   useEffect(() => {
     let live = true;
@@ -58,10 +80,31 @@ export function EstateGraph({
   const chosen = graph?.nodes.find((node) => node.ref === selected);
 
   useEffect(() => {
+    explorerMemory.query = query;
+    explorerMemory.limit = limit;
+    explorerMemory.selected = selected;
+  }, [query, limit, selected]);
+
+  useEffect(() => {
     if (selected) {
       void api.prefetchEntity(selected).catch(() => undefined);
     }
   }, [selected]);
+
+  useEffect(() => {
+    if (!graph || !explorerMemory.restoreScroll) {
+      return;
+    }
+    const scrollY = explorerMemory.scrollY;
+    explorerMemory.restoreScroll = false;
+    requestAnimationFrame(() => scrollTo({ top: scrollY }));
+  }, [graph]);
+
+  const openEntity = (ref: string) => {
+    explorerMemory.scrollY = scrollY;
+    explorerMemory.restoreScroll = true;
+    onOpen(ref);
+  };
 
   return (
     <Block
@@ -124,7 +167,7 @@ export function EstateGraph({
                 <h3>{chosen.title || chosen.ref}</h3>
                 <p className="ref">{chosen.ref}</p>
               </div>
-              <button type="button" className="btn" onClick={() => onOpen(chosen.ref)}>
+              <button type="button" className="btn" onClick={() => openEntity(chosen.ref)}>
                 Open entity
               </button>
             </div>
@@ -302,11 +345,31 @@ function GraphCanvas({
           idealEdgeLength: () => 72,
         },
       });
+      cy.nodes().forEach((node) => {
+        const position = explorerMemory.positions.get(node.id());
+        if (position) {
+          node.position(position);
+        }
+      });
+      if (explorerMemory.pan && explorerMemory.zoom !== undefined) {
+        cy.viewport({ pan: explorerMemory.pan, zoom: explorerMemory.zoom });
+      }
+      const rememberedSelection = explorerMemory.selected;
+      if (rememberedSelection) {
+        cy.getElementById(rememberedSelection).select();
+      }
       cy.on("tap", "node", (event) => onSelect(event.target.id()));
       instance.current = cy;
     });
     return () => {
       disposed = true;
+      instance.current?.nodes().forEach((node) => {
+        explorerMemory.positions.set(node.id(), node.position());
+      });
+      if (instance.current) {
+        explorerMemory.pan = instance.current.pan();
+        explorerMemory.zoom = instance.current.zoom();
+      }
       instance.current?.destroy();
       instance.current = null;
     };
