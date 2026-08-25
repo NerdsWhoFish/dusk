@@ -81,6 +81,7 @@ The graph loads after the rest of the page rather than riding inside the home re
 It starts with the most connected part of the estate, says exactly how many nodes are visible, and searches the whole graph even when a node is outside that first wave.
 On a fine pointer it supports pan, zoom, selection, and dragging.
 On a touch device it renders the same searchable result as a list, because precise manipulation of a force graph is not the useful mobile interaction ([ADR-0025](../adr/0025-responsive-ui.md)).
+Opening an entity and returning restores the graph's query, wave, selection, layout, viewport, and page position for the current application session.
 
 ## Querying entities
 

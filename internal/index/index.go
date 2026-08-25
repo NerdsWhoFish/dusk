@@ -38,19 +38,19 @@ type DB struct {
 }
 
 type entityRow struct {
-	Repository  string `gorm:"primaryKey"`
-	GitRef      string `gorm:"primaryKey"`
-	Ref         string `gorm:"primaryKey"`
+	Repository  string `gorm:"primaryKey;index:idx_entities_observed_ref,priority:3;index:idx_entities_observed_kind_namespace,priority:4"`
+	GitRef      string `gorm:"primaryKey;index:idx_entities_observed_ref,priority:4;index:idx_entities_observed_kind_namespace,priority:5"`
+	Ref         string `gorm:"primaryKey;index:idx_entities_observed_ref,priority:2"`
 	Path        string
 	ContentHash string
 
 	// Observed marks a row an ingester saw rather than a human declared. It
 	// orders reads: a person who wrote something down beats a machine that
 	// inferred it, and without this the winner would be an ASCII accident.
-	Observed bool `gorm:"index"`
+	Observed bool `gorm:"index;index:idx_entities_observed_ref,priority:1;index:idx_entities_observed_kind_namespace,priority:1"`
 
-	Kind        string `gorm:"index"`
-	Namespace   string
+	Kind        string `gorm:"index;index:idx_entities_observed_kind_namespace,priority:2"`
+	Namespace   string `gorm:"index:idx_entities_observed_kind_namespace,priority:3"`
 	Name        string
 	Title       string
 	Description string
@@ -237,10 +237,10 @@ type Declaration struct {
 
 // aliasRow links a declared entity to what an ingester calls it.
 type aliasRow struct {
-	Repository string `gorm:"primaryKey"`
-	GitRef     string `gorm:"primaryKey"`
-	Ref        string `gorm:"primaryKey"`
-	Alias      string `gorm:"primaryKey;index"`
+	Repository string `gorm:"primaryKey;index:idx_aliases_ref_scope,priority:2;index:idx_aliases_alias_scope,priority:2"`
+	GitRef     string `gorm:"primaryKey;index:idx_aliases_ref_scope,priority:3;index:idx_aliases_alias_scope,priority:3"`
+	Ref        string `gorm:"primaryKey;index:idx_aliases_ref_scope,priority:1;index:idx_aliases_alias_scope,priority:4"`
+	Alias      string `gorm:"primaryKey;index;index:idx_aliases_ref_scope,priority:4;index:idx_aliases_alias_scope,priority:1"`
 }
 
 func (aliasRow) TableName() string { return "entity_aliases" }

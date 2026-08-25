@@ -40,6 +40,10 @@ This keeps the initial layout bounded without pretending the visible wave is the
 Selecting a node exposes its attached knowledge and preloads the full entity read.
 A node with knowledge is marked distinctly in the graph.
 
+Opening that entity is a drill-down rather than the end of the exploration session.
+The browser keeps the query, expansion wave, selected node, node coordinates, pan, zoom, and homepage scroll position outside the mounted graph component, then restores them when the operator returns.
+This state lasts for the current application session and deliberately resets on a full page reload.
+
 On a coarse pointer the same query renders as a searchable list and node briefing rather than instantiating the force graph.
 The entity and its knowledge remain reachable, satisfying [ADR-0025](0025-responsive-ui.md) without making touch interaction depend on precise dragging.
 
@@ -52,6 +56,7 @@ The entity and its knowledge remain reachable, satisfying [ADR-0025](0025-respon
 - Notes travel with their node, so the map shows operational knowledge rather than only topology.
 - Dynamic loading keeps Cytoscape.js out of the initial JavaScript chunk.
 - The touch fallback preserves the task instead of shrinking a desktop interaction until it is frustrating.
+- Returning from an entity preserves the map the operator already untangled instead of paying for another force layout and losing their place.
 
 ### Bad
 
@@ -59,6 +64,7 @@ The entity and its knowledge remain reachable, satisfying [ADR-0025](0025-respon
 - A force layout is not stable between graph changes, so this is an explorer rather than a diagram with durable coordinates.
 - The first wave emphasizes highly connected nodes and can under-represent isolated but important entities until they are searched or the map is expanded.
 - The graph payload is another HTTP request and can be large even though it omits descriptions and attributes.
+- Explorer state is process-local browser state, so a reload starts a new exploration rather than serializing coordinates and refs into durable storage.
 
 ### Rejected because
 
