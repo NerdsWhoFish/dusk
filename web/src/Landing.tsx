@@ -26,7 +26,10 @@ export function Landing({
   // Reloading is what closing a note from a block needs: the page carried the
   // proof token, and writing invalidates it along with what it described.
   const load = useCallback(() => {
-    api.home().then(setHome).catch(handle(setProblem));
+    api
+      .home({ onFresh: setHome, onError: handle(setProblem) })
+      .then(setHome)
+      .catch(handle(setProblem));
   }, []);
 
   useEffect(() => {
@@ -117,6 +120,11 @@ export function Landing({
             title: r.Title || r.Ref,
             sub: r.Snippet || r.Ref,
             tag: r.Kind,
+            onIntent: () => {
+              const preload =
+                r.Type === "note" ? api.prefetchNote(r.Ref) : api.prefetchEntity(r.Ref);
+              void preload.catch(() => undefined);
+            },
             onOpen: () => (r.Type === "note" ? onOpenNote(r.Ref) : onOpen(r.Ref)),
           }))}
           empty={`Nothing matches "${query.trim()}". The catalog only knows what a repository wrote down.`}

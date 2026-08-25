@@ -5,6 +5,7 @@ export type Row = {
   tag?: string;
   tagKind?: "rel";
   mono?: boolean;
+  onIntent?: () => void;
   onOpen: () => void;
 };
 
@@ -16,7 +17,15 @@ export function Rows({ items, empty }: { items: Row[]; empty: string }) {
   return (
     <div className="rows">
       {items.map((item) => (
-        <button key={item.key} className="row" type="button" onClick={item.onOpen}>
+        <button
+          key={item.key}
+          className="row"
+          type="button"
+          onMouseEnter={item.onIntent}
+          onFocus={item.onIntent}
+          onTouchStart={item.onIntent}
+          onClick={item.onOpen}
+        >
           <span className="row-main">
             <span className="row-title">{item.title}</span>
             {item.sub && (

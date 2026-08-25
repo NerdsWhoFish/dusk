@@ -53,6 +53,7 @@ func fixtureHome() string {
       {"Kind":"airport","Count":1406},
       {"Kind":"country","Count":195}
     ]},
+    {"type":"graph","title":"Estate map","wide":true},
     {"type":"entities","title":"Recently declared","entities":[
       {"ref":%q,"kind":"service","namespace":"platform","name":"checkout-api-gateway-replication-eu-west","title":"Checkout API gateway"},
       {"ref":"host:platform/build-runner-arm64-large-0007","kind":"host","namespace":"platform","name":"build-runner-arm64-large-0007"}
@@ -75,6 +76,24 @@ func fixtureHome() string {
     ]}
   ]
 }`, prose, fixtureKind, fixtureRef, fixtureRef)
+}
+
+func fixtureGraph() string {
+	return fmt.Sprintf(`{
+  "nodes": [
+    {"ref":%q,"kind":"service","title":"Checkout API gateway","notes":[
+      {"id":".dusk/gotcha-replication.md","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary."}
+    ]},
+    {"ref":"host:platform/build-runner-arm64-large-0007","kind":"host","title":"ARM build runner","notes":[]},
+    {"ref":"datastore:platform/checkout-primary-replica-set","kind":"datastore","title":"Checkout primary replica set","notes":[]},
+    {"ref":"service:platform/storefront","kind":"service","title":"Storefront","notes":[]}
+  ],
+  "relations": [
+    {"type":"runs_on","from":%[1]q,"to":"host:platform/build-runner-arm64-large-0007"},
+    {"type":"depends_on","from":%[1]q,"to":"datastore:platform/checkout-primary-replica-set"},
+    {"type":"serves","from":"service:platform/storefront","to":%[1]q}
+  ]
+}`, fixtureRef)
 }
 
 func fixtureEntity() string {
@@ -143,7 +162,7 @@ func fixtureEntity() string {
 // that never settles rather than as a layout nobody is measuring any more.
 func stubAPI() map[string]string {
 	return map[string]string{
-		"/api/viewer": `{"signed_in":true,"login":"octocat","restricted":true,"readable":3,"github":true}`,
+		"/api/viewer": `{"signed_in":true,"login":"octocat","restricted":true,"readable":3,"github":true,"cache_scope":"fixture"}`,
 
 		"/api/kinds": fmt.Sprintf(`{
   "roles": ["infrastructure", "reference"],
@@ -158,6 +177,7 @@ func stubAPI() map[string]string {
 }`, fixtureKind),
 
 		"/api/home":                   fixtureHome(),
+		"/api/graph":                  fixtureGraph(),
 		"/api/entities/" + fixtureRef: fixtureEntity(),
 
 		"/api/plugins": `{"plugins":[

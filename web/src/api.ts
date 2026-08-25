@@ -11,6 +11,18 @@ export type Entity = {
 
 export type Relation = { type: string; from: string; to: string };
 
+export type GraphNode = {
+  ref: string;
+  kind: string;
+  title: string;
+  notes: Note[];
+};
+
+export type EstateGraph = {
+  nodes: GraphNode[];
+  relations: Relation[];
+};
+
 export type Note = {
   id: string;
   kind: string;
@@ -216,6 +228,96 @@ async function get<T>(path: string): Promise<T> {
   return json<T>(response);
 }
 
+type Refresh<T> = {
+  onFresh?: (data: T) => void;
+  onError?: (error: unknown) => void;
+};
+
+const responseCache = new Map<string, unknown>();
+const refreshing = new Map<string, Promise<unknown>>();
+let cacheScope: string | undefined;
+
+// cachedGet paints the last answer from this browser session immediately and
+// always revalidates it. The cache shortens navigation without turning stale
+// data into a silent success: a changed answer replaces what is on screen, and
+// a failed refresh reaches the caller's ordinary error state.
+function cachedGet<T>(path: string, refresh: Refresh<T> = {}): Promise<T> {
+  const cached = cachedResponse<T>(path);
+  const fresh = refreshResponse<T>(path);
+
+  if (cached === undefined) {
+    return fresh;
+  }
+
+  void fresh
+    .then((data) => refresh.onFresh?.(data))
+    .catch((error) => refresh.onError?.(error));
+  return Promise.resolve(cached);
+}
+
+function refreshResponse<T>(path: string): Promise<T> {
+  const underway = refreshing.get(path) as Promise<T> | undefined;
+  if (underway) {
+    return underway;
+  }
+
+  const request = get<T>(path)
+    .then((data) => {
+      responseCache.set(path, data);
+      try {
+        sessionStorage.setItem(cacheKey(path), JSON.stringify(data));
+      } catch {
+        // Storage may be disabled or full. The in-memory cache still works,
+        // and a cache failure must never become a catalog failure.
+      }
+      return data;
+    })
+    .finally(() => refreshing.delete(path));
+  refreshing.set(path, request);
+  return request;
+}
+
+function cachedResponse<T>(path: string): T | undefined {
+  if (responseCache.has(path)) {
+    return responseCache.get(path) as T;
+  }
+  if (!cacheScope) {
+    return undefined;
+  }
+  try {
+    const stored = sessionStorage.getItem(cacheKey(path));
+    if (!stored) {
+      return undefined;
+    }
+    const data = JSON.parse(stored) as T;
+    responseCache.set(path, data);
+    return data;
+  } catch {
+    return undefined;
+  }
+}
+
+function invalidate(path: string) {
+  responseCache.delete(path);
+  try {
+    sessionStorage.removeItem(cacheKey(path));
+  } catch {
+    // See cachedGet: storage is an acceleration, never a requirement.
+  }
+}
+
+function cacheKey(path: string): string {
+  return `dusk:api:${cacheScope}:${path}`;
+}
+
+async function invalidating<T>(request: Promise<T>, paths: string[]): Promise<T> {
+  const answer = await request;
+  for (const path of paths) {
+    invalidate(path);
+  }
+  return answer;
+}
+
 export type KindCount = { Kind: string; Count: number };
 
 // KindInfo is what a kind is for and what else it is called. The role is
@@ -282,6 +384,7 @@ export type ResolvedBlock = {
     | "integrity"
     | "kinds"
     | "reads"
+    | "graph"
     | "view";
   plugin?: string;
   element?: string;
@@ -319,6 +422,7 @@ export type Viewer = {
   restricted: boolean;
   readable?: number;
   github: boolean;
+  cache_scope: string;
 };
 
 export type PluginField = {
@@ -403,21 +507,36 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
-  viewer: () => get<Viewer>("/viewer"),
+  viewer: () =>
+    get<Viewer>("/viewer").then((viewer) => {
+      cacheScope = viewer.cache_scope;
+      responseCache.clear();
+      return viewer;
+    }),
   plugins: () =>
     get<{ plugins: PluginOffer[]; problem?: string; checked?: string }>("/plugins"),
   refreshPlugins: () =>
     post<{ plugins: PluginOffer[]; checked?: string }>("/plugins/refresh"),
   install: (id: string) =>
-    post<{ id: string; version: string }>(
-      `/plugins/${encodeURIComponent(id)}/install`,
+    invalidating(
+      post<{ id: string; version: string }>(`/plugins/${encodeURIComponent(id)}/install`),
+      ["/home", "/graph"],
     ),
   uninstall: (id: string) =>
-    post<{ uninstalled: string }>(`/plugins/${encodeURIComponent(id)}/uninstall`),
+    invalidating(
+      post<{ uninstalled: string }>(`/plugins/${encodeURIComponent(id)}/uninstall`),
+      ["/home", "/graph"],
+    ),
   restartPlugin: (id: string) =>
-    post<{ restarted: string }>(`/plugins/${encodeURIComponent(id)}/restart`),
+    invalidating(
+      post<{ restarted: string }>(`/plugins/${encodeURIComponent(id)}/restart`),
+      ["/home", "/graph"],
+    ),
   forget: (scope: string) =>
-    post<{ forgot: string }>("/observations/forget", { scope }),
+    invalidating(post<{ forgot: string }>("/observations/forget", { scope }), [
+      "/home",
+      "/graph",
+    ]),
   configure: (
     id: string,
     config: PluginConfig,
@@ -425,16 +544,20 @@ export const api = {
     proof: string,
     instance?: string,
   ) =>
-    post<{ configured: string }>(
-      instance
-        ? `/plugins/${encodeURIComponent(id)}/config/${encodeURIComponent(instance)}`
-        : `/plugins/${encodeURIComponent(id)}/config`,
-      { settings: config, version, proof },
+    invalidating(
+      post<{ configured: string }>(
+        instance
+          ? `/plugins/${encodeURIComponent(id)}/config/${encodeURIComponent(instance)}`
+          : `/plugins/${encodeURIComponent(id)}/config`,
+        { settings: config, version, proof },
+      ),
+      ["/home", "/graph"],
     ),
-  home: () => get<Home>("/home"),
+  home: (refresh?: Refresh<Home>) => cachedGet<Home>("/home", refresh),
+  graph: (refresh?: Refresh<EstateGraph>) => cachedGet<EstateGraph>("/graph", refresh),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),
-  kinds: () => get<Vocabulary>("/kinds"),
+  kinds: (refresh?: Refresh<Vocabulary>) => cachedGet<Vocabulary>("/kinds", refresh),
   entities: (kind?: string) =>
     get<{ entities: Entity[] }>(
       kind ? `/entities?kind=${encodeURIComponent(kind)}` : "/entities",
@@ -444,20 +567,31 @@ export const api = {
     get<{ results: SearchResult[]; total: number }>(
       `/search?q=${encodeURIComponent(query)}`,
     ),
-  entity: (ref: string) =>
-    get<EntityDetail>(`/entities/${encodeURIComponent(ref)}`),
-  note: (id: string) => get<NoteDetail>(`/notes/${encodeURIComponent(id)}`),
+  entity: (ref: string, refresh?: Refresh<EntityDetail>) =>
+    cachedGet<EntityDetail>(`/entities/${encodeURIComponent(ref)}`, refresh),
+  note: (id: string, refresh?: Refresh<NoteDetail>) =>
+    cachedGet<NoteDetail>(`/notes/${encodeURIComponent(id)}`, refresh),
+  prefetchEntity: (ref: string) =>
+    refreshResponse<EntityDetail>(`/entities/${encodeURIComponent(ref)}`).then(() => undefined),
+  prefetchNote: (id: string) =>
+    refreshResponse<NoteDetail>(`/notes/${encodeURIComponent(id)}`).then(() => undefined),
   status: () => get<{ repositories: RepositoryStatus[] }>("/status"),
 
   invoke: (ref: string, action: string, body: Invocation) =>
-    post<Outcome>(
-      `/entities/${encodeURIComponent(ref)}/actions/${encodeURIComponent(action)}`,
-      body,
+    invalidating(
+      post<Outcome>(
+        `/entities/${encodeURIComponent(ref)}/actions/${encodeURIComponent(action)}`,
+        body,
+      ),
+      ["/home", "/graph", `/entities/${encodeURIComponent(ref)}`],
     ),
   invokePlugin: (id: string, action: string, body: Invocation) =>
-    post<Outcome>(
-      `/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}`,
-      body,
+    invalidating(
+      post<Outcome>(
+        `/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}`,
+        body,
+      ),
+      ["/home", "/graph"],
     ),
   enableAction: (id: string, action: string, enabled: boolean) =>
     post<{ enabled: boolean }>(
@@ -473,7 +607,11 @@ export const api = {
       `/events?limit=${limit}${ref ? `&ref=${encodeURIComponent(ref)}` : ""}`,
     ),
   closeNote: (id: string, status: "done" | "dropped", proof?: string) =>
-    post<Closed>("/notes/status", { id, status, proof }),
+    invalidating(post<Closed>("/notes/status", { id, status, proof }), [
+      "/home",
+      "/graph",
+      `/notes/${encodeURIComponent(id)}`,
+    ]),
   output: (id: string) =>
     get<{ output: OutputLine[] }>(`/plugins/${encodeURIComponent(id)}/output`),
 };

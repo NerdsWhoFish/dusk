@@ -28,7 +28,10 @@ export function EntityView({
     setProblem(null);
 
     api
-      .entity(entityRef)
+      .entity(entityRef, {
+        onFresh: (data) => live && setDetail(data),
+        onError: handle((message) => live && setProblem(message)),
+      })
       .then((data) => live && setDetail(data))
       .catch(handle((message) => live && setProblem(message)));
 

@@ -24,6 +24,7 @@ export function App() {
   const [note, setNote] = useState(() => noteFromPath(location.pathname));
   const [path, setPath] = useState(() => location.pathname);
   const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [viewerReady, setViewerReady] = useState(false);
 
   useEffect(() => {
     const onPop = () => {
@@ -36,7 +37,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    api.viewer().then(setViewer).catch(() => setViewer(null));
+    api
+      .viewer()
+      .then(setViewer)
+      .catch(() => setViewer(null))
+      .finally(() => setViewerReady(true));
   }, []);
 
   const open = useCallback((next: string | null) => {
@@ -90,7 +95,7 @@ export function App() {
         </div>
       </header>
 
-      {path === "/plugins" ? (
+      {!viewerReady ? null : path === "/plugins" ? (
         <Plugins />
       ) : ref ? (
         <EntityView entityRef={ref} onOpen={open} />

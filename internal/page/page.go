@@ -40,13 +40,18 @@ const (
 	// TypeReads reports what Dusk last read, per repository.
 	TypeReads Type = "reads"
 
+	// TypeGraph mounts the estate explorer. Its graph-shaped query is deferred
+	// to /api/graph so the homepage can become useful before the full estate
+	// payload arrives.
+	TypeGraph Type = "graph"
+
 	// TypeView mounts a plugin's own custom element, the same one an entity
 	// page gets, so a plugin's view is not confined to the thing it is about.
 	TypeView Type = "view"
 )
 
 // Types are the block types a page may declare.
-var Types = []Type{TypeEntities, TypeNotes, TypeDrift, TypeIntegrity, TypeKinds, TypeReads, TypeView}
+var Types = []Type{TypeEntities, TypeNotes, TypeDrift, TypeIntegrity, TypeKinds, TypeReads, TypeGraph, TypeView}
 
 // Block is one declared query.
 type Block struct {
@@ -134,6 +139,7 @@ type Catalog interface {
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Kinds(ctx context.Context, gitRef string, v index.Visibility) ([]index.KindCount, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
+	ScopeCounts(ctx context.Context) ([]index.ScopeCount, error)
 }
 
 // Default is the page shown when the config repository declares none. It has
@@ -147,6 +153,7 @@ func Default() Page {
 		Title: "Home",
 		Blocks: []Block{
 			{Type: TypeKinds},
+			{Type: TypeGraph, Title: "Estate map", Wide: true},
 			{Type: TypeDrift, Title: "Drifted", Limit: 6},
 			{Type: TypeReads, Title: "What Dusk has read"},
 			{Type: TypeNotes, Title: "Recent notes", Limit: 5, Wide: true},
@@ -185,6 +192,10 @@ func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visib
 		out.Kinds, err = catalog.Kinds(ctx, "", v)
 	case TypeReads:
 		out.Reads, err = readsFor(ctx, catalog)
+	case TypeGraph:
+		// The graph is resolved by its dedicated endpoint after the page has
+		// painted. Returning it here would make every homepage wait for the
+		// largest read it contains.
 	case TypeView:
 		out.Entities, out.Truncated, err = viewFor(ctx, catalog, block)
 	default:
@@ -299,20 +310,16 @@ func driftFor(ctx context.Context, catalog Catalog, block Block, v index.Visibil
 }
 
 func readsFor(ctx context.Context, catalog Catalog) ([]Read, error) {
-	scopes, err := catalog.Scopes(ctx)
+	scopes, err := catalog.ScopeCounts(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	reads := make([]Read, 0, len(scopes))
 	for _, scope := range scopes {
-		entities, err := catalog.List(ctx, scope.GitRef, "")
-		if err != nil {
-			return nil, err
-		}
 		reads = append(reads, Read{
 			Repository: scope.Repository,
-			Entities:   len(entities),
+			Entities:   scope.Entities,
 			Observed:   index.IsObserved(scope.Repository),
 		})
 	}
@@ -401,6 +408,8 @@ func defaultTitle(t Type) string {
 		return "Kinds"
 	case TypeReads:
 		return "What Dusk has read"
+	case TypeGraph:
+		return "Estate map"
 	}
 	return string(t)
 }

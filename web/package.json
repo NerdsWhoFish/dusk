@@ -8,12 +8,14 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "cytoscape": "^3.34.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@types/cytoscape": "^3.21.9",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",
