@@ -23,6 +23,7 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **Release pipeline**: [Quill](https://github.com/TheOutdoorProgrammer/quill) with `publish: docker`, so the version arithmetic, the branch guard, the dry run, the tag, the multi-arch push to GHCR, the GitHub release and the untag-on-failure are one action rather than 150 lines of workflow. The reasoning that rejected GoReleaser for a service with no binaries does not transfer to quill, whose docker publisher is exactly the part Dusk has. `internal/nextversion` is deleted rather than kept beside quill's identical rules. The clean-volume smoke test moved **ahead** of the tag, against a locally loaded build: everything it proves is a fact about the image and none of it is a fact about GHCR, and quill writing the release itself means a failure after it would leave both a tag and a release behind ([0021](../adr/0021-release-tooling.md))
 - [x] **Helm chart**: `NerdsWhoFish/charts`, publishes itself ([0019](../adr/0019-chart-repo.md), [0024](../adr/0024-charts-publishes-charts.md))
 - [x] **CI**: lint, vet, no-cgo build, race tests on every PR and push ([0017](../adr/0017-engineering-policy.md))
+- [x] **Runtime telemetry**: stable OpenTelemetry SDK instrumentation traces inbound and outbound HTTP through a vendor-neutral collector, propagates W3C context, and correlates context-aware structured logs without giving the application a backend credential ([0080](../adr/0080-runtime-telemetry-uses-explicit-opentelemetry-sdks.md))
 
 ## Onboarding
 

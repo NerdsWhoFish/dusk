@@ -25,6 +25,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 	"github.com/NerdsWhoFish/dusk/internal/server"
 	"github.com/NerdsWhoFish/dusk/internal/store"
+	"github.com/NerdsWhoFish/dusk/internal/telemetry"
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
@@ -114,8 +115,17 @@ func genkeyCommand() *cli.Command {
 }
 
 func serve(parent context.Context) error {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	log := slog.New(telemetry.LogHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	shutdownTelemetry, err := telemetry.Start(parent, "dusk", version, log)
+	if err != nil {
+		return fmt.Errorf("start telemetry: %w", err)
+	}
+	defer stopTelemetry(parent, log, shutdownTelemetry)
 
+	return run(parent, log)
+}
+
+func run(parent context.Context, log *slog.Logger) error {
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		return fmt.Errorf("configuration:\n%w", err)
@@ -135,9 +145,10 @@ func serve(parent context.Context) error {
 	}
 	defer func() { _ = idx.Close() }()
 
+	github := &githubapp.Client{HTTP: telemetry.HTTPClient(30 * time.Second)}
 	catalog, err := controller.New(controller.Options{
 		Index:       idx,
-		Client:      &githubapp.Client{},
+		Client:      github,
 		Credentials: credentials,
 		Accounts:    cfg.AllowedAccounts,
 		PrivateHost: cfg.PrivateHost,
@@ -159,7 +170,7 @@ func serve(parent context.Context) error {
 
 	plugins := &plugin.Manager{
 		Store:   &plugin.Store{Dir: filepath.Join(cfg.DataDir, "plugins"), Master: master},
-		Market:  &plugin.Market{Orgs: cfg.PluginOrgs, Token: appToken(credentials, &githubapp.Client{})},
+		Market:  &plugin.Market{Orgs: cfg.PluginOrgs, Token: appToken(credentials, github), HTTP: telemetry.HTTPClient(30 * time.Second)},
 		Rota:    observers,
 		Log:     log,
 		Catalog: idx,
@@ -206,7 +217,7 @@ func serve(parent context.Context) error {
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           srv.Handler(),
+		Handler:           telemetry.HTTPHandler(srv.Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -243,6 +254,14 @@ func serve(parent context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
+	}
+}
+
+func stopTelemetry(parent context.Context, log *slog.Logger, shutdown telemetry.Shutdown) {
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+	defer cancel()
+	if err := shutdown(shutdownCtx); err != nil {
+		log.Error("shut down telemetry", "error", err)
 	}
 }
 

@@ -135,6 +135,9 @@ The chart intentionally keeps one replica and uses `Recreate` because SQLite and
 | `DUSK_PLUGIN_ORGS` | `NerdsWhoFish` | Comma-separated organizations trusted to publish executable plugins |
 | `DUSK_PROOF_TTL` | `1h` | Maximum age of a read-before-write proof |
 | `DUSK_MCP_SESSION_TIMEOUT` | `30m` | Idle lifetime of an MCP session |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP collector endpoint; leaving it unset disables telemetry |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP transport protocol when telemetry is enabled |
+| `OTEL_RESOURCE_ATTRIBUTES` | unset | Comma-separated OpenTelemetry resource attributes such as the deployment environment |
 
 Run `docker run --rm ghcr.io/nerdswhofish/dusk:latest serve --help` for the boot-time reference carried by the artifact itself.
 
