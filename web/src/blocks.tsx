@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { api, type Drift, type Problem, type ResolvedBlock } from "./api";
 import { Block } from "./Block";
+import { EstateGraph } from "./EstateGraph";
 import { Notes } from "./Notes";
 import { PluginBlock } from "./PluginView";
 import { Rows } from "./Rows";
@@ -43,6 +44,9 @@ export function renderBlock(
           <Truncated block={block} />
         </Block>
       );
+
+    case "graph":
+      return <EstateGraph key={block.title} title={block.title} onOpen={onOpen} />;
 
     case "recent-notes":
       return (
@@ -250,4 +254,3 @@ function Forget({ scope }: { scope: string }) {
 function seenBy(scope: string): string {
   return scope.replace(/^ingester:/, "");
 }
-

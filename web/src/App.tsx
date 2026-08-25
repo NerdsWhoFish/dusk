@@ -4,6 +4,7 @@ import type { Viewer } from "./api";
 import { EntityView } from "./EntityView";
 import { Landing } from "./Landing";
 import { Menu } from "./Menu";
+import { NoteView } from "./NoteView";
 import { Plugins } from "./Plugins";
 
 // The route is the URL, read and written directly. A router is a dependency
@@ -13,14 +14,22 @@ function refFromPath(path: string): string | null {
   return ref ? decodeURIComponent(ref) : null;
 }
 
+function noteFromPath(path: string): string | null {
+  const id = path.startsWith("/note/") ? path.slice("/note/".length) : "";
+  return id ? decodeURIComponent(id) : null;
+}
+
 export function App() {
   const [ref, setRef] = useState(() => refFromPath(location.pathname));
+  const [note, setNote] = useState(() => noteFromPath(location.pathname));
   const [path, setPath] = useState(() => location.pathname);
   const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [viewerReady, setViewerReady] = useState(false);
 
   useEffect(() => {
     const onPop = () => {
       setRef(refFromPath(location.pathname));
+      setNote(noteFromPath(location.pathname));
       setPath(location.pathname);
     };
     addEventListener("popstate", onPop);
@@ -28,13 +37,27 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    api.viewer().then(setViewer).catch(() => setViewer(null));
+    api
+      .viewer()
+      .then(setViewer)
+      .catch(() => setViewer(null))
+      .finally(() => setViewerReady(true));
   }, []);
 
   const open = useCallback((next: string | null) => {
     const target = next ? `/entity/${encodeURIComponent(next)}` : "/";
     history.pushState(null, "", target);
     setRef(next);
+    setNote(null);
+    setPath(target);
+    scrollTo(0, 0);
+  }, []);
+
+  const openNote = useCallback((next: string) => {
+    const target = `/note/${encodeURIComponent(next)}`;
+    history.pushState(null, "", target);
+    setRef(null);
+    setNote(next);
     setPath(target);
     scrollTo(0, 0);
   }, []);
@@ -42,6 +65,7 @@ export function App() {
   const go = useCallback((target: string) => {
     history.pushState(null, "", target);
     setRef(null);
+    setNote(null);
     setPath(target);
     scrollTo(0, 0);
   }, []);
@@ -71,12 +95,14 @@ export function App() {
         </div>
       </header>
 
-      {path === "/plugins" ? (
+      {!viewerReady ? null : path === "/plugins" ? (
         <Plugins />
       ) : ref ? (
         <EntityView entityRef={ref} onOpen={open} />
+      ) : note ? (
+        <NoteView noteId={note} onBack={() => open(null)} />
       ) : (
-        <Landing onOpen={open} />
+        <Landing onOpen={open} onOpenNote={openNote} />
       )}
     </div>
   );

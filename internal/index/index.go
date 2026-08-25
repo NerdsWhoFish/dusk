@@ -566,6 +566,28 @@ func (db *DB) Scopes(ctx context.Context) ([]Scope, error) {
 	return scopes, nil
 }
 
+// ScopeCount is one materialized partition and its entity count.
+type ScopeCount struct {
+	Repository string
+	GitRef     string
+	Entities   int
+}
+
+// ScopeCounts answers the portal's source summary in one aggregate read.
+// Scopes remains the identity-only set the controller uses as map keys.
+func (db *DB) ScopeCounts(ctx context.Context) ([]ScopeCount, error) {
+	var counts []ScopeCount
+	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
+		Select("repository, git_ref, count(*) as entities").
+		Group("repository, git_ref").
+		Order("repository, git_ref").
+		Find(&counts).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: count scopes: %w", err)
+	}
+	return counts, nil
+}
+
 // LastRead reports when each partition in the default view was last read, keyed
 // by the repository slot, so an ingester's scope is dated like a repository. It
 // is ADR-0011's observed_at, stored with the content, so it survives a restart.

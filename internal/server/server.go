@@ -260,8 +260,10 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) apiRoutes() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /search", s.handleAPISearch)
+	api.HandleFunc("GET /graph", s.handleAPIGraph)
 	api.HandleFunc("GET /entities", s.handleAPIEntities)
 	api.HandleFunc("GET /entities/{ref}", s.handleAPIEntity)
+	api.HandleFunc("GET /notes/{id}", s.handleAPINote)
 	api.HandleFunc("GET /entities/{ref}/dependents", s.handleAPIDependents)
 	api.HandleFunc("GET /status", s.handleAPIStatus)
 	api.HandleFunc("GET /overview", s.handleAPIOverview)

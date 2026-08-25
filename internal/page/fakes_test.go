@@ -48,7 +48,8 @@ func (failing) Neighbors(context.Context, string, string) ([]*duskv1alpha1.Relat
 	return nil, errBroken
 }
 
-func (failing) Scopes(context.Context) ([]index.Scope, error) { return nil, errBroken }
+func (failing) Scopes(context.Context) ([]index.Scope, error)           { return nil, errBroken }
+func (failing) ScopeCounts(context.Context) ([]index.ScopeCount, error) { return nil, errBroken }
 
 // recording captures what a block actually asked the catalog.
 type recording struct{}
@@ -57,6 +58,8 @@ var recorded struct {
 	searched, searchedKind, listedKind, neighborsOf string
 	relations                                       []*duskv1alpha1.Relation
 	listed                                          []*duskv1alpha1.Entity
+	scopeCounts                                     []index.ScopeCount
+	listCalls                                       int
 
 	// asked is the visibility each aggregate block handed the catalog, keyed
 	// by block type, so a block that drops the viewer is visible as a gap.
@@ -77,6 +80,7 @@ func (*recording) Search(_ context.Context, _ string, filter index.SearchFilter)
 }
 
 func (*recording) List(_ context.Context, _, kind string) ([]*duskv1alpha1.Entity, error) {
+	recorded.listCalls++
 	recorded.listedKind = kind
 	return recorded.listed, nil
 }
@@ -105,6 +109,9 @@ func (*recording) Kinds(_ context.Context, _ string, v index.Visibility) ([]inde
 }
 
 func (*recording) Scopes(context.Context) ([]index.Scope, error) { return nil, nil }
+func (*recording) ScopeCounts(context.Context) ([]index.ScopeCount, error) {
+	return recorded.scopeCounts, nil
+}
 
 // Neighbors backs a `related:` query. It returns whatever relations the test
 // gave it, regardless of ref, because what is under test is the filtering.

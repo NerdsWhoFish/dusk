@@ -125,6 +125,31 @@ func TestDefaultPageNeedsNoDeclaration(t *testing.T) {
 	}
 }
 
+func TestReadsBlockUsesOneAggregateInsteadOfLoadingEveryEntityPerScope(t *testing.T) {
+	recorded.scopeCounts = []index.ScopeCount{
+		{Repository: "example/homelab", GitRef: "refs/heads/main", Entities: 93},
+		{Repository: index.ObservedScope("kubernetes"), GitRef: "refs/dusk/observed", Entities: 1979},
+	}
+	recorded.listCalls = 0
+	t.Cleanup(func() {
+		recorded.scopeCounts = nil
+		recorded.listCalls = 0
+	})
+
+	resolved := page.Resolve(t.Context(), &recording{}, page.Page{
+		Blocks: []page.Block{{Type: page.TypeReads}},
+	}, index.Unrestricted())
+	if resolved[0].Err != "" {
+		t.Fatalf("resolve reads: %s", resolved[0].Err)
+	}
+	if recorded.listCalls != 0 {
+		t.Fatalf("reads loaded all entities %d time(s), want one aggregate query", recorded.listCalls)
+	}
+	if len(resolved[0].Reads) != 2 || resolved[0].Reads[1].Entities != 1979 {
+		t.Fatalf("reads = %+v, want the counts returned by the index", resolved[0].Reads)
+	}
+}
+
 func TestQuerySplitsKindFromWords(t *testing.T) {
 	resolved := page.Resolve(t.Context(), &recording{}, page.Page{
 		Blocks: []page.Block{{Type: page.TypeEntities, Query: "kind:service jellyfin"}},

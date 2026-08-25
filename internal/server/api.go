@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,12 +33,14 @@ type Catalog interface {
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
+	Graph(ctx context.Context, gitRef string, v index.Visibility) (index.Graph, error)
 	Kinds(ctx context.Context, gitRef string, v index.Visibility) ([]index.KindCount, error)
 
 	// Minted is the overlay a mint writes: a role and aliases, and no counts,
 	// so it needs no visibility of its own.
 	Minted(ctx context.Context, gitRef string) ([]vocab.Kind, error)
 	Scopes(ctx context.Context) ([]index.Scope, error)
+	ScopeCounts(ctx context.Context) ([]index.ScopeCount, error)
 	Integrity(ctx context.Context, gitRef string, v index.Visibility) ([]index.Problem, error)
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
@@ -89,6 +93,13 @@ type noteJSON struct {
 	Status string `json:"status,omitempty"`
 }
 
+type graphNodeJSON struct {
+	Ref   string     `json:"ref"`
+	Kind  string     `json:"kind"`
+	Title string     `json:"title"`
+	Notes []noteJSON `json:"notes"`
+}
+
 func asEntity(e *duskv1alpha1.Entity) entityJSON {
 	out := entityJSON{
 		Ref: e.GetRef(), Kind: e.GetKind(), Namespace: e.GetNamespace(),
@@ -137,6 +148,57 @@ func asNotes(notes []*duskv1alpha1.Note) []noteJSON {
 		out = append(out, entry)
 	}
 	return out
+}
+
+// handleAPIGraph answers the estate as a lean graph payload. Entity detail is
+// deliberately absent: the map needs identity, edges, and attached knowledge;
+// opening a node is the read that asks for everything else.
+func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
+	graph, err := s.catalog.Graph(r.Context(), refOf(r), s.visibilityFor(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	nodes := make([]graphNodeJSON, 0, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		title := node.Entity.GetTitle()
+		if title == "" {
+			title = node.Entity.GetName()
+		}
+		nodes = append(nodes, graphNodeJSON{
+			Ref: node.Entity.GetRef(), Kind: node.Entity.GetKind(), Title: title,
+			Notes: asNotes(node.Notes),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"nodes": nodes, "relations": asRelations(graph.Relations),
+	})
+}
+
+// handleAPINote answers GET /api/notes/{id}. Search covers entities and notes,
+// so each hit needs a real destination of its own rather than pretending a
+// note path is an entity ref.
+func (s *Server) handleAPINote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	notes, err := s.catalog.Notes(r.Context(), refOf(r), index.NoteFilter{Id: id, Limit: 1})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(notes) == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such note", "id": id})
+		return
+	}
+
+	answer := map[string]any{"note": asNotes(notes)[0]}
+	if s.tokens != nil {
+		answer["proof"] = s.tokens.Issue(proof.FromGet, map[string]string{
+			id: notes[0].GetContentHash(),
+		}).ID
+	}
+	writeJSON(w, http.StatusOK, answer)
 }
 
 // handleAPISearch answers GET /api/search?q=&kind=&limit=
@@ -459,20 +521,30 @@ func (s *Server) handleAPIViewer(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.signedInAs(r)
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"signed_in":  false,
-			"restricted": false,
-			"github":     s.oauth.Configured(),
+			"signed_in":   false,
+			"restricted":  false,
+			"github":      s.oauth.Configured(),
+			"cache_scope": "public",
 		})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"signed_in":  true,
-		"login":      identity.Login,
-		"restricted": true,
-		"readable":   len(identity.Readable),
-		"github":     true,
+		"signed_in":   true,
+		"login":       identity.Login,
+		"restricted":  true,
+		"readable":    len(identity.Readable),
+		"github":      true,
+		"cache_scope": viewerCacheScope(identity.Login, identity.Readable, s.cfg.ShowObservedToEveryone),
 	})
+}
+
+func viewerCacheScope(login string, readable []string, observed bool) string {
+	repositories := slices.Clone(readable)
+	slices.Sort(repositories)
+	material := login + "\x00" + strings.Join(repositories, "\x00") + "\x00" + strconv.FormatBool(observed)
+	sum := sha256.Sum256([]byte(material))
+	return hex.EncodeToString(sum[:])
 }
 
 // handleAPIIntegrity answers GET /api/integrity: what is wrong with the graph
