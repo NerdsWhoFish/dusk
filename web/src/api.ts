@@ -141,6 +141,11 @@ export type EntityDetail = {
   proof?: string;
 };
 
+export type NoteDetail = {
+  note: Note;
+  proof?: string;
+};
+
 export type Dependent = { Ref: string; Depth: number };
 
 export type EntitySource = {
@@ -441,6 +446,7 @@ export const api = {
     ),
   entity: (ref: string) =>
     get<EntityDetail>(`/entities/${encodeURIComponent(ref)}`),
+  note: (id: string) => get<NoteDetail>(`/notes/${encodeURIComponent(id)}`),
   status: () => get<{ repositories: RepositoryStatus[] }>("/status"),
 
   invoke: (ref: string, action: string, body: Invocation) =>

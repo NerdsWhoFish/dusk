@@ -139,6 +139,30 @@ func asNotes(notes []*duskv1alpha1.Note) []noteJSON {
 	return out
 }
 
+// handleAPINote answers GET /api/notes/{id}. Search covers entities and notes,
+// so each hit needs a real destination of its own rather than pretending a
+// note path is an entity ref.
+func (s *Server) handleAPINote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	notes, err := s.catalog.Notes(r.Context(), refOf(r), index.NoteFilter{Id: id, Limit: 1})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(notes) == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such note", "id": id})
+		return
+	}
+
+	answer := map[string]any{"note": asNotes(notes)[0]}
+	if s.tokens != nil {
+		answer["proof"] = s.tokens.Issue(proof.FromGet, map[string]string{
+			id: notes[0].GetContentHash(),
+		}).ID
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
 // handleAPISearch answers GET /api/search?q=&kind=&limit=
 func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))

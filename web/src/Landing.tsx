@@ -9,7 +9,13 @@ import { Rows } from "./Rows";
 import { group, useVocabulary } from "./vocabulary";
 import type { KindGroup } from "./vocabulary";
 
-export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
+export function Landing({
+  onOpen,
+  onOpenNote,
+}: {
+  onOpen: (ref: string) => void;
+  onOpenNote: (id: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<string | null>(null);
   const [home, setHome] = useState<Home | null>(null);
@@ -111,7 +117,7 @@ export function Landing({ onOpen }: { onOpen: (ref: string) => void }) {
             title: r.Title || r.Ref,
             sub: r.Snippet || r.Ref,
             tag: r.Kind,
-            onOpen: () => onOpen(r.Ref),
+            onOpen: () => (r.Type === "note" ? onOpenNote(r.Ref) : onOpen(r.Ref)),
           }))}
           empty={`Nothing matches "${query.trim()}". The catalog only knows what a repository wrote down.`}
         />
