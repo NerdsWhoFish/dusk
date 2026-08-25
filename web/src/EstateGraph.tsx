@@ -21,6 +21,7 @@ const explorerMemory: {
   positions: Map<string, GraphPosition>;
   pan?: GraphPosition;
   zoom?: number;
+  viewportQuery?: string;
   scrollY: number;
   restoreScroll: boolean;
 } = {
@@ -150,7 +151,7 @@ export function EstateGraph({
           <p className="quiet">Nothing is in the estate yet.</p>
         ) : (
           <>
-            <GraphCanvas view={view} selected={selected} onSelect={setSelected} />
+            <GraphCanvas view={view} query={query} selected={selected} onSelect={setSelected} />
             <GraphList view={view} onSelect={setSelected} />
             <p className="graph-help">
               Drag nodes to untangle a cluster. Scroll to zoom. Search reaches the whole estate,
@@ -245,10 +246,12 @@ function addNeighbor(neighbors: Map<string, Set<string>>, from: string, to: stri
 
 function GraphCanvas({
   view,
+  query,
   selected,
   onSelect,
 }: {
   view: GraphView;
+  query: string;
   selected?: string;
   onSelect: (ref: string) => void;
 }) {
@@ -351,9 +354,12 @@ function GraphCanvas({
           node.position(position);
         }
       });
-      if (explorerMemory.pan && explorerMemory.zoom !== undefined) {
+      if (explorerMemory.viewportQuery !== query) {
+        cy.fit(cy.elements(), 32);
+      } else if (explorerMemory.pan && explorerMemory.zoom !== undefined) {
         cy.viewport({ pan: explorerMemory.pan, zoom: explorerMemory.zoom });
       }
+      explorerMemory.viewportQuery = query;
       const rememberedSelection = explorerMemory.selected;
       if (rememberedSelection) {
         cy.getElementById(rememberedSelection).select();
@@ -373,7 +379,7 @@ function GraphCanvas({
       instance.current?.destroy();
       instance.current = null;
     };
-  }, [view, onSelect]);
+  }, [view, query, onSelect]);
 
   useEffect(() => {
     if (!instance.current || !selected) {
