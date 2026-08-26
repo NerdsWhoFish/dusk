@@ -72,10 +72,7 @@ The order is not accidental: it pairs a tall block with a short one, because two
 
 Every block takes `title` and `wide`. `wide` is a hint asking for the full width, not a layout: blocks stay queries.
 
-Every block resolves for whoever is looking.
-A page declares one set of blocks and a restricted viewer gets their own answer to each: `entities` lists only what they can read, and `kinds`, `drift` and `integrity` count and compare only over that same half ([ADR-0051](../adr/0051-a-count-is-of-what-the-viewer-can-see.md)).
-Two people can therefore see different numbers on one declared page, which is the point rather than a bug.
-`reads` is the exception and still names every repository.
+Every block resolves against the complete operator catalog. GitHub and token sessions receive the same answer ([ADR-0084](../adr/0084-github-login-grants-the-complete-operator-view.md)).
 
 The graph loads after the rest of the page rather than riding inside the home response.
 It starts with the most connected part of the estate, says exactly how many nodes are visible, and searches the whole graph even when a node is outside that first wave.

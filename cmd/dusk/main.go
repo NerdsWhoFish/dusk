@@ -90,13 +90,8 @@ func serveCommand() *cli.Command {
                         needs its own dusk.md, like any other. Unset means a
                         note cannot be written; reading them still works.
   DUSK_GITHUB_CLIENT_ID, DUSK_GITHUB_CLIENT_SECRET
-                        An OAuth app, enabling sign-in with GitHub. A viewer
-                        then sees only what the repositories they can read
-                        declared. The bearer token still sees everything.
-  DUSK_OBSERVED_VISIBLE_TO_ALL
-                        Set to true to show entities no repository backs to
-                        every signed-in viewer. They have no natural access
-                        control, so they are hidden unless you say this.
+			An OAuth app, enabling full operator sign-in with GitHub.
+			The registered GitHub App provides these automatically.
   DUSK_AI_BASE_URL      Optional OpenAI-compatible API base URL, including /v1.
   DUSK_AI_API_KEY       Provider credential. Required with DUSK_AI_BASE_URL.
   DUSK_AI_MODELS        Comma-separated model allowlist shown in search.

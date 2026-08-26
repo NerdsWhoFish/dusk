@@ -89,7 +89,7 @@ Set exactly one agent access mode.
 - `DUSK_MCP_TOKEN` requires a bearer token and is the normal choice.
 - `DUSK_TRUSTED_NETWORK=true` removes authentication from `/mcp`, including mutations, and is appropriate only when every host that can reach Dusk is trusted as the operator.
 
-The browser accepts the same token at `/login`.
+The browser starts with GitHub login when the registered App is available and grants the complete operator view. `/login?method=token` accepts the same token as a recovery path.
 An MCP client connects to `$DUSK_PRIVATE_HOST/mcp` and sends `Authorization: Bearer $DUSK_MCP_TOKEN`.
 See [the MCP guide](mcp.md) for client configuration and the complete tool contract.
 

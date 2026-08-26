@@ -4,7 +4,7 @@ Date: 2026-08-13
 
 ## Status
 
-Accepted. Extends [ADR-0012](0012-viewing-auth.md) and [ADR-0036](0036-deriving-what-a-viewer-sees.md).
+Superseded by [ADR-0084](0084-github-login-grants-the-complete-operator-view.md).
 
 ## Context and Problem Statement
 

@@ -144,9 +144,13 @@ daily safety sweep.</p>
 
 {{define "login"}}{{template "head"}}
 <h1>Dusk</h1>
-<p class="sub">You and your agents share this catalog and its operational memory.
-The browser is behind the same token as the agent surface.</p>
+<p class="sub">Sign in as the operator to use the complete catalog and its
+operational memory.</p>
+{{if .LoggedOut}}<p class="hint">Signed out.</p>{{end}}
+{{if .GitHub}}<a class="btn" href="/auth/github">Continue with GitHub</a>{{end}}
 
+{{if .Token}}
+{{if .GitHub}}<p class="sub or">or use the recovery token</p>{{end}}
 <form method="post" action="/login">
   <div class="card">
     <label for="token">Access token</label>
@@ -156,14 +160,10 @@ The browser is behind the same token as the agent surface.</p>
     <p class="hint">This is <code>DUSK_MCP_TOKEN</code>, the same value an agent
     sends as a bearer token.</p>
   </div>
-  <button type="submit">Sign in</button>
+  <button{{if .GitHub}} class="secondary"{{end}} type="submit">Sign in with token</button>
 </form>
-
-{{if .GitHub}}
-<p class="sub or">or</p>
-<a class="btn secondary" href="/auth/github">Sign in with GitHub</a>
-<p class="hint">Signing in with GitHub shows you only what the repositories you
-can read have declared, rather than the whole catalog.</p>
+{{else if .GitHub}}
+<a class="btn secondary" href="/login?method=token">Use access token instead</a>
 {{end}}
 {{template "foot"}}{{end}}
 

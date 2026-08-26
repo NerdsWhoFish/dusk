@@ -84,15 +84,8 @@ export function App() {
         >
           Dusk
         </a>
-        {/* A filtered view that says nothing looks like an empty catalog,
-            which is how every silent permission system confuses people. */}
-        {viewer?.restricted && (
-          <span className="viewer" title={`${viewer.readable} repositories readable`}>
-            {viewer.login} · showing what you can read
-          </span>
-        )}
         <div className="who">
-          <Menu path={path} onGo={go} contextAvailable={viewerReady && !viewer?.restricted} />
+          <Menu path={path} onGo={go} />
         </div>
       </header>
 

@@ -198,7 +198,7 @@ Read the pinned gotchas before changing production.
 // that never settles rather than as a layout nobody is measuring any more.
 func stubAPI() map[string]string {
 	return map[string]string{
-		"/api/viewer": `{"signed_in":true,"login":"octocat","restricted":true,"readable":3,"github":true,"cache_scope":"fixture"}`,
+		"/api/viewer": `{"signed_in":true,"login":"octocat","restricted":false,"github":true,"cache_scope":"operator"}`,
 		"/api/ai":     `{"enabled":true,"models":["qwen3.8-max","deepseek-v4-flash"],"default_model":"qwen3.8-max","provider":"opencode.ai"}`,
 
 		"/api/kinds": fmt.Sprintf(`{

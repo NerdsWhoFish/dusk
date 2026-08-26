@@ -4,7 +4,7 @@ Date: 2026-08-12
 
 ## Status
 
-Accepted. Implements [ADR-0012](0012-viewing-auth.md).
+Superseded by [ADR-0084](0084-github-login-grants-the-complete-operator-view.md).
 
 ## Context and Problem Statement
 

@@ -127,6 +127,9 @@ func (o *OAuth) Complete(ctx context.Context, code, state string) (string, Ident
 	if err != nil {
 		return "", Identity{}, err
 	}
+	if len(readable) == 0 {
+		return "", Identity{}, fmt.Errorf("access: this GitHub account does not share a repository with the installed App")
+	}
 
 	id, err := randomState()
 	if err != nil {

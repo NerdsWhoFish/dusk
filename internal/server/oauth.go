@@ -44,23 +44,10 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// visibilityFor derives what this request may see. No OAuth means everything,
-// the single-operator posture of ADR-0027; once somebody signs in, what they
-// may read is GitHub's answer rather than anything configured here.
-func (s *Server) visibilityFor(r *http.Request) index.Visibility {
-	if !s.oauth.Configured() {
-		return index.Unrestricted()
-	}
-
-	identity, ok := s.oauth.Identify(r)
-	if !ok {
-		return index.Unrestricted()
-	}
-	return index.Visibility{
-		Repositories: identity.Readable,
-		Observed:     s.cfg.ShowObservedToEveryone,
-	}
-}
+// visibilityFor returns the single operator view. GitHub establishes that the
+// operator belongs to this installation, then grants the same view as the
+// bearer token (ADR-0084).
+func (s *Server) visibilityFor(*http.Request) index.Visibility { return index.Unrestricted() }
 
 // signedInAs reports who the viewer is, for the UI to show.
 func (s *Server) signedInAs(r *http.Request) (access.Identity, bool) {

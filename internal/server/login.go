@@ -29,6 +29,10 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	if s.oauth.Configured() && r.URL.Query().Get("method") == "" && r.URL.Query().Get("logged_out") == "" {
+		http.Redirect(w, r, "/auth/github", http.StatusSeeOther)
+		return
+	}
 	s.renderLogin(w, r, http.StatusOK, "")
 }
 
@@ -58,23 +62,32 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.access.LogOut(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	s.oauth.ClearIdentity(w, r)
+	http.Redirect(w, r, "/login?logged_out=1", http.StatusSeeOther)
 }
 
-func (s *Server) renderLogin(w http.ResponseWriter, _ *http.Request, status int, problem string) {
+func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, status int, problem string) {
 	// Content-Type before WriteHeader, or the status is sent with the headers
 	// already frozen and the browser gets text/plain.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	page := loginPage{Problem: problem, GitHub: s.oauth.Configured()}
+	github := s.oauth.Configured()
+	page := loginPage{
+		Problem:   problem,
+		GitHub:    github,
+		Token:     !github || r.URL.Query().Get("method") == "token" || problem != "",
+		LoggedOut: r.URL.Query().Get("logged_out") != "",
+	}
 	if err := s.tmpl.ExecuteTemplate(w, "login", page); err != nil {
 		s.log.Error("could not render the login page", "error", err)
 	}
 }
 
 type loginPage struct {
-	Problem string
-	GitHub  bool
+	Problem   string
+	GitHub    bool
+	Token     bool
+	LoggedOut bool
 }
 
 // safeNext keeps a redirect inside this site. A returned path from a query

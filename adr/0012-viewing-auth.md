@@ -4,7 +4,9 @@ Date: 2026-08-11
 
 ## Status
 
-Accepted
+Superseded by [ADR-0084](0084-github-login-grants-the-complete-operator-view.md).
+
+The authentication requirement and explicit trusted-network mode still stand. Repository-derived viewing authorization is replaced by ADR-0084.
 
 ## Context and Problem Statement
 

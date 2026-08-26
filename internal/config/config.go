@@ -60,16 +60,10 @@ type Config struct {
 	// most of the catalog lives beside the code it describes (ADR-0031).
 	ConfigRepository string
 
-	// OAuthClientID and OAuthClientSecret enable signing in with GitHub, which
-	// derives what a viewer may see from what GitHub says they can read
-	// (ADR-0012). Unset means the shared token is the only way in.
+	// OAuthClientID and OAuthClientSecret enable signing in with GitHub.
+	// Unset means the shared token is the only way in.
 	OAuthClientID     string
 	OAuthClientSecret secret.String
-
-	// ShowObservedToEveryone lets signed-in viewers see entities no repository
-	// backs. ADR-0012 requires this to be a decision: those entities have no
-	// natural access control, and silent over-sharing is the worse failure.
-	ShowObservedToEveryone bool
 
 	// PluginOrgs are the GitHub organisations whose `dusk-plugin-*`
 	// repositories Dusk will offer and run. Adding one is the security
@@ -163,8 +157,6 @@ func Load(getenv func(string) string) (*Config, error) {
 			getenv("DUSK_MCP_SESSION_TIMEOUT"), 30*time.Minute),
 
 		OAuthClientID: strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_ID")),
-		ShowObservedToEveryone: strings.EqualFold(
-			strings.TrimSpace(getenv("DUSK_OBSERVED_VISIBLE_TO_ALL")), "true"),
 		AI: AI{
 			BaseURL:      strings.TrimSuffix(strings.TrimSpace(getenv("DUSK_AI_BASE_URL")), "/"),
 			Models:       splitValues(getenv("DUSK_AI_MODELS")),

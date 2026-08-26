@@ -21,11 +21,34 @@ func loginPage(t *testing.T, cs *fakeStore, env map[string]string) string {
 	env["DUSK_MCP_TOKEN"] = "shared"
 
 	handler := build(t, setup{store: cs, env: env})
-	rec := get(t, handler, "/login")
+	rec := get(t, handler, "/login?method=token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /login = %d, want 200", rec.Code)
 	}
 	return rec.Body.String()
+}
+
+func TestGitHubIsTheDefaultLoginMethod(t *testing.T) {
+	handler := build(t, setup{store: registered(), env: map[string]string{
+		"DUSK_MCP_TOKEN": "shared",
+	}})
+	rec := get(t, handler, "/login")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/auth/github" {
+		t.Fatalf("GET /login = %d %q, want the GitHub flow", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestLoggedOutPageDoesNotImmediatelySignBackIn(t *testing.T) {
+	handler := build(t, setup{store: registered(), env: map[string]string{
+		"DUSK_MCP_TOKEN": "shared",
+	}})
+	rec := get(t, handler, "/login?logged_out=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET logged-out page = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, signInButton) || !strings.Contains(body, "Signed out.") {
+		t.Fatalf("logged-out page did not offer GitHub again: %s", body)
+	}
 }
 
 func registered() *fakeStore {
@@ -84,13 +107,13 @@ func TestSignInAppearsWithoutARestart(t *testing.T) {
 		"DUSK_MCP_TOKEN": "shared",
 	}})
 
-	if body := get(t, handler, "/login").Body.String(); strings.Contains(body, signInButton) {
+	if body := get(t, handler, "/login?method=token").Body.String(); strings.Contains(body, signInButton) {
 		t.Fatal("GitHub sign-in offered before an App was registered")
 	}
 
 	cs.creds = registered().creds
 
-	if body := get(t, handler, "/login").Body.String(); !strings.Contains(body, signInButton) {
+	if body := get(t, handler, "/login?method=token").Body.String(); !strings.Contains(body, signInButton) {
 		t.Error("GitHub sign-in still hidden after the App was registered")
 	}
 }

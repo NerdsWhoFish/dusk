@@ -6,11 +6,9 @@ import { useEffect, useRef, useState } from "react";
 export function Menu({
   path,
   onGo,
-  contextAvailable,
 }: {
   path: string;
   onGo: (target: string) => void;
-  contextAvailable: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
@@ -70,17 +68,15 @@ export function Menu({
           >
             Catalog
           </button>
-          {contextAvailable && (
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-item"
-              aria-current={path === "/context" ? "page" : undefined}
-              onClick={() => go("/context")}
-            >
-              Agent context
-            </button>
-          )}
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            aria-current={path === "/context" ? "page" : undefined}
+            onClick={() => go("/context")}
+          >
+            Agent context
+          </button>
           <button
             type="button"
             role="menuitem"

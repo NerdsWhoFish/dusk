@@ -476,8 +476,6 @@ export type Home = {
 export type Viewer = {
   signed_in: boolean;
   login?: string;
-  restricted: boolean;
-  readable?: number;
   github: boolean;
   cache_scope: string;
 };

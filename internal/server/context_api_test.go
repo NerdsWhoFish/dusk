@@ -136,14 +136,14 @@ Read every pinned note.
 	}
 }
 
-func TestContextAPIRefusesARestrictedViewer(t *testing.T) {
+func TestContextAPIRequiresItsWriteConfiguration(t *testing.T) {
 	handler := build(t, setup{
 		store: registered(), catalog: emptyCatalog(t),
 		context: &fixedAgentContext{preview: mcp.ContextPreview{Context: "private"}},
 	})
 	rec := get(t, handler, "/api/context")
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("GET context = %d, want a restricted response: %s", rec.Code, rec.Body.String())
+		t.Fatalf("GET context = %d, want unavailable: %s", rec.Code, rec.Body.String())
 	}
 }
 

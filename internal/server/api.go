@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -518,8 +516,7 @@ func (s *Server) handleAPIDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ref": ref, "changes": changes})
 }
 
-// handleAPIViewer answers who this browser is and whether what it sees was
-// filtered. A restricted view that says nothing looks like an empty catalog.
+// handleAPIViewer answers who this browser is.
 func (s *Server) handleAPIViewer(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.signedInAs(r)
 	if !ok {
@@ -535,19 +532,10 @@ func (s *Server) handleAPIViewer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"signed_in":   true,
 		"login":       identity.Login,
-		"restricted":  true,
-		"readable":    len(identity.Readable),
+		"restricted":  false,
 		"github":      true,
-		"cache_scope": viewerCacheScope(identity.Login, identity.Readable, s.cfg.ShowObservedToEveryone),
+		"cache_scope": "operator",
 	})
-}
-
-func viewerCacheScope(login string, readable []string, observed bool) string {
-	repositories := slices.Clone(readable)
-	slices.Sort(repositories)
-	material := login + "\x00" + strings.Join(repositories, "\x00") + "\x00" + strconv.FormatBool(observed)
-	sum := sha256.Sum256([]byte(material))
-	return hex.EncodeToString(sum[:])
 }
 
 // handleAPIIntegrity answers GET /api/integrity: what is wrong with the graph

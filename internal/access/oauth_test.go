@@ -220,9 +220,7 @@ func TestASignedInPersonIsLetPastTheGate(t *testing.T) {
 	}
 }
 
-// The identity is the whole permission model, so what Complete returns is what
-// a viewer may see.
-func TestOAuthCompleteReturnsWhatGitHubSaysIsReadable(t *testing.T) {
+func TestOAuthCompleteAdmitsAViewerKnownToTheInstallation(t *testing.T) {
 	auth := &access.OAuth{
 		Credentials: source("id", "shh"),
 		GitHub: &fakeGitHub{
@@ -255,5 +253,60 @@ func TestOAuthCompleteReturnsWhatGitHubSaysIsReadable(t *testing.T) {
 	}
 	if identity.MaySee("acme/private") {
 		t.Error("a repository GitHub did not list was visible")
+	}
+}
+
+func TestOAuthRefusesAViewerOutsideTheInstallation(t *testing.T) {
+	auth := &access.OAuth{
+		Credentials: source("id", "shh"),
+		GitHub:      &fakeGitHub{login: "stranger"},
+	}
+
+	target, err := auth.Begin()
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if _, _, err := auth.Complete(t.Context(), "code", parsed.Query().Get("state")); err == nil {
+		t.Fatal("a GitHub identity outside the installation was admitted")
+	}
+}
+
+func TestClearIdentityEndsTheGitHubSession(t *testing.T) {
+	auth := &access.OAuth{
+		Credentials: source("id", "shh"),
+		GitHub:      &fakeGitHub{login: "joey", readable: []string{"acme/infra"}},
+	}
+	target, err := auth.Begin()
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	id, _, err := auth.Complete(t.Context(), "code", parsed.Query().Get("state"))
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	signedIn := httptest.NewRecorder()
+	auth.SetIdentity(signedIn, id)
+	cookie := signedIn.Result().Cookies()[0]
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(cookie)
+
+	signedOut := httptest.NewRecorder()
+	auth.ClearIdentity(signedOut, request)
+	if _, ok := auth.Identify(request); ok {
+		t.Fatal("the server retained a cleared GitHub session")
+	}
+	cleared := signedOut.Result().Cookies()[0]
+	if cleared.Name != access.IdentityCookie || cleared.MaxAge >= 0 {
+		t.Fatalf("cleared cookie = %+v", cleared)
 	}
 }
