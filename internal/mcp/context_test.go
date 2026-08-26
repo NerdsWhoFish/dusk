@@ -125,9 +125,6 @@ Ask before restarting the NAS.
 	}
 }
 
-// ADR-0050: the shortest path from "the operator wrote down a gotcha" to "the
-// agent knew it before it started". A pinned note about the repository being
-// worked in arrives whole, without being asked for.
 func TestADR0050_PinnedNotesReachTheContext(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
@@ -503,6 +500,34 @@ func TestRepositoryPinsAreTitlesWithNestedReadCalls(t *testing.T) {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("a local pin printed body content %q instead of its title and read call:\n%s", unwanted, body)
 		}
+	}
+}
+
+func TestRepositoryPinsStayTitleOnlyWithoutRepositoryScope(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("repository-pin", "gotcha",
+			"# Repository knowledge\n\nThis body belongs only in a relevant repository session.",
+			true, "service:home/jellyfin"),
+		note("global-pin", "gotcha",
+			"# Global knowledge\n\nThis body belongs in every session.", true),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{})
+
+	for _, want := range []string{
+		"- Repository knowledge",
+		"    - read: `note({ id: \".dusk/repository-pin.md\" })`",
+		"This body belongs in every session.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("context is missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "This body belongs only in a relevant repository session.") {
+		t.Errorf("the whole-estate preview expanded repository-scoped knowledge:\n%s", body)
 	}
 }
 

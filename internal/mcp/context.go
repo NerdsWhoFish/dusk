@@ -280,9 +280,7 @@ func entityRank(role vocab.Role) int {
 	return len(roles)
 }
 
-// pinned splits what somebody pinned into the notes about the repository being
-// worked in and the rest. Two queries, because a note read from the index does
-// not carry its refs and asking by repository is what tells the halves apart.
+// pinned uses a second query to rank active-repository notes before the rest.
 func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere []*duskv1alpha1.Note, err error) {
 	all, err := s.opts.Catalog.Notes(ctx, "", index.NoteFilter{Pinned: new(true), Limit: contextNotes})
 	if err != nil {
@@ -704,12 +702,13 @@ func spend(budget int, priority []*section) {
 	}
 }
 
-// noteItems renders notes for a budget: whole while they fit, and named by
-// kind, id and opening line when they do not. A note that vanishes teaches
-// nothing, and one an agent knows exists is one it can ask for.
 func noteItems(notes []*duskv1alpha1.Note) []item {
 	items := make([]item, 0, len(notes))
 	for _, note := range notes {
+		if len(note.GetRefs()) > 0 {
+			items = append(items, repositoryNoteItem(note))
+			continue
+		}
 		items = append(items, item{
 			// Backticked, because an overflow line naming it is the id an agent
 			// pastes straight back into `note`.
@@ -721,18 +720,18 @@ func noteItems(notes []*duskv1alpha1.Note) []item {
 	return items
 }
 
-// repositoryNoteItems keeps local pinned knowledge cheap and discoverable.
-// The title is the payload and the nested call is the lossless path to the
-// complete note, so every local pin costs two short list lines at every budget.
+// repositoryNoteItems keeps attached knowledge cheap and discoverable.
 func repositoryNoteItems(notes []*duskv1alpha1.Note) []item {
 	items := make([]item, 0, len(notes))
 	for _, note := range notes {
-		line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n", firstLine(note.GetBody()), note.GetId())
-		items = append(items, item{
-			name: "`" + note.GetId() + "`", full: line, short: line,
-		})
+		items = append(items, repositoryNoteItem(note))
 	}
 	return items
+}
+
+func repositoryNoteItem(note *duskv1alpha1.Note) item {
+	line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n", firstLine(note.GetBody()), note.GetId())
+	return item{name: "`" + note.GetId() + "`", full: line, short: line}
 }
 
 // demoteHeadings sinks a note's headings below the section it prints under, so
