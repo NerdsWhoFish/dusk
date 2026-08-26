@@ -769,17 +769,12 @@ const contextHeadingDepth = 2
 // heading markers come off: the line lands inside a list item, where a stray
 // `#` reads as broken markdown rather than as structure.
 func firstLine(body string) string {
-	line := strings.TrimSpace(body)
-	if cut := strings.IndexByte(line, '\n'); cut >= 0 {
-		line = strings.TrimSpace(line[:cut])
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 {
+		return ""
 	}
-	line = strings.TrimSpace(strings.TrimLeft(line, "#"))
 
-	runes := []rune(line)
-	if len(runes) <= noteSummary {
-		return line
-	}
-	return strings.TrimSpace(string(runes[:noteSummary])) + "..."
+	return lines[0]
 }
 
 // matchRepository maps a filesystem root or slug to a repository the catalog
