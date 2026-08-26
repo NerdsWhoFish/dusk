@@ -199,6 +199,7 @@ func TestADR0009_ARejectionNamesTheCallThatReReadsIt(t *testing.T) {
 		{"an entity", proof.Entity(jellyfin), `get("service:home/jellyfin")`},
 		{"a note", proof.Note(".dusk/gotcha-1a2b3c4d.md"), `note(id: ".dusk/gotcha-1a2b3c4d.md")`},
 		{"the homepage", proof.Portal(".dusk/home.md"), "page()"},
+		{"the context profile", proof.ContextProfile(".dusk/context.md"), "context()"},
 		{"the vocabulary", proof.Vocabulary(".dusk/kinds.md"), "kinds()"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

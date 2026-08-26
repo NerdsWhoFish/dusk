@@ -215,20 +215,22 @@ func run(parent context.Context, log *slog.Logger) error {
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
 
 	srv, err := server.New(server.Options{
-		Config:      cfg,
-		Credentials: credentials,
-		Controller:  catalog,
-		Catalog:     idx,
-		Syncs:       catalog,
-		Pages:       writer,
-		Notes:       writer,
-		Plugins:     plugins,
-		Rotation:    observers,
-		Events:      ran,
-		Answers:     answersFor(cfg, idx),
-		Tokens:      tokens,
-		MCP:         agentSurface,
-		Logger:      log,
+		Config:       cfg,
+		Credentials:  credentials,
+		Controller:   catalog,
+		Catalog:      idx,
+		Syncs:        catalog,
+		Pages:        writer,
+		Notes:        writer,
+		AgentContext: agents,
+		ContextFile:  writer,
+		Plugins:      plugins,
+		Rotation:     observers,
+		Events:       ran,
+		Answers:      answersFor(cfg, idx),
+		Tokens:       tokens,
+		MCP:          agentSurface,
+		Logger:       log,
 	})
 	if err != nil {
 		return err

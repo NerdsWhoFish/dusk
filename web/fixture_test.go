@@ -157,6 +157,42 @@ func fixtureEntity() string {
 }`, fixtureRef, description)
 }
 
+func fixtureContext() string {
+	context := `# example/platform in the catalog
+
+## Pinned notes, about this repository
+
+**gotcha** · pinned · .dusk/gotcha-replication.md
+
+The replication lag alarm fires on the replica, never on the primary.
+
+## What this repository declares (2)
+
+- service:platform/checkout-api-gateway-replication-eu-west
+- host:platform/build-runner-arm64-large-0007
+
+## Working with this catalog
+
+Every write needs the proof token from the read that found it.
+`
+	profile := `---
+dusk: context/v1
+budget: 8000
+inventory: full
+---
+Read the pinned gotchas before changing production.
+`
+	return fmt.Sprintf(`{
+  "context": %q,
+  "repository": "example/platform",
+  "declared": [%q,"host:platform/build-runner-arm64-large-0007"],
+  "entity_count": 1795,
+  "budget": 8000,
+  "bytes": %d,
+  "profile": {"body":%q,"declared":true,"path":".dusk/context.md","proof":"proof-context"}
+}`, context, fixtureRef, len(context), profile)
+}
+
 // stubAPI answers what the three routes read. Every payload is the wire shape
 // internal/server writes, so a field renamed there and not here fails as a page
 // that never settles rather than as a layout nobody is measuring any more.
@@ -179,7 +215,17 @@ func stubAPI() map[string]string {
 
 		"/api/home":                   fixtureHome(),
 		"/api/graph":                  fixtureGraph(),
+		"/api/context":                fixtureContext(),
 		"/api/entities/" + fixtureRef: fixtureEntity(),
+		"/api/status": `{"repositories":[
+  {"Repository":"example/platform","GitRef":"","Commit":"0f4c1ab","Entities":128,"Relations":214,"Error":"","Participating":true},
+  {"Repository":"example/lab","GitRef":"","Commit":"7d881ef","Entities":42,"Relations":60,"Error":"","Participating":true}
+]}`,
+		"/api/notes": `{"total":3,"offset":0,"proof":"proof-notes","notes":[
+  {"id":".dusk/gotcha-replication.md","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary.","refs":["service:platform/checkout-api-gateway-replication-eu-west"],"pinned":true},
+  {"id":".dusk/runbook-rollout.md","kind":"runbook","body":"Check the image digest before declaring the rollout complete.","refs":["service:platform/checkout-api-gateway-replication-eu-west"],"pinned":true},
+  {"id":".dusk/todo-pool.md","kind":"todo","body":"Decide whether the gateway keeps its own connection pool.","status":"open"}
+]}`,
 
 		"/api/plugins": `{"plugins":[
   {"id":"kubernetes","org":"example","repository":"example/dusk-plugin-kubernetes","description":"Workloads, services and the nodes underneath them, read from a cluster the operator already has credentials for.","url":"https://example.com","version":"v0.4.0","installed":true,"installed_version":"v0.3.1","update_available":true,"running":true,

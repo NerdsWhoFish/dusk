@@ -261,6 +261,8 @@ Ask before restarting storage or changing network policy.
 The budget is 1024 through 32768 bytes, and the markdown body is operator instruction included in the same budget.
 The file is optional; omitting it keeps the default policy described above.
 
+The trusted operator UI exposes the same renderer at **Agent context**. It can preview any `owner/name` scope, edit this profile, and manage the notes whose pins fund future sessions. Those mutations use the same Git writer and proof-token rules as MCP writes.
+
 ## Injecting it at the start of a session
 
 [ADR-0014](../adr/0014-agent-context-injection.md) delivers context three ways, each an accelerator over the one below.

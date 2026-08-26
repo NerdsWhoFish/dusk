@@ -21,6 +21,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/server"
 	"github.com/NerdsWhoFish/dusk/internal/store"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"github.com/NerdsWhoFish/dusk/pkg/proof"
 	"github.com/NerdsWhoFish/dusk/pkg/vault"
 )
 
@@ -84,6 +85,10 @@ type setup struct {
 	answers *answer.Service
 	control *fakeController
 	syncs   server.Syncs
+	notes   server.Notes
+	context server.AgentContext
+	profile server.ContextFile
+	tokens  *proof.Store
 }
 
 type fakeController struct {
@@ -138,15 +143,19 @@ func build(t *testing.T, s setup) http.Handler {
 	}
 
 	srv, err := server.New(server.Options{
-		Config:      cfg,
-		Credentials: s.store,
-		GitHub:      s.github,
-		Catalog:     s.catalog,
-		Pages:       s.pages,
-		Plugins:     s.plugins,
-		Answers:     s.answers,
-		Controller:  s.control,
-		Syncs:       s.syncs,
+		Config:       cfg,
+		Credentials:  s.store,
+		GitHub:       s.github,
+		Catalog:      s.catalog,
+		Pages:        s.pages,
+		Plugins:      s.plugins,
+		Answers:      s.answers,
+		Controller:   s.control,
+		Syncs:        s.syncs,
+		Notes:        s.notes,
+		AgentContext: s.context,
+		ContextFile:  s.profile,
+		Tokens:       s.tokens,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

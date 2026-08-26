@@ -466,3 +466,28 @@ func note(id string, pinned bool, refs ...string) *duskv1alpha1.Note {
 		Provenance: testProvenance(),
 	}
 }
+
+func TestNotesReturnEveryAttachedRef(t *testing.T) {
+	db := newDB(t)
+	want := []string{"host:home/nas", "service:home/jellyfin"}
+	if err := db.Put(t.Context(), "example/config", mainRef, nil, nil, []*duskv1alpha1.Note{
+		note("storage", true, want...),
+	}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := db.SetDefaultView(t.Context(), "example/config", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+	attached, err := db.Notes(t.Context(), mainRef, index.NoteFilter{Ref: want[0], Limit: 10})
+	if err != nil || len(attached) != 1 {
+		t.Fatalf("attached notes = %d, err = %v", len(attached), err)
+	}
+
+	notes, err := db.Notes(t.Context(), mainRef, index.NoteFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("Notes: %v", err)
+	}
+	if len(notes) != 1 || !slices.Equal(notes[0].GetRefs(), want) {
+		t.Fatalf("refs = %v, want %v", notes[0].GetRefs(), want)
+	}
+}

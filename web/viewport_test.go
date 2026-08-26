@@ -46,6 +46,8 @@ func routes() []route {
 		{Name: "landing, Ask AI", Path: "/", Rendered: ".kinds .chip", Click: ".search-modes button:nth-child(2)", Clicked: ".ai-controls select"},
 		{Name: "entity", Path: "/entity/" + url.PathEscape(fixtureRef), Rendered: ".identity"},
 		{Name: "plugins", Path: "/plugins", Rendered: ".row.plugin"},
+		{Name: "agent context", Path: "/context", Rendered: ".context-document"},
+		{Name: "agent context, note editor", Path: "/context", Rendered: ".context-document", Click: ".knowledge-head .btn", Clicked: ".note-editor"},
 	}
 }
 

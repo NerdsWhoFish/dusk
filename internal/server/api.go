@@ -33,6 +33,7 @@ type Catalog interface {
 	NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Note, error)
 	RecentNotes(ctx context.Context, gitRef string, limit int) ([]*duskv1alpha1.Note, error)
 	Notes(ctx context.Context, gitRef string, filter index.NoteFilter) ([]*duskv1alpha1.Note, error)
+	CountNotes(ctx context.Context, gitRef string, filter index.NoteFilter) (int, error)
 	Graph(ctx context.Context, gitRef string, v index.Visibility) (index.Graph, error)
 	Kinds(ctx context.Context, gitRef string, v index.Visibility) ([]index.KindCount, error)
 
@@ -85,6 +86,7 @@ type noteJSON struct {
 	ID         string          `json:"id"`
 	Kind       string          `json:"kind"`
 	Body       string          `json:"body"`
+	Refs       []string        `json:"refs,omitempty"`
 	Pinned     bool            `json:"pinned,omitempty"`
 	Provenance *provenanceJSON `json:"provenance,omitempty"`
 
@@ -137,7 +139,7 @@ func asNotes(notes []*duskv1alpha1.Note) []noteJSON {
 	for _, n := range notes {
 		entry := noteJSON{
 			ID: n.GetId(), Kind: n.GetKind(), Body: n.GetBody(),
-			Pinned: n.GetPinned(), Status: n.GetStatus(),
+			Refs: n.GetRefs(), Pinned: n.GetPinned(), Status: n.GetStatus(),
 		}
 		if p := n.GetProvenance(); p != nil {
 			entry.Provenance = &provenanceJSON{Source: p.GetSource(), Version: p.GetVersion()}

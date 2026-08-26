@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -44,28 +45,72 @@ type contextInput struct {
 	Root string `json:"root,omitempty" jsonschema:"the exact owner/name repository being worked in. The dusk-context hook resolves this from the checkout. Omit for an inventory of everything"`
 }
 
+// ContextPreview is the complete answer dusk_context gives an agent. The web
+// UI consumes this same value, so its preview cannot drift into a second
+// implementation of the session orientation policy.
+type ContextPreview struct {
+	Repository  string
+	Declared    []string
+	EntityCount int
+	Budget      int
+	Context     string
+}
+
+type contextPreviewError struct {
+	code string
+	err  error
+}
+
+func (e *contextPreviewError) Error() string { return e.err.Error() }
+func (e *contextPreviewError) Unwrap() error { return e.err }
+
+func previewError(code, operation string, err error) error {
+	return &contextPreviewError{code: code, err: fmt.Errorf("%s: %w", operation, err)}
+}
+
 // duskContext tailors the catalog to the repository an agent is working in.
 // ADR-0014 makes it a tool rather than only an instructions block, so every
 // client can reach it and a hook is an accelerator rather than a requirement.
 func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in contextInput) (*sdk.CallToolResult, any, error) {
-	repository, err := s.matchRepository(ctx, in.Root)
+	preview, err := s.PreviewContext(ctx, in.Root)
 	if err != nil {
-		return failure("context_repository_resolution_failed", err), nil, nil
+		var previewFailure *contextPreviewError
+		if errors.As(err, &previewFailure) {
+			return failure(previewFailure.code, previewFailure.err), nil, nil
+		}
+		return failure("context_render_failed", err), nil, nil
+	}
+
+	// Repeated because a client given an output schema may render only the
+	// structured half. Elsewhere the data carries the answer; here the prose
+	// is it, so dropping the content block loses everything and still says ok.
+	return success(preview.Context, map[string]any{
+		"repository": preview.Repository, "declared": preview.Declared,
+		"entity_count": preview.EntityCount, "context": preview.Context,
+	}), nil, nil
+}
+
+// PreviewContext assembles the exact dusk_context payload without involving
+// the MCP transport. It is the single read used by agents and by the browser.
+func (s *Server) PreviewContext(ctx context.Context, root string) (ContextPreview, error) {
+	repository, err := s.matchRepository(ctx, root)
+	if err != nil {
+		return ContextPreview{}, previewError("context_repository_resolution_failed", "resolve repository", err)
 	}
 
 	profile, err := s.contextProfile(ctx)
 	if err != nil {
-		return failure("context_profile_read_failed", err), nil, nil
+		return ContextPreview{}, previewError("context_profile_read_failed", "read context profile", err)
 	}
 
 	entities, err := s.opts.Catalog.List(ctx, "", "")
 	if err != nil {
-		return failure("catalog_read_failed", err), nil, nil
+		return ContextPreview{}, previewError("catalog_read_failed", "list catalog", err)
 	}
 
 	vocabulary, err := s.opts.Catalog.Vocabulary(ctx, "")
 	if err != nil {
-		return failure("catalog_read_failed", err), nil, nil
+		return ContextPreview{}, previewError("catalog_read_failed", "read vocabulary", err)
 	}
 	held := takeInventory(entities, vocabulary)
 	held.kinds = orderKinds(held.kinds, profile.KindOrder)
@@ -73,34 +118,31 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 	var declared []string
 	if repository != "" {
 		if declared, err = s.opts.Catalog.Declared(ctx, "", repository); err != nil {
-			return failure("catalog_read_failed", err), nil, nil
+			return ContextPreview{}, previewError("catalog_read_failed", "read repository declarations", err)
 		}
 	}
 
 	here, elsewhere, err := s.pinned(ctx, repository)
 	if err != nil {
-		return failure("catalog_read_failed", err), nil, nil
+		return ContextPreview{}, previewError("catalog_read_failed", "read pinned notes", err)
 	}
 
 	tail, err := s.tail(ctx, held, vocabulary)
 	if err != nil {
-		return failure("catalog_read_failed", err), nil, nil
+		return ContextPreview{}, previewError("catalog_read_failed", "render context guidance", err)
 	}
 
 	reading, _ := contextSections(declared, here, elsewhere, held)
 	reading, priority := profileSections(profile, reading)
 	body := assemble(profile.Budget,
-		contextHeader(in.Root, repository, len(declared), held.total, profile.Instructions),
+		contextHeader(root, repository, len(declared), held.total, profile.Instructions),
 		tail, reading, priority)
 	rendered := truncate(body, profile.Budget)
 
-	// Repeated because a client given an output schema may render only the
-	// structured half. Elsewhere the data carries the answer; here the prose
-	// is it, so dropping the content block loses everything and still says ok.
-	return success(rendered, map[string]any{
-		"repository": repository, "declared": declared, "entity_count": held.total,
-		"context": rendered,
-	}), nil, nil
+	return ContextPreview{
+		Repository: repository, Declared: declared, EntityCount: held.total,
+		Budget: profile.Budget, Context: rendered,
+	}, nil
 }
 
 func (s *Server) contextProfile(ctx context.Context) (contextconfig.Profile, error) {

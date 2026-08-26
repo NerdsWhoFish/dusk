@@ -27,6 +27,7 @@ export type Note = {
   id: string;
   kind: string;
   body: string;
+  refs?: string[];
   pinned?: boolean;
   provenance?: { source?: string; version?: string; observed_at?: string };
 
@@ -46,6 +47,40 @@ export type Closed = {
   repository?: string;
   path?: string;
   diff?: string;
+};
+
+export type WriteResult = {
+  ref: string;
+  repository: string;
+  path: string;
+  commit?: string;
+  url?: string;
+  created?: boolean;
+  removed?: boolean;
+  proposed?: boolean;
+  diff?: string;
+};
+
+export type ContextPreview = {
+  context: string;
+  repository?: string;
+  declared: string[];
+  entity_count: number;
+  budget: number;
+  bytes: number;
+  profile: {
+    body: string;
+    declared: boolean;
+    path: string;
+    proof?: string;
+  };
+};
+
+export type NotePage = {
+  notes: Note[];
+  total: number;
+  offset: number;
+  proof?: string;
 };
 
 export type SearchResult = {
@@ -576,6 +611,10 @@ export const api = {
       ["/home", "/graph"],
     ),
   home: (refresh?: Refresh<Home>) => cachedGet<Home>("/home", refresh),
+  context: (root = "") =>
+    get<ContextPreview>(`/context${root ? `?root=${encodeURIComponent(root)}` : ""}`),
+  setContext: (body: string, proof?: string) =>
+    invalidating(post<WriteResult>("/context", { body, proof }), ["/context"]),
   graph: (refresh?: Refresh<EstateGraph>) => cachedGet<EstateGraph>("/graph", refresh),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),
@@ -596,6 +635,22 @@ export const api = {
     cachedGet<EntityDetail>(`/entities/${encodeURIComponent(ref)}`, refresh),
   note: (id: string, refresh?: Refresh<NoteDetail>) =>
     cachedGet<NoteDetail>(`/notes/${encodeURIComponent(id)}`, refresh),
+  notes: (limit = 200, offset = 0) =>
+    get<NotePage>(`/notes?limit=${limit}&offset=${offset}`),
+  writeNote: (note: Note, proof?: string) =>
+    invalidating(post<WriteResult>("/notes", { ...note, proof }), [
+      "/home",
+      "/graph",
+      "/context",
+      ...(note.id ? [`/notes/${encodeURIComponent(note.id)}`] : []),
+    ]),
+  deleteNote: (id: string, proof?: string) =>
+    invalidating(post<WriteResult>("/notes/delete", { id, proof, confirm: true }), [
+      "/home",
+      "/graph",
+      "/context",
+      `/notes/${encodeURIComponent(id)}`,
+    ]),
   prefetchEntity: (ref: string) =>
     refreshResponse<EntityDetail>(`/entities/${encodeURIComponent(ref)}`).then(() => undefined),
   prefetchNote: (id: string) =>

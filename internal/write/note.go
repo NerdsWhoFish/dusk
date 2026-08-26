@@ -39,6 +39,11 @@ type Note struct {
 	// Status closes a note that is work: open, done or dropped. Empty leaves it
 	// as it was, so changing a body does not reopen something finished.
 	Status string
+
+	// Remove deletes the note file. Confirm is separate because proof says the
+	// caller read it, not that deleting knowledge was intentional.
+	Remove  bool
+	Confirm bool
 }
 
 // pins reports whether a new note starts pinned. Nothing to leave alone yet, so
@@ -62,6 +67,9 @@ func (w *Writer) Record(ctx context.Context, token string, note Note) (*Result, 
 	// file already says, so demanding a kind again to change a body would make
 	// every partial edit a chance to get one of them wrong.
 	if note.Id == "" {
+		if note.Remove {
+			return nil, errors.New("write: a note with no id does not exist yet, so there is nothing to remove")
+		}
 		if strings.TrimSpace(note.Kind) == "" {
 			return nil, fmt.Errorf("write: a note needs a kind, one of %s", strings.Join(duskmd.WellKnownNoteKinds, ", "))
 		}
@@ -114,6 +122,19 @@ func (w *Writer) updateNote(ctx context.Context, token string, target Target, br
 	}
 	if err := w.Proof.AuthorizeUpdate(token, proof.Note(filePath), existing.GetContentHash()); err != nil {
 		return nil, err
+	}
+	if note.Remove {
+		if !note.Confirm {
+			return nil, fmt.Errorf("write: removing %s deletes this knowledge from every future catalog and agent context; confirm only if deletion is intended", filePath)
+		}
+		return w.land(ctx, change{
+			target: target, repository: w.ConfigRepository, ref: filePath,
+			before: contents.Data,
+			commit: githubapp.FileCommit{
+				Branch: branch, Path: filePath, Message: "note: remove " + filePath,
+				ReplacingSHA: contents.SHA, Delete: true,
+			},
+		})
 	}
 
 	rendered, err := duskmd.FormatNote(merge(existing, note))

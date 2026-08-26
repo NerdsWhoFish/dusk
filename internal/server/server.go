@@ -43,27 +43,29 @@ type appClient interface {
 
 // Server routes HTTP for Dusk.
 type Server struct {
-	cfg         *config.Config
-	credentials credentialStore
-	github      appClient
-	controller  catalogController
-	catalog     Catalog
-	plugins     Plugins
-	rotation    Rotation
-	syncs       Syncs
-	pages       Pages
-	notes       Notes
-	answers     *answer.Service
-	events      *events.Log
-	tokens      *proof.Store
-	access      *access.Policy
-	oauth       *access.OAuth
-	mcp         http.Handler
-	state       *setupState
-	deliveries  *seenDeliveries
-	log         *slog.Logger
-	now         func() time.Time
-	tmpl        *template.Template
+	cfg          *config.Config
+	credentials  credentialStore
+	github       appClient
+	controller   catalogController
+	catalog      Catalog
+	plugins      Plugins
+	rotation     Rotation
+	syncs        Syncs
+	pages        Pages
+	notes        Notes
+	agentContext AgentContext
+	contextFile  ContextFile
+	answers      *answer.Service
+	events       *events.Log
+	tokens       *proof.Store
+	access       *access.Policy
+	oauth        *access.OAuth
+	mcp          http.Handler
+	state        *setupState
+	deliveries   *seenDeliveries
+	log          *slog.Logger
+	now          func() time.Time
+	tmpl         *template.Template
 }
 
 // Syncs reports what the controller last read, so the UI can tell a stale
@@ -101,6 +103,11 @@ type Options struct {
 	// browser, which is what a deployment with no config repository looks like.
 	Notes Notes
 
+	// AgentContext renders exactly what dusk_context returns. ContextFile reads
+	// and writes the Git-backed policy that controls that rendering.
+	AgentContext AgentContext
+	ContextFile  ContextFile
+
 	// Events is what has been run. Optional: without it the events route
 	// answers empty rather than failing.
 	Events *events.Log
@@ -131,24 +138,26 @@ func New(opts Options) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg:         opts.Config,
-		credentials: opts.Credentials,
-		github:      opts.GitHub,
-		controller:  opts.Controller,
-		catalog:     opts.Catalog,
-		syncs:       opts.Syncs,
-		pages:       opts.Pages,
-		plugins:     opts.Plugins,
-		rotation:    opts.Rotation,
-		notes:       opts.Notes,
-		answers:     opts.Answers,
-		events:      opts.Events,
-		tokens:      opts.Tokens,
-		mcp:         opts.MCP,
-		state:       newSetupState(),
-		deliveries:  newSeenDeliveries(),
-		log:         opts.Logger,
-		now:         opts.Now,
+		cfg:          opts.Config,
+		credentials:  opts.Credentials,
+		github:       opts.GitHub,
+		controller:   opts.Controller,
+		catalog:      opts.Catalog,
+		syncs:        opts.Syncs,
+		pages:        opts.Pages,
+		plugins:      opts.Plugins,
+		rotation:     opts.Rotation,
+		notes:        opts.Notes,
+		agentContext: opts.AgentContext,
+		contextFile:  opts.ContextFile,
+		answers:      opts.Answers,
+		events:       opts.Events,
+		tokens:       opts.Tokens,
+		mcp:          opts.MCP,
+		state:        newSetupState(),
+		deliveries:   newSeenDeliveries(),
+		log:          opts.Logger,
+		now:          opts.Now,
 	}
 	if s.github == nil {
 		s.github = &githubapp.Client{}
@@ -272,7 +281,10 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /graph", s.handleAPIGraph)
 	api.HandleFunc("GET /entities", s.handleAPIEntities)
 	api.HandleFunc("GET /entities/{ref}", s.handleAPIEntity)
+	api.HandleFunc("GET /notes", s.handleAPINotes)
+	api.HandleFunc("POST /notes", s.handleAPIWriteNote)
 	api.HandleFunc("GET /notes/{id}", s.handleAPINote)
+	api.HandleFunc("POST /notes/delete", s.handleAPIDeleteNote)
 	api.HandleFunc("GET /entities/{ref}/dependents", s.handleAPIDependents)
 	api.HandleFunc("GET /status", s.handleAPIStatus)
 	api.HandleFunc("GET /overview", s.handleAPIOverview)
@@ -280,6 +292,8 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /integrity", s.handleAPIIntegrity)
 	api.HandleFunc("GET /drift", s.handleAPIDrift)
 	api.HandleFunc("GET /home", s.handleAPIHome)
+	api.HandleFunc("GET /context", s.handleAPIContext)
+	api.HandleFunc("POST /context", s.handleAPISetContext)
 	api.HandleFunc("GET /viewer", s.handleAPIViewer)
 	api.HandleFunc("GET /diff", s.handleAPIDiff)
 

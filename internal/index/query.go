@@ -128,7 +128,43 @@ func (db *DB) NotesFor(ctx context.Context, gitRef, entityRef string) ([]*duskv1
 	for _, row := range rows {
 		notes = append(notes, row.note())
 	}
+	if err := db.hydrateNoteRefs(ctx, rows, notes); err != nil {
+		return nil, fmt.Errorf("index: note refs at %q: %w", gitRef, err)
+	}
 	return notes, nil
+}
+
+// hydrateNoteRefs loads attachments for only the selected note page. Batching
+// keeps a large context query under SQLite's bound-parameter limit.
+func (db *DB) hydrateNoteRefs(ctx context.Context, rows []noteRow, notes []*duskv1alpha1.Note) error {
+	const batch = 200
+	byNote := make(map[string]*duskv1alpha1.Note, len(rows))
+	for i, row := range rows {
+		byNote[row.Repository+"\x00"+row.GitRef+"\x00"+row.NoteID] = notes[i]
+	}
+
+	for start := 0; start < len(rows); start += batch {
+		end := min(start+batch, len(rows))
+		clauses := make([]string, 0, end-start)
+		args := make([]any, 0, (end-start)*3)
+		for _, row := range rows[start:end] {
+			clauses = append(clauses, "(repository = ? AND git_ref = ? AND note_id = ?)")
+			args = append(args, row.Repository, row.GitRef, row.NoteID)
+		}
+
+		var refs []noteRefRow
+		if err := db.gorm.WithContext(ctx).Model(&noteRefRow{}).
+			Where(strings.Join(clauses, " OR "), args...).Order("ref").Find(&refs).Error; err != nil {
+			return err
+		}
+		for _, ref := range refs {
+			key := ref.Repository + "\x00" + ref.GitRef + "\x00" + ref.NoteID
+			if note := byNote[key]; note != nil {
+				note.Refs = append(note.Refs, ref.Ref)
+			}
+		}
+	}
+	return nil
 }
 
 // rank orders notes by what their kind is for. It sorts here rather than in SQL
@@ -221,6 +257,9 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	notes := make([]*duskv1alpha1.Note, 0, len(rows))
 	for _, row := range rows {
 		notes = append(notes, row.note())
+	}
+	if err := db.hydrateNoteRefs(ctx, rows, notes); err != nil {
+		return nil, fmt.Errorf("index: note refs at %q: %w", gitRef, err)
 	}
 	return notes, nil
 }

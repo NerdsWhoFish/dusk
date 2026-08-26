@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, Unauthorized } from "./api";
 import type { Viewer } from "./api";
+import { Context } from "./Context";
 import { EntityView } from "./EntityView";
 import { Landing } from "./Landing";
 import { Menu } from "./Menu";
 import { NoteView } from "./NoteView";
 import { Plugins } from "./Plugins";
 
-// The route is the URL, read and written directly. A router is a dependency
-// this earns once there are more than three views, and there are three.
+// The route is the URL, read and written directly. These views need no route
+// matching beyond a handful of exact paths and two path prefixes.
 function refFromPath(path: string): string | null {
   const ref = path.startsWith("/entity/") ? path.slice("/entity/".length) : "";
   return ref ? decodeURIComponent(ref) : null;
@@ -71,7 +72,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="shell">
+    <div className={`shell ${path === "/context" ? "shell-wide" : ""}`}>
       <header className="top">
         <a
           className="brand"
@@ -91,12 +92,14 @@ export function App() {
           </span>
         )}
         <div className="who">
-          <Menu path={path} onGo={go} />
+          <Menu path={path} onGo={go} contextAvailable={viewerReady && !viewer?.restricted} />
         </div>
       </header>
 
       {!viewerReady ? null : path === "/plugins" ? (
         <Plugins />
+      ) : path === "/context" ? (
+        <Context />
       ) : ref ? (
         <EntityView entityRef={ref} onOpen={open} />
       ) : note ? (

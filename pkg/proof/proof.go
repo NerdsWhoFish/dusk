@@ -36,6 +36,10 @@ const (
 	// witnesses the whole of what a write would replace.
 	FromPage Origin = "page"
 
+	// FromContext is reading the operator's agent context profile before
+	// replacing it through the browser.
+	FromContext Origin = "context"
+
 	// FromKinds is reading the vocabulary. Extending one you have not read is
 	// how `svc` gets invented next to `service` (ADR-0048).
 	FromKinds Origin = "kinds"
@@ -51,7 +55,7 @@ func (o Origin) Call(ref string) string {
 	switch o {
 	case FromNote:
 		return fmt.Sprintf("note(id: %q)", ref)
-	case FromKinds, FromPage:
+	case FromKinds, FromPage, FromContext:
 		return string(o) + "()"
 	case FromConfigure:
 		return "configure()"
@@ -81,6 +85,10 @@ func Note(id string) Subject { return Subject{Ref: id, Read: FromNote} }
 
 // Portal is the homepage at path, re-read by page.
 func Portal(path string) Subject { return Subject{Ref: path, Read: FromPage} }
+
+// ContextProfile is the operator's agent orientation policy, re-read by the
+// context UI before it is replaced.
+func ContextProfile(path string) Subject { return Subject{Ref: path, Read: FromContext} }
 
 // Vocabulary is the minted kinds at path, re-read by kinds.
 func Vocabulary(path string) Subject { return Subject{Ref: path, Read: FromKinds} }

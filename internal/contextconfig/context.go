@@ -29,10 +29,10 @@ var sections = map[string]bool{
 
 // Profile controls the server-side assembly of dusk_context.
 type Profile struct {
-	Budget       int      `yaml:"budget"`
-	Sections     []string `yaml:"sections"`
-	Inventory    string   `yaml:"inventory"`
-	KindOrder    []string `yaml:"kind_order"`
+	Budget       int      `yaml:"budget,omitempty"`
+	Sections     []string `yaml:"sections,omitempty"`
+	Inventory    string   `yaml:"inventory,omitempty"`
+	KindOrder    []string `yaml:"kind_order,omitempty"`
 	Instructions string   `yaml:"-"`
 }
 
@@ -43,6 +43,27 @@ type frontmatter struct {
 
 // Default returns the policy used when the config repository declares none.
 func Default() Profile { return Profile{Budget: DefaultBudget, Inventory: "full"} }
+
+// Format writes a complete profile in the same file shape Parse accepts.
+func Format(profile Profile) ([]byte, error) {
+	if err := validate(profile); err != nil {
+		return nil, err
+	}
+	front, err := yaml.Marshal(frontmatter{Dusk: "context/v1", Profile: profile})
+	if err != nil {
+		return nil, fmt.Errorf("context: format frontmatter: %w", err)
+	}
+
+	var out strings.Builder
+	out.WriteString("---\n")
+	out.Write(front)
+	out.WriteString("---\n")
+	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" {
+		out.WriteString(instructions)
+		out.WriteByte('\n')
+	}
+	return []byte(out.String()), nil
+}
 
 // Parse validates a complete context profile and returns its instructions.
 func Parse(data []byte) (Profile, error) {

@@ -1491,6 +1491,594 @@ select,
   color: var(--muted);
 }
 
+/* Agent context ------------------------------------------------------- */
+
+.shell-wide {
+  max-width: 76rem;
+}
+
+.context-page {
+  min-width: 0;
+}
+
+.context-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+  margin: 1rem 0 1.25rem;
+  padding: 1.5rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 88% 32%, rgb(255 202 128 / 0.12), transparent 22%),
+    linear-gradient(135deg, rgb(189 147 249 / 0.12), transparent 58%),
+    var(--card);
+  border: 1px solid rgb(189 147 249 / 0.3);
+  border-radius: 1rem;
+}
+
+.context-hero h1 {
+  max-width: 34rem;
+  font-size: clamp(1.75rem, 6vw, 3.25rem);
+  line-height: 1.05;
+}
+
+.context-hero p:not(.eyebrow) {
+  max-width: 42rem;
+  margin: 0.875rem 0 0;
+  color: var(--muted);
+}
+
+.eyebrow {
+  margin: 0 0 0.35rem;
+  color: var(--yellow);
+  font-size: 0.6875rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.context-orbit {
+  display: none;
+  width: 8.5rem;
+  height: 8.5rem;
+  padding: 1.25rem;
+  border: 1px solid rgb(189 147 249 / 0.35);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1rem rgb(189 147 249 / 0.035),
+    0 0 4rem rgb(189 147 249 / 0.08);
+}
+
+.context-orbit span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 38% 38%, var(--yellow), var(--purple) 34%, #171622 70%);
+  border-radius: 50%;
+  box-shadow: 0 0 1.5rem rgb(189 147 249 / 0.35);
+}
+
+.context-scope {
+  display: grid;
+  gap: 0.375rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: rgb(23 22 34 / 0.55);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+
+.context-scope > label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.context-scope > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.context-scope input,
+.note-filter {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--fg);
+  font: inherit;
+}
+
+.context-scope input:focus,
+.note-filter:focus {
+  border-color: var(--purple);
+  outline: none;
+}
+
+.context-scope > p {
+  min-width: 0;
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.context-alert,
+.context-success,
+.context-proposal {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid currentColor;
+  border-radius: 0.625rem;
+}
+
+.context-success {
+  color: var(--green);
+}
+
+.context-proposal {
+  color: var(--yellow);
+}
+
+.context-proposal p {
+  margin: 0;
+}
+
+.context-proposal pre {
+  max-height: 20rem;
+  margin: 0.75rem 0 0;
+  overflow: auto;
+  color: var(--fg);
+  font: 0.75rem/1.5 var(--mono);
+}
+
+.context-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.context-preview,
+.context-panel {
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.875rem;
+}
+
+.context-preview {
+  overflow: hidden;
+}
+
+.context-preview > header,
+.knowledge-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.context-preview > header strong,
+.knowledge-head strong,
+.context-panel-head strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.context-tabs button {
+	min-width: 44px;
+	min-height: 36px;
+  padding: 0 0.75rem;
+  background: none;
+  border: 0;
+  border-radius: 0.35rem;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.context-tabs button.on {
+  background: var(--card);
+  color: var(--fg);
+}
+
+.context-budget {
+  height: 3px;
+  background: var(--bg);
+}
+
+.context-budget span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--yellow), var(--purple));
+}
+
+.context-budget-copy {
+  margin: 0;
+  padding: 0.5rem 1rem 0;
+  color: var(--muted);
+  font: 0.6875rem var(--mono);
+  text-align: right;
+}
+
+.context-document {
+  max-height: 74vh;
+  padding: 1.25rem;
+  overflow: auto;
+}
+
+.context-document.raw {
+  padding: 0;
+}
+
+.context-document.raw pre {
+  min-width: 100%;
+  width: max-content;
+  margin: 0;
+  padding: 1.25rem;
+  color: var(--fg);
+  font: 0.75rem/1.65 var(--mono);
+  white-space: pre;
+}
+
+.context-controls {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.context-panel-head {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-policy {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.context-policy p {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.context-policy textarea {
+  width: 100%;
+  min-height: 20rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--fg);
+  font: 0.75rem/1.55 var(--mono);
+}
+
+.context-policy textarea:focus {
+  border-color: var(--purple);
+  outline: none;
+}
+
+.knowledge-panel {
+  overflow: hidden;
+}
+
+.knowledge-head {
+  padding: 0.875rem 1rem;
+}
+
+.note-filter {
+  width: calc(100% - 2rem);
+  margin: 1rem;
+}
+
+.managed-notes {
+  display: grid;
+  gap: 0.625rem;
+  max-height: 62rem;
+  padding: 0 1rem 1rem;
+  overflow-y: auto;
+}
+
+.managed-note {
+  min-width: 0;
+  padding: 0.875rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 0.625rem;
+}
+
+.managed-note.is-pinned {
+  border-left-color: var(--yellow);
+  box-shadow: inset 1rem 0 2rem rgb(255 202 128 / 0.025);
+}
+
+.managed-note-copy p {
+  margin: 0.625rem 0 0.35rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.managed-note-copy code {
+  display: block;
+  color: var(--muted);
+  font: 0.6875rem var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.managed-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+}
+
+.managed-note-actions button {
+	min-width: 44px;
+	min-height: 38px;
+  padding: 0 0.625rem;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.managed-note-actions button:hover:not(:disabled) {
+  border-color: var(--purple);
+  color: var(--fg);
+}
+
+.managed-note-actions button.danger {
+  margin-left: auto;
+  color: var(--red);
+}
+
+.note-delete-confirm {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgb(255 85 85 / 0.08);
+  border: 1px solid rgb(255 85 85 / 0.35);
+  border-radius: 0.5rem;
+}
+
+.note-delete-confirm p {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.note-delete-confirm > div,
+.note-editor footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  align-items: end;
+  padding: 0;
+  background: rgb(12 11 18 / 0.78);
+  backdrop-filter: blur(5px);
+}
+
+.note-editor {
+  max-height: 94vh;
+  padding: 1rem;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -2rem 6rem rgb(0 0 0 / 0.55);
+}
+
+.note-editor > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.note-editor h2 {
+  display: block;
+  margin: 0;
+  color: var(--fg);
+  font: 1rem/1.4 var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.note-editor h2::after {
+  display: none;
+}
+
+.editor-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--muted);
+  font: 1.5rem var(--sans);
+  cursor: pointer;
+}
+
+.note-editor-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+  margin: 1rem 0;
+}
+
+.note-editor-fields label:not(.note-editor-pin) {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.note-editor-fields label > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.note-editor-fields input:not([type="checkbox"]),
+.note-editor-fields select,
+.note-editor-fields textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--fg);
+  font: inherit;
+}
+
+.note-editor-fields textarea {
+  min-height: 7rem;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+}
+
+.note-editor-body textarea {
+  min-height: 15rem;
+}
+
+.note-editor-fields input:focus,
+.note-editor-fields select:focus,
+.note-editor-fields textarea:focus {
+  border-color: var(--purple);
+  outline: none;
+}
+
+.note-editor-pin {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+	min-height: 44px;
+	cursor: pointer;
+}
+
+.note-editor-pin input {
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 44px;
+	height: 44px;
+	margin: 0;
+	opacity: 0;
+}
+
+.note-editor-pin .note-editor-check {
+	position: relative;
+	flex: none;
+	width: 1.25rem;
+	height: 1.25rem;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	border-radius: 0.25rem;
+}
+
+.note-editor-pin input:checked + .note-editor-check {
+	background: var(--purple);
+	border-color: var(--purple);
+}
+
+.note-editor-pin input:checked + .note-editor-check::after {
+	position: absolute;
+	top: 0.15rem;
+	left: 0.4rem;
+	width: 0.3rem;
+	height: 0.6rem;
+	border: solid var(--bg);
+	border-width: 0 2px 2px 0;
+	content: "";
+	transform: rotate(45deg);
+}
+
+.note-editor-pin input:focus-visible + .note-editor-check {
+	outline: 2px solid var(--purple);
+	outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+	.context-tabs button,
+	.managed-note-actions button {
+		min-height: 44px;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .context-orbit span {
+    animation: context-glow 7s ease-in-out infinite alternate;
+  }
+
+  .context-budget span {
+    transition: width 0.35s ease;
+  }
+
+  .editor-backdrop {
+    animation: editor-arrive 0.18s ease-out;
+  }
+
+  @keyframes context-glow {
+    to {
+      transform: scale(0.92);
+      filter: hue-rotate(18deg);
+    }
+  }
+
+  @keyframes editor-arrive {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
 /* Rows ---------------------------------------------------------------- */
 
 .rows {
@@ -2093,6 +2681,48 @@ h2::after {
   }
 }
 
+@media (min-width: 48rem) {
+  .context-orbit {
+    display: block;
+  }
+
+  .context-scope > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .editor-backdrop {
+    align-items: center;
+    justify-items: center;
+    padding: 1.5rem;
+  }
+
+  .note-editor {
+    width: min(48rem, 100%);
+    border-radius: 1rem;
+  }
+
+  .note-editor-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .note-editor-body,
+  .note-editor-refs,
+  .note-editor-pin {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 64rem) {
+  .context-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(20rem, 0.85fr);
+  }
+
+  .context-controls {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
 /* ADR-0025 requires 44px interactive targets on touch. Applied by pointer
    rather than by width, because a small window on a desktop is still a mouse
    and does not need thumb-sized links. */
@@ -2125,7 +2755,9 @@ h2::after {
   .search-modes button,
   .ai-controls select,
   .model-default,
-  .ai-source-list button {
+  .ai-source-list button,
+  .context-tabs button,
+  .managed-note-actions button {
     min-height: 48px;
   }
 }

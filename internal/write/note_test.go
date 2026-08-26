@@ -231,3 +231,34 @@ func TestANoteNeedsAKindAndABody(t *testing.T) {
 		})
 	}
 }
+
+func TestRemovingANoteNeedsProofAndExplicitConfirmation(t *testing.T) {
+	const at = ".dusk/transcoding.md"
+	hash := duskmd.ContentHash("Transcoding is off on purpose.")
+
+	t.Run("confirmation is required", func(t *testing.T) {
+		writer, target, tokens := newNoteWriter(t, map[string]string{RootPath: rootFile, at: noteFile})
+		token := tokens.Issue(proof.FromNote, map[string]string{at: hash})
+		if _, err := writer.Record(t.Context(), token.ID, write.Note{Id: at, Remove: true}); err == nil {
+			t.Fatal("the note was removed without confirmation")
+		}
+		if _, ok := target.files[at]; !ok {
+			t.Fatal("the note disappeared after the refused removal")
+		}
+	})
+
+	t.Run("a confirmed removal deletes the exact file read", func(t *testing.T) {
+		writer, target, tokens := newNoteWriter(t, map[string]string{RootPath: rootFile, at: noteFile})
+		token := tokens.Issue(proof.FromNote, map[string]string{at: hash})
+		result, err := writer.Record(t.Context(), token.ID, write.Note{Id: at, Remove: true, Confirm: true})
+		if err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+		if !result.Removed {
+			t.Error("the deletion was not reported as removed")
+		}
+		if _, ok := target.files[at]; ok {
+			t.Fatal("the note file still exists")
+		}
+	})
+}

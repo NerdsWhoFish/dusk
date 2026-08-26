@@ -3,7 +3,15 @@ import { useEffect, useRef, useState } from "react";
 // Menu holds everything that is not the catalog itself. The header had four
 // things competing for 390 pixels, and this is the one that scales as more
 // pages arrive.
-export function Menu({ path, onGo }: { path: string; onGo: (target: string) => void }) {
+export function Menu({
+  path,
+  onGo,
+  contextAvailable,
+}: {
+  path: string;
+  onGo: (target: string) => void;
+  contextAvailable: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
@@ -57,11 +65,22 @@ export function Menu({ path, onGo }: { path: string; onGo: (target: string) => v
             type="button"
             role="menuitem"
             className="menu-item"
-            aria-current={path !== "/plugins" ? "page" : undefined}
+            aria-current={path === "/" ? "page" : undefined}
             onClick={() => go("/")}
           >
             Catalog
           </button>
+          {contextAvailable && (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              aria-current={path === "/context" ? "page" : undefined}
+              onClick={() => go("/context")}
+            >
+              Agent context
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
