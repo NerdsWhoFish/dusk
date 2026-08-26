@@ -519,7 +519,7 @@ func TestRepositoryPinsStayTitleOnlyWithoutRepositoryScope(t *testing.T) {
 
 	for _, want := range []string{
 		"- Repository knowledge",
-		"    - read: `note({ id: \".dusk/repository-pin.md\" })`",
+		"    - read: `note({ id: \".dusk/repository-pin.md\" })`\n\n",
 		"This body belongs in every session.",
 	} {
 		if !strings.Contains(body, want) {

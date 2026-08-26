@@ -730,7 +730,7 @@ func repositoryNoteItems(notes []*duskv1alpha1.Note) []item {
 }
 
 func repositoryNoteItem(note *duskv1alpha1.Note) item {
-	line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n", firstLine(note.GetBody()), note.GetId())
+	line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n\n", firstLine(note.GetBody()), note.GetId())
 	return item{name: "`" + note.GetId() + "`", full: line, short: line}
 }
 
@@ -769,12 +769,17 @@ const contextHeadingDepth = 2
 // heading markers come off: the line lands inside a list item, where a stray
 // `#` reads as broken markdown rather than as structure.
 func firstLine(body string) string {
-	lines := strings.Split(body, "\n")
-	if len(lines) == 0 {
-		return ""
+	line := strings.TrimSpace(body)
+	if cut := strings.IndexByte(line, '\n'); cut >= 0 {
+		line = strings.TrimSpace(line[:cut])
 	}
+	line = strings.TrimSpace(strings.TrimLeft(line, "#"))
 
-	return lines[0]
+	runes := []rune(line)
+	if len(runes) <= noteSummary {
+		return line
+	}
+	return strings.TrimSpace(string(runes[:noteSummary])) + "..."
 }
 
 // matchRepository maps a filesystem root or slug to a repository the catalog
