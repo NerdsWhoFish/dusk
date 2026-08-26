@@ -125,6 +125,12 @@ type embeddingDocument struct {
 	Repository, GitRef, KindOf, ID, ContentHash, Text string
 }
 
+const (
+	embeddingDocumentBatch = 4
+	embeddingProviderBatch = 4
+	embeddingChunkBytes    = 768
+)
+
 func (s *semanticIndex) rebuild(ctx context.Context) (int, error) {
 	documents, err := s.documents(ctx)
 	if err != nil {
@@ -136,8 +142,8 @@ func (s *semanticIndex) rebuild(ctx context.Context) (int, error) {
 	}
 	pending := pendingDocuments(documents, existing)
 	updated := 0
-	for start := 0; start < len(pending); start += 32 {
-		end := min(start+32, len(pending))
+	for start := 0; start < len(pending); start += embeddingDocumentBatch {
+		end := min(start+embeddingDocumentBatch, len(pending))
 		count, err := s.embedBatch(ctx, pending[start:end])
 		updated += count
 		if err != nil {
@@ -174,21 +180,40 @@ func pendingDocuments(documents []embeddingDocument, existing []embeddingRow) []
 }
 
 func (s *semanticIndex) embedBatch(ctx context.Context, batch []embeddingDocument) (int, error) {
-	input := make([]string, len(batch))
-	for i := range batch {
-		input[i] = batch[i].Text
+	var input []string
+	var owners []int
+	for i, document := range batch {
+		for _, chunk := range embeddingChunks(document.Text) {
+			input = append(input, chunk)
+			owners = append(owners, i)
+		}
 	}
-	vectors, err := s.embedder.Embed(ctx, input)
-	if err != nil {
-		return 0, err
+	vectorsByDocument := make([][][]float32, len(batch))
+	for start := 0; start < len(input); start += embeddingProviderBatch {
+		end := min(start+embeddingProviderBatch, len(input))
+		vectors, err := s.embedder.Embed(ctx, input[start:end])
+		if err != nil {
+			return 0, err
+		}
+		if len(vectors) != end-start {
+			return 0, fmt.Errorf("index: embedding provider returned %d vectors for %d inputs", len(vectors), end-start)
+		}
+		for i, vector := range vectors {
+			owner := owners[start+i]
+			vectorsByDocument[owner] = append(vectorsByDocument[owner], vector)
+		}
 	}
 	rows := make([]embeddingRow, len(batch))
 	for i, document := range batch {
+		encoded, dimensions, err := encodeVectors(vectorsByDocument[i])
+		if err != nil {
+			return 0, err
+		}
 		rows[i] = embeddingRow{
 			Repository: document.Repository, GitRef: document.GitRef,
 			KindOf: document.KindOf, ID: document.ID, Model: s.model,
-			ContentHash: document.ContentHash, Dimensions: len(vectors[i]),
-			Vector: encodeVector(vectors[i]), UpdatedAt: time.Now().UTC(),
+			ContentHash: document.ContentHash, Dimensions: dimensions,
+			Vector: encoded, UpdatedAt: time.Now().UTC(),
 		}
 	}
 	if err := s.db.gorm.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&rows).Error; err != nil {
@@ -281,25 +306,68 @@ func boundedDocument(text string) string {
 	return text
 }
 
+func embeddingChunks(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+	var chunks []string
+	for len(text) > embeddingChunkBytes {
+		cut := embeddingChunkBytes
+		for !utf8.ValidString(text[:cut]) {
+			cut--
+		}
+		if boundary := strings.LastIndexAny(text[:cut], " \n\t"); boundary >= embeddingChunkBytes/2 {
+			cut = boundary
+		}
+		chunks = append(chunks, strings.TrimSpace(text[:cut]))
+		text = strings.TrimSpace(text[cut:])
+	}
+	if text != "" {
+		chunks = append(chunks, text)
+	}
+	return chunks
+}
+
 func embeddingKey(repository, gitRef, kindOf, id string) string {
 	return repository + "\x00" + gitRef + "\x00" + kindOf + "\x00" + id
 }
 
 func encodeVector(vector []float32) []byte {
-	out := make([]byte, len(vector)*4)
-	for i, value := range vector {
-		binary.LittleEndian.PutUint32(out[i*4:], math.Float32bits(value))
-	}
-	return out
+	encoded, _, _ := encodeVectors([][]float32{vector})
+	return encoded
 }
 
-func decodeVector(encoded []byte, dimensions int) ([]float32, bool) {
-	if dimensions <= 0 || len(encoded) != dimensions*4 {
+func encodeVectors(vectors [][]float32) ([]byte, int, error) {
+	if len(vectors) == 0 || len(vectors[0]) == 0 {
+		return nil, 0, errors.New("index: embedding provider returned an empty vector")
+	}
+	dimensions := len(vectors[0])
+	out := make([]byte, len(vectors)*dimensions*4)
+	for chunk, vector := range vectors {
+		if len(vector) != dimensions {
+			return nil, 0, errors.New("index: embedding provider changed vector dimensions")
+		}
+		for i, value := range vector {
+			offset := (chunk*dimensions + i) * 4
+			binary.LittleEndian.PutUint32(out[offset:], math.Float32bits(value))
+		}
+	}
+	return out, dimensions, nil
+}
+
+func decodeVectors(encoded []byte, dimensions int) ([][]float32, bool) {
+	width := dimensions * 4
+	if dimensions <= 0 || len(encoded) == 0 || len(encoded)%width != 0 {
 		return nil, false
 	}
-	out := make([]float32, dimensions)
-	for i := range out {
-		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(encoded[i*4:]))
+	out := make([][]float32, len(encoded)/width)
+	for chunk := range out {
+		out[chunk] = make([]float32, dimensions)
+		for i := range out[chunk] {
+			offset := chunk*width + i*4
+			out[chunk][i] = math.Float32frombits(binary.LittleEndian.Uint32(encoded[offset:]))
+		}
 	}
 	return out, true
 }
@@ -485,12 +553,15 @@ func (s *semanticIndex) noteCandidates(ctx context.Context, gitRef string, filte
 
 func rankSemantic(candidates []semanticCandidate, query []float32) {
 	for i := range candidates {
-		vector, ok := decodeVector(candidates[i].Vector, candidates[i].Dimensions)
-		if !ok || len(vector) != len(query) {
+		vectors, ok := decodeVectors(candidates[i].Vector, candidates[i].Dimensions)
+		if !ok || len(vectors[0]) != len(query) {
 			candidates[i].Score = -1
 			continue
 		}
-		candidates[i].Score = cosine(query, vector)
+		candidates[i].Score = -1
+		for _, vector := range vectors {
+			candidates[i].Score = max(candidates[i].Score, cosine(query, vector))
+		}
 	}
 	slices.SortFunc(candidates, func(a, b semanticCandidate) int {
 		if a.Score > b.Score {
