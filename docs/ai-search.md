@@ -1,7 +1,8 @@
 # AI search
 
 Dusk can optionally answer natural-language questions from the catalog through an OpenAI-compatible Chat Completions endpoint.
-Ordinary search remains the default and never calls that provider.
+Ordinary search remains the default and never calls the chat provider.
+It may use a separately configured embeddings endpoint for semantic retrieval.
 
 ## What the provider receives
 
@@ -43,6 +44,22 @@ The server calls `POST {DUSK_AI_BASE_URL}/chat/completions` with a bearer token,
 That ceiling leaves room for providers whose reasoning tokens count against `max_completion_tokens` before visible answer text is emitted.
 The endpoint is deliberately not queried for a live model catalog because that part of OpenAI compatibility is inconsistent and would let provider-side changes silently alter Dusk's UI.
 
+## Semantic search
+
+The UI, MCP `search`, and the AI agent's `search_estate` tool share one hybrid ranker.
+Exact refs, names, titles, and aliases rank first, FTS5 supplies deterministic word matches and snippets, and optional embeddings add related documents that use different vocabulary.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DUSK_EMBEDDINGS_BASE_URL` | yes to enable | OpenAI-compatible embeddings base URL including `/v1` |
+| `DUSK_EMBEDDINGS_MODEL` | yes to enable | Embedding model name |
+| `DUSK_EMBEDDINGS_API_KEY` | no | Bearer token for a hosted endpoint; local endpoints may be keyless |
+| `DUSK_EMBEDDINGS_REPAIR_INTERVAL` | no | Full repair and backfill interval, default `1h` |
+
+Embeddings are derived SQLite rows, refreshed after catalog writes and repaired periodically.
+Stale hashes never participate in search, and endpoint failure falls back to exact plus FTS results.
+A local OpenAI-compatible service can run an open source model without sending catalog text outside the deployment.
+
 ## Model defaults
 
 The deployment default is selected on a browser's first visit.
@@ -54,8 +71,8 @@ There is no server-side user-settings store to keep in step, in the same single-
 
 ## Failure behavior
 
-An unavailable provider affects only **Ask AI** mode.
-Ordinary search and every other catalog read continue to use the local index.
+An unavailable chat provider affects only **Ask AI** mode.
+An unavailable embeddings provider removes semantic candidates for that request; exact and FTS search continue to use the local index.
 
 Provider calls have a 60-second HTTP timeout and a 2 MiB response limit.
 Question bodies are capped at 8 KiB and questions at 2,000 characters.
@@ -63,3 +80,4 @@ The browser displays a generic provider failure while the server logs the bounde
 
 The opt-in and provider boundary are in [ADR-0081](../adr/0081-ai-search-is-grounded-and-opt-in.md).
 The bounded estate-agent decision is in [ADR-0082](../adr/0082-ai-search-uses-a-bounded-read-only-estate-agent.md).
+Hybrid retrieval and embedding lifecycle are in [ADR-0083](../adr/0083-search-fuses-exact-full-text-and-semantic-retrieval.md).

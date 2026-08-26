@@ -29,6 +29,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/store"
 	"github.com/NerdsWhoFish/dusk/internal/telemetry"
 	"github.com/NerdsWhoFish/dusk/internal/write"
+	"github.com/NerdsWhoFish/dusk/pkg/embedding"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
 	"github.com/NerdsWhoFish/dusk/pkg/vault"
@@ -99,7 +100,15 @@ func serveCommand() *cli.Command {
   DUSK_AI_BASE_URL      Optional OpenAI-compatible API base URL, including /v1.
   DUSK_AI_API_KEY       Provider credential. Required with DUSK_AI_BASE_URL.
   DUSK_AI_MODELS        Comma-separated model allowlist shown in search.
-  DUSK_AI_DEFAULT_MODEL Deployment default; the first allowed model when unset.`,
+  DUSK_AI_DEFAULT_MODEL Deployment default; the first allowed model when unset.
+  DUSK_EMBEDDINGS_BASE_URL
+                        Optional OpenAI-compatible embeddings base URL with /v1.
+  DUSK_EMBEDDINGS_API_KEY
+                        Optional credential for the embeddings endpoint.
+  DUSK_EMBEDDINGS_MODEL OSS or hosted model used for semantic retrieval.
+  DUSK_EMBEDDINGS_REPAIR_INTERVAL
+                        Full repair sweep interval (default 1h). Reconciles also
+                        refresh changed documents immediately.`,
 			config.DefaultAddr, config.DefaultDataDir),
 		Action: func(ctx context.Context, _ *cli.Command) error { return serve(ctx) },
 	}
@@ -132,6 +141,9 @@ func serve(parent context.Context) error {
 }
 
 func run(parent context.Context, log *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		return fmt.Errorf("configuration:\n%w", err)
@@ -145,7 +157,7 @@ func run(parent context.Context, log *slog.Logger) error {
 		return err
 	}
 
-	idx, err := index.Open(cfg.IndexPath())
+	idx, err := configuredIndex(ctx, cfg, log)
 	if err != nil {
 		return err
 	}
@@ -228,9 +240,6 @@ func run(parent context.Context, log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	// The poll floor runs whether or not webhooks are configured, and it is
 	// what keeps a lost delivery from leaving the catalog quietly stale.
 	go catalog.Run(ctx)
@@ -262,6 +271,35 @@ func run(parent context.Context, log *slog.Logger) error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+func configuredIndex(ctx context.Context, cfg *config.Config, log *slog.Logger) (*index.DB, error) {
+	idx, err := index.Open(cfg.IndexPath())
+	if err != nil {
+		return nil, err
+	}
+	if err := configureEmbeddings(ctx, cfg, idx, log); err != nil {
+		_ = idx.Close()
+		return nil, err
+	}
+	return idx, nil
+}
+
+func configureEmbeddings(ctx context.Context, cfg *config.Config, idx *index.DB, log *slog.Logger) error {
+	if !cfg.Embeddings.Enabled() {
+		return nil
+	}
+	return idx.StartEmbeddings(ctx, index.EmbeddingOptions{
+		Embedder: &embedding.OpenAI{
+			BaseURL: cfg.Embeddings.BaseURL,
+			APIKey:  cfg.Embeddings.APIKey,
+			Model:   cfg.Embeddings.Model,
+			HTTP:    telemetry.HTTPClient(60 * time.Second),
+		},
+		Model:          cfg.Embeddings.Model,
+		RepairInterval: cfg.Embeddings.RepairInterval,
+		Logger:         log,
+	})
 }
 
 func answersFor(cfg *config.Config, catalog answer.Catalog) *answer.Service {

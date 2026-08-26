@@ -32,6 +32,10 @@ type SearchResult struct {
 	// everything it returned rather than only naming it. It is whatever the
 	// write path compares against: an entity's version, a note's content hash.
 	Version string
+
+	// MatchedBy is exact, keyword, semantic, or hybrid. It explains discovery
+	// without exposing an unstable numeric relevance score.
+	MatchedBy string
 }
 
 // Dependent is an entity reached by walking relations inbound, with the length
@@ -467,12 +471,16 @@ type SearchFilter struct {
 	// Offset pages past Limit. The total is a window function over every
 	// ranked row, so it stays the size of the whole result set as this moves.
 	Offset int
+
+	// Visibility applies before ranking and limiting. The browser must not lose
+	// visible matches behind a page of results it could never open.
+	Visibility Visibility
 }
 
 // Search runs a full-text query at gitRef, answering one page of hits and how
 // many matched before Limit cut it. A note whose kind is work ranks below every
 // other hit and by relevance within that group (ADR-0049).
-func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([]SearchResult, int, error) {
+func (db *DB) lexicalSearch(ctx context.Context, gitRef string, filter SearchFilter) ([]SearchResult, int, error) {
 	match := matchExpression(filter.Query)
 	if match == "" {
 		return nil, 0, errors.New("index: search: query is required")
@@ -490,9 +498,20 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 	// Qualified, because the join makes a bare git_ref ambiguous.
 	scope, scopeArgs := scopeClause("f", gitRef)
 	kind, kindArgs := kindClause("f", filter.Kind)
+	entityMatchVisibility, entityMatchVisibilityArgs := filter.Visibility.clause("e")
+	noteMatchVisibility, noteMatchVisibilityArgs := filter.Visibility.clause("n")
+	matchVisibility := ""
+	if entityMatchVisibility != "" {
+		matchVisibility = " AND ((f.kind_of = 'entity' AND (" + entityMatchVisibility + "))" +
+			" OR (f.kind_of = 'note' AND (" + noteMatchVisibility + ")))"
+	}
 
 	entityScope, entityScopeArgs := scopeClause("e", gitRef)
 	entityKind, entityKindArgs := kindClause("e", filter.Kind)
+	entityVisibility, entityVisibilityArgs := filter.Visibility.clause("e")
+	if entityVisibility != "" {
+		entityVisibility = " AND " + entityVisibility
+	}
 	contains, containsArgs := nameContains("e", filter.Query)
 
 	// In statement order: the demotion list sits in the select list, ahead of
@@ -501,9 +520,12 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 	args = append(args, match)
 	args = append(args, scopeArgs...)
 	args = append(args, kindArgs...)
+	args = append(args, entityMatchVisibilityArgs...)
+	args = append(args, noteMatchVisibilityArgs...)
 	if contains != "" {
 		args = append(args, entityScopeArgs...)
 		args = append(args, entityKindArgs...)
+		args = append(args, entityVisibilityArgs...)
 		args = append(args, containsArgs...)
 	}
 	args = append(args, filter.Limit, filter.Offset)
@@ -521,7 +543,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 			       '' AS snippet, e.version AS version, 1 AS demoted, 0.0 AS relevance,
 			       ROW_NUMBER() OVER (PARTITION BY e.ref ORDER BY e.observed, e.repository) AS copy
 			  FROM entities e
-			 WHERE ` + entityScope + entityKind + ` AND ` + contains + `
+			 WHERE ` + entityScope + entityKind + entityVisibility + ` AND ` + contains + `
 			   AND e.ref NOT IN (SELECT ref FROM matched)
 		)`
 		namedBranch = `
@@ -552,7 +574,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 			    ON e.repository = f.repository AND e.git_ref = f.git_ref AND e.ref = f.id
 			  LEFT JOIN notes n
 			    ON n.repository = f.repository AND n.git_ref = f.git_ref AND n.note_id = f.id
-			 WHERE catalog_fts MATCH ? AND `+scope+kind+`
+			 WHERE catalog_fts MATCH ? AND `+scope+kind+matchVisibility+`
 		)`+named+`,
 		hits AS (
 			SELECT type, ref, kind, title, snippet, version, demoted, relevance
@@ -573,6 +595,7 @@ func (db *DB) Search(ctx context.Context, gitRef string, filter SearchFilter) ([
 	results := make([]SearchResult, 0, len(rows))
 	total := 0
 	for _, row := range rows {
+		row.MatchedBy = "keyword"
 		results = append(results, row.SearchResult)
 		total = row.Total
 	}

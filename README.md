@@ -49,7 +49,7 @@ This is the memory: an entity is one markdown file in the repository that owns i
 - Git is the source of truth. Entities are markdown with frontmatter in the repos they describe. Agents read files directly, and agent writes are file edits, so review and history come for free.
 - Pull requests are first class. Any open PR renders as the catalog as it would be after merge, with a semantic diff of what actually changed.
 - Plugins are subprocesses. A plugin can be a shell script that prints JSON. Write one in any language.
-- Search stays local by default, with an optional grounded AI mode that cites the catalog entities and notes it used.
+- Search fuses exact identity and local FTS5, can add local OSS semantic retrieval, and offers an optional grounded AI mode that cites the catalog entities and notes it used.
 
 Together, the catalog, memory, and actions are the platform.
 

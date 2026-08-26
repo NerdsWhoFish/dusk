@@ -91,6 +91,7 @@ That is what stops the same argument happening again in six months.
 | [0080](0080-runtime-telemetry-uses-explicit-opentelemetry-sdks.md) | Runtime telemetry uses explicit OpenTelemetry SDKs | Stable SDK instrumentation exports vendor-neutral OTLP through a collector, without putting backend credentials in Dusk |
 | [0081](0081-ai-search-is-grounded-and-opt-in.md) | AI search is grounded in a visible catalog slice and opt-in | Keep ordinary search local, send only a bounded viewer-visible graph slice from the server to an allowlisted OpenAI-compatible model, keep credentials out of the browser, and make the non-sensitive model default a browser preference |
 | [0082](0082-ai-search-uses-a-bounded-read-only-estate-agent.md) | AI search uses a bounded read-only estate agent | Replace one-shot lexical grounding with a bounded agent that may repeatedly search and read only viewer-visible catalog documents, then disclose its queries and every document read |
+| [0083](0083-search-fuses-exact-full-text-and-semantic-retrieval.md) | Search fuses exact, full-text, and semantic retrieval | Keep FTS immediate, add optional hash-checked OSS embeddings in SQLite, and fuse both with exact identity for UI, MCP, and AI search |
 
 ## Writing one
 

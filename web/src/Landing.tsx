@@ -92,7 +92,7 @@ export function Landing({
         .search(term)
         .then((data) => live && setResults(data.results))
         .catch(handle(setProblem));
-    }, 140);
+    }, 250);
 
     return () => {
       live = false;

@@ -35,6 +35,7 @@ Garbage collecting a closed pull request is then a delete scoped to its ref, wit
 | `entities` | One row per entity, per repository, per git ref. Primary key is `(repository, git_ref, ref)` |
 | `relations` | Typed edges. Primary key is `(repository, git_ref, from_ref, to_ref, type)` |
 | `catalog_fts` | FTS5 virtual table mirroring entity and note text, so one search ranks both |
+| `embedding_rows` | Optional model- and content-hash-specific vectors derived from the same entities and notes |
 
 Attributes are stored as protojson, so what comes back out is the same `structpb.Struct` that went in.
 
@@ -48,7 +49,7 @@ Attributes are stored as protojson, so what comes back out is the same `structpb
 | `Get` | One entity, or `ErrNotFound` |
 | `List` | Every entity at a git ref, optionally one kind |
 | `Declared` | The refs one repository declares, which provenance cannot answer because it records the file and not the repository |
-| `Search` | Full-text query, ranked, with a snippet |
+| `Search` | Exact identity, full-text, and optional semantic candidates fused into one ranked page |
 | `SimilarNotes` | Notes that nearly say a given body already, scored and ordered |
 | `Neighbors` | Every relation with an entity at either end |
 | `Dependents` | Walks relations inbound, transitively, to a bounded depth |
@@ -64,13 +65,22 @@ It runs as one transaction, so a reconcile that fails partway leaves the previou
 
 ## Search
 
-Search is FTS5, which is the single strongest reason the storage engine is SQLite.
+Search always starts with exact identity and FTS5, which is the single strongest reason the storage engine is SQLite.
 Full-text search lives inside the database rather than in a service added later, and it brings ranking and `snippet()` with it.
 
 Free text is turned into a query that cannot be a syntax error.
 Each token is quoted as a phrase and the last is treated as a prefix, so results narrow as a query is typed and punctuation a user happens to type is searched for rather than interpreted.
 
 Searches are scoped to a git ref and span every repository contributing to it, which is what makes the catalog searchable as one thing rather than per repository.
+
+When an embeddings endpoint is configured, Dusk also embeds entity and note text and stores the vectors as ordinary SQLite BLOBs.
+Cosine similarity is calculated in Go and reciprocal rank fusion combines semantic candidates with exact and FTS ranks.
+The catalog size is deliberately small enough that a linear vector scan avoids cgo, a database-driver replacement, and another service owning index state.
+
+Each vector records its model and source content hash.
+A reconcile signals a refresh after committing, an hourly sweep repairs missed work, and a vector whose hash no longer matches is excluded immediately.
+If embedding a query fails, exact and FTS search still answer.
+This lifecycle and the rejected vector-extension trade-off are recorded in [ADR-0083](../adr/0083-search-fuses-exact-full-text-and-semantic-retrieval.md).
 
 ## Notes that nearly say the same thing
 

@@ -6,6 +6,8 @@ Date: 2026-08-25
 
 Accepted. Supersedes [ADR-0081](0081-ai-search-is-grounded-and-opt-in.md).
 
+The generic retrieval half is superseded by [ADR-0083](0083-search-fuses-exact-full-text-and-semantic-retrieval.md). The bounded agent, tool, visibility, disclosure, and read-only decisions still stand.
+
 ## Context and Problem Statement
 
 The first AI search implementation converted a question into one FTS query and expanded a fixed graph slice before the model saw anything.

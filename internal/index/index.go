@@ -34,7 +34,8 @@ var ErrNotFound = errors.New("index: not found")
 
 // DB is the materialized graph.
 type DB struct {
-	gorm *gorm.DB
+	gorm     *gorm.DB
+	semantic *semanticIndex
 }
 
 type entityRow struct {
@@ -144,6 +145,10 @@ func Open(path string) (*DB, error) {
 
 // Close releases the underlying database handle.
 func (db *DB) Close() error {
+	if db.semantic != nil && db.semantic.cancel != nil {
+		db.semantic.cancel()
+		db.semantic.done.Wait()
+	}
 	sqlDB, err := db.gorm.DB()
 	if err != nil {
 		return fmt.Errorf("index: close: %w", err)
@@ -162,7 +167,7 @@ func (db *DB) migrate() error {
 	if err := db.gorm.Exec(`PRAGMA foreign_keys=ON`).Error; err != nil {
 		return fmt.Errorf("index: enable foreign keys: %w", err)
 	}
-	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &contextRow{}, &defaultView{}, &repositoryIdentity{}, &repositoryAlias{}); err != nil {
+	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &contextRow{}, &defaultView{}, &repositoryIdentity{}, &repositoryAlias{}, &embeddingRow{}); err != nil {
 		return fmt.Errorf("index: migrate: %w", err)
 	}
 	for _, stmt := range ftsSchema {
@@ -181,7 +186,14 @@ var ftsSchema = []string{
 	`DROP TRIGGER IF EXISTS entity_fts_insert`,
 	`DROP TRIGGER IF EXISTS entity_fts_delete`,
 	`DROP TRIGGER IF EXISTS entity_fts_update`,
+	`DROP TRIGGER IF EXISTS entities_fts_insert`,
+	`DROP TRIGGER IF EXISTS entities_fts_delete`,
+	`DROP TRIGGER IF EXISTS entities_fts_update`,
+	`DROP TRIGGER IF EXISTS notes_fts_insert`,
+	`DROP TRIGGER IF EXISTS notes_fts_delete`,
+	`DROP TRIGGER IF EXISTS notes_fts_update`,
 	`DROP TABLE IF EXISTS entity_fts`,
+	`DROP TABLE IF EXISTS catalog_fts`,
 
 	`CREATE VIRTUAL TABLE IF NOT EXISTS catalog_fts USING fts5(
 		repository UNINDEXED, git_ref UNINDEXED, kind_of UNINDEXED, id UNINDEXED,
@@ -190,7 +202,8 @@ var ftsSchema = []string{
 
 	`CREATE TRIGGER IF NOT EXISTS entities_fts_insert AFTER INSERT ON entities BEGIN
 		INSERT INTO catalog_fts (repository, git_ref, kind_of, id, kind, name, title, body)
-		VALUES (new.repository, new.git_ref, 'entity', new.ref, new.kind, new.name, new.title, new.description);
+		VALUES (new.repository, new.git_ref, 'entity', new.ref, new.kind, new.name, new.title,
+		        new.ref || ' ' || new.description || ' ' || COALESCE(CAST(new.attributes AS TEXT), ''));
 	END`,
 	`CREATE TRIGGER IF NOT EXISTS entities_fts_delete AFTER DELETE ON entities BEGIN
 		DELETE FROM catalog_fts
@@ -202,7 +215,8 @@ var ftsSchema = []string{
 		 WHERE repository = old.repository AND git_ref = old.git_ref
 		   AND kind_of = 'entity' AND id = old.ref;
 		INSERT INTO catalog_fts (repository, git_ref, kind_of, id, kind, name, title, body)
-		VALUES (new.repository, new.git_ref, 'entity', new.ref, new.kind, new.name, new.title, new.description);
+		VALUES (new.repository, new.git_ref, 'entity', new.ref, new.kind, new.name, new.title,
+		        new.ref || ' ' || new.description || ' ' || COALESCE(CAST(new.attributes AS TEXT), ''));
 	END`,
 
 	`CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
@@ -221,6 +235,14 @@ var ftsSchema = []string{
 		INSERT INTO catalog_fts (repository, git_ref, kind_of, id, kind, name, title, body)
 		VALUES (new.repository, new.git_ref, 'note', new.note_id, new.kind, '', '', new.body);
 	END`,
+
+	`INSERT INTO catalog_fts (repository, git_ref, kind_of, id, kind, name, title, body)
+	 SELECT repository, git_ref, 'entity', ref, kind, name, title,
+	        ref || ' ' || description || ' ' || COALESCE(CAST(attributes AS TEXT), '')
+	   FROM entities`,
+	`INSERT INTO catalog_fts (repository, git_ref, kind_of, id, kind, name, title, body)
+	 SELECT repository, git_ref, 'note', note_id, kind, '', '', body
+	   FROM notes`,
 }
 
 // Declaration is one entity and the file that declares it. They travel together
@@ -286,7 +308,7 @@ func (db *DB) put(ctx context.Context, repository, gitRef string, declarations [
 	noteRows, noteRefRows := noteRows(repository, gitRef, notes)
 	aliasRows := aliasRows(repository, gitRef, declarations)
 
-	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := deleteScope(tx, repository, gitRef); err != nil {
 			return err
 		}
@@ -316,6 +338,10 @@ func (db *DB) put(ctx context.Context, repository, gitRef string, declarations [
 		}
 		return nil
 	})
+	if err == nil {
+		db.signalEmbeddings()
+	}
+	return err
 }
 
 func noteRows(repository, gitRef string, notes []*duskv1alpha1.Note) ([]noteRow, []noteRefRow) {
@@ -347,17 +373,25 @@ const batchSize = 200
 // DropGitRef removes every repository's contents at gitRef, which is how a
 // closed pull request's preview is garbage collected.
 func (db *DB) DropGitRef(ctx context.Context, gitRef string) error {
-	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return deleteWhere(tx, "git_ref = ?", gitRef)
 	})
+	if err == nil {
+		db.signalEmbeddings()
+	}
+	return err
 }
 
 // DropRepository removes one repository's contents at gitRef, which is what an
 // uninstall or a repository leaving the catalog needs.
 func (db *DB) DropRepository(ctx context.Context, repository, gitRef string) error {
-	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return deleteScope(tx, repository, gitRef)
 	})
+	if err == nil {
+		db.signalEmbeddings()
+	}
+	return err
 }
 
 func deleteScope(tx *gorm.DB, repository, gitRef string) error {
@@ -378,6 +412,7 @@ func deleteWhere(tx *gorm.DB, query string, args ...any) error {
 		{"kinds", &kindRow{}},
 		{"context", &contextRow{}},
 		{"entities", &entityRow{}},
+		{"embeddings", &embeddingRow{}},
 	} {
 		if err := tx.Where(query, args...).Delete(target.row).Error; err != nil {
 			return fmt.Errorf("index: drop %s: %w", target.what, err)
@@ -458,7 +493,7 @@ func (db *DB) TrackRepository(ctx context.Context, id int64, slug string) (strin
 		if err := tx.Save(&repositoryAlias{Alias: previous, RepositoryID: id}).Error; err != nil {
 			return err
 		}
-		for _, table := range []string{"relations", "note_refs", "notes", "entity_aliases", "kinds", "context_profiles", "entities", "default_views"} {
+		for _, table := range []string{"relations", "note_refs", "notes", "entity_aliases", "kinds", "context_profiles", "entities", "embedding_rows", "default_views"} {
 			if err := tx.Table(table).Where("repository = ?", previous).Update("repository", slug).Error; err != nil {
 				return fmt.Errorf("move %s: %w", table, err)
 			}
@@ -468,6 +503,9 @@ func (db *DB) TrackRepository(ctx context.Context, id int64, slug string) (strin
 	})
 	if err != nil {
 		return "", fmt.Errorf("index: track repository %q: %w", slug, err)
+	}
+	if previous != "" {
+		db.signalEmbeddings()
 	}
 	return previous, nil
 }

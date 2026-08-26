@@ -88,6 +88,11 @@ type Config struct {
 	// The credential stays in the server process; the browser receives only
 	// the provider host and the allowlisted model names.
 	AI AI
+
+	// Embeddings configures optional semantic retrieval for ordinary search.
+	// Vectors are derived index data and the provider may be local, so unlike
+	// chat an API key is optional.
+	Embeddings Embeddings
 }
 
 // AI is the boot configuration for an OpenAI-compatible chat endpoint.
@@ -102,6 +107,19 @@ type AI struct {
 func (a AI) Enabled() bool {
 	return a.BaseURL != "" && !a.APIKey.IsZero() && len(a.Models) > 0
 }
+
+// Embeddings is the boot configuration for an OpenAI-compatible embeddings
+// endpoint. RepairInterval is the safety sweep; reconciles request an
+// incremental refresh immediately.
+type Embeddings struct {
+	BaseURL        string
+	APIKey         secret.String
+	Model          string
+	RepairInterval time.Duration
+}
+
+// Enabled reports whether semantic retrieval has a complete configuration.
+func (e Embeddings) Enabled() bool { return e.BaseURL != "" && e.Model != "" }
 
 // ConfigRepositoryParts splits the config repository into owner and name.
 func (c *Config) ConfigRepositoryParts() (owner, name string, ok bool) {
@@ -152,6 +170,12 @@ func Load(getenv func(string) string) (*Config, error) {
 			Models:       splitValues(getenv("DUSK_AI_MODELS")),
 			DefaultModel: strings.TrimSpace(getenv("DUSK_AI_DEFAULT_MODEL")),
 		},
+		Embeddings: Embeddings{
+			BaseURL: strings.TrimSuffix(strings.TrimSpace(getenv("DUSK_EMBEDDINGS_BASE_URL")), "/"),
+			Model:   strings.TrimSpace(getenv("DUSK_EMBEDDINGS_MODEL")),
+			RepairInterval: durationOrDefault(
+				getenv("DUSK_EMBEDDINGS_REPAIR_INTERVAL"), time.Hour),
+		},
 	}
 	if s := strings.TrimSpace(getenv("DUSK_GITHUB_CLIENT_SECRET")); s != "" {
 		c.OAuthClientSecret = secret.New(s)
@@ -162,6 +186,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	if key := strings.TrimSpace(getenv("DUSK_AI_API_KEY")); key != "" {
 		c.AI.APIKey = secret.New(key)
 	}
+	if key := strings.TrimSpace(getenv("DUSK_EMBEDDINGS_API_KEY")); key != "" {
+		c.Embeddings.APIKey = secret.New(key)
+	}
 
 	problems := c.readHosts()
 	problems = append(problems, c.readEncryptionKey(getenv)...)
@@ -169,17 +196,38 @@ func Load(getenv func(string) string) (*Config, error) {
 	problems = append(problems, c.readConfigRepository()...)
 	problems = append(problems, c.readOAuth()...)
 	problems = append(problems, c.readAI()...)
+	problems = append(problems, c.readEmbeddings()...)
 	if c.ProofTTL <= 0 {
 		problems = append(problems, errors.New("DUSK_PROOF_TTL must be a positive Go duration such as 15m or 2h"))
 	}
 	if c.MCPSessionTimeout <= 0 {
 		problems = append(problems, errors.New("DUSK_MCP_SESSION_TIMEOUT must be a positive Go duration such as 15m or 2h"))
 	}
+	if c.Embeddings.RepairInterval <= 0 {
+		problems = append(problems, errors.New("DUSK_EMBEDDINGS_REPAIR_INTERVAL must be a positive Go duration such as 30m or 1h"))
+	}
 
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
 	}
 	return c, nil
+}
+
+func (c *Config) readEmbeddings() []error {
+	configured := c.Embeddings.BaseURL != "" || !c.Embeddings.APIKey.IsZero() || c.Embeddings.Model != ""
+	if !configured {
+		return nil
+	}
+	var problems []error
+	if c.Embeddings.BaseURL == "" {
+		problems = append(problems, errors.New("DUSK_EMBEDDINGS_BASE_URL is required when semantic search is configured"))
+	} else if err := validateBaseURL("DUSK_EMBEDDINGS_BASE_URL", c.Embeddings.BaseURL); err != nil {
+		problems = append(problems, err)
+	}
+	if c.Embeddings.Model == "" {
+		problems = append(problems, errors.New("DUSK_EMBEDDINGS_MODEL is required when semantic search is configured"))
+	}
+	return problems
 }
 
 func (c *Config) readAI() []error {
