@@ -221,7 +221,7 @@ func stubAPI() map[string]string {
   {"Repository":"example/platform","GitRef":"","Commit":"0f4c1ab","Entities":128,"Relations":214,"Error":"","Participating":true},
   {"Repository":"example/lab","GitRef":"","Commit":"7d881ef","Entities":42,"Relations":60,"Error":"","Participating":true}
 ]}`,
-		"/api/notes": `{"total":3,"offset":0,"proof":"proof-notes","notes":[
+		"/api/notes": `{"total":103,"offset":0,"proof":"proof-notes","notes":[
   {"id":".dusk/gotcha-replication.md","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary.","refs":["service:platform/checkout-api-gateway-replication-eu-west"],"pinned":true},
   {"id":".dusk/runbook-rollout.md","kind":"runbook","body":"Check the image digest before declaring the rollout complete.","refs":["service:platform/checkout-api-gateway-replication-eu-west"],"pinned":true},
   {"id":".dusk/todo-pool.md","kind":"todo","body":"Decide whether the gateway keeps its own connection pool.","status":"open"}

@@ -1814,6 +1814,10 @@ select,
   overflow-y: auto;
 }
 
+.notes-more {
+	margin: 0 1rem 1rem;
+}
+
 .managed-note {
   min-width: 0;
   padding: 0.875rem;

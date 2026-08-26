@@ -14,6 +14,8 @@ import {
 
 type Editor = { note: Note; creating: boolean };
 
+const notePageSize = 100;
+
 const emptyNote: Note = {
   id: "",
   kind: "gotcha",
@@ -29,6 +31,8 @@ export function Context() {
   const [preview, setPreview] = useState<ContextPreview | null>(null);
   const [repositories, setRepositories] = useState<RepositoryStatus[]>([]);
   const [notePage, setNotePage] = useState<NotePage | null>(null);
+  const [noteProofs, setNoteProofs] = useState<Record<string, string>>({});
+  const [notesBusy, setNotesBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [raw, setRaw] = useState(false);
@@ -53,13 +57,33 @@ export function Context() {
       .catch(handle(setProblem));
   }, []);
 
-  const loadNotes = useCallback(() => {
-    return api.notes().then(setNotePage).catch(handle(setProblem));
+  const loadNotes = useCallback((offset = 0) => {
+    setNotesBusy(true);
+    return api
+      .notes(notePageSize, offset)
+      .then((page) => {
+        setNotePage((current) =>
+          offset === 0 || !current
+            ? page
+            : { ...page, offset: 0, notes: [...current.notes, ...page.notes] },
+        );
+        setNoteProofs((current) => {
+          const next: Record<string, string> = offset === 0 ? {} : { ...current };
+          if (page.proof) {
+            for (const note of page.notes) {
+              next[note.id] = page.proof;
+            }
+          }
+          return next;
+        });
+      })
+      .catch(handle(setProblem))
+      .finally(() => setNotesBusy(false));
   }, []);
 
   useEffect(() => {
     void loadContext("");
-    void loadNotes();
+    void loadNotes(0);
     void api.status().then((data) => setRepositories(data.repositories)).catch(handle(setProblem));
   }, [loadContext, loadNotes]);
 
@@ -132,7 +156,7 @@ export function Context() {
     setProposal(undefined);
     try {
       const changed = { ...note, pinned: !note.pinned };
-      const result = await api.writeNote(changed, notePage?.proof);
+      const result = await api.writeNote(changed, noteProofs[note.id]);
       updateLocal(changed, result);
     } catch (error) {
       handle(setProblem)(error);
@@ -146,7 +170,7 @@ export function Context() {
     setProblem(undefined);
     setProposal(undefined);
     try {
-      const result = await api.writeNote(note, notePage?.proof);
+      const result = await api.writeNote(note, note.id ? noteProofs[note.id] : undefined);
       updateLocal(note, result);
       setEditor(undefined);
     } catch (error) {
@@ -164,7 +188,7 @@ export function Context() {
     setProblem(undefined);
     setProposal(undefined);
     try {
-      const result = await api.deleteNote(deleting.id, notePage?.proof);
+      const result = await api.deleteNote(deleting.id, noteProofs[deleting.id]);
       if (result.proposed) {
         setProposal(result);
       } else {
@@ -303,7 +327,13 @@ export function Context() {
             <header className="knowledge-head">
               <div>
                 <p className="eyebrow">Knowledge</p>
-                <strong>{notePage ? `${notePage.total} notes` : "Loading notes"}</strong>
+                <strong>
+                  {notePage
+                    ? notePage.notes.length < notePage.total
+                      ? `${notePage.notes.length} of ${notePage.total} notes`
+                      : `${notePage.total} notes`
+                    : "Loading notes"}
+                </strong>
               </div>
               <button
                 type="button"
@@ -357,6 +387,18 @@ export function Context() {
               ))}
               {notePage && notes.length === 0 && <p className="quiet">No notes match that filter.</p>}
             </div>
+            {notePage && notePage.notes.length < notePage.total && (
+              <button
+                className="btn secondary notes-more"
+                type="button"
+                disabled={notesBusy}
+                onClick={() => void loadNotes(notePage.notes.length)}
+              >
+                {notesBusy
+                  ? "Loading..."
+                  : `Load ${Math.min(notePageSize, notePage.total - notePage.notes.length)} more`}
+              </button>
+            )}
           </section>
         </aside>
       </div>
