@@ -133,6 +133,131 @@ type Result struct {
 	Similar []index.Similarity
 }
 
+// RepositoryFile is the current root dusk.md, or an editable starter when the
+// repository has not opted in yet. Version identifies the exact bytes read.
+type RepositoryFile struct {
+	Repository string
+	Path       string
+	Body       []byte
+	Template   []byte
+	Version    string
+	Exists     bool
+}
+
+// RepositoryRoot reads the fixed file that opts a repository into Dusk. The
+// repository resolver is the access boundary for humans and agents alike.
+func (w *Writer) RepositoryRoot(ctx context.Context, repository string) (*RepositoryFile, error) {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		return nil, errors.New("write: an owner/name repository is required")
+	}
+	target, err := w.Repositories.Target(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	branch, err := target.DefaultBranch(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	contents, err := target.ReadFileContents(ctx, branch, RootFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		template, templateErr := RepositoryTemplate(repository)
+		if templateErr != nil {
+			return nil, templateErr
+		}
+		return &RepositoryFile{
+			Repository: repository, Path: RootFile, Template: template,
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := duskmd.ParseRoot(RootFile, contents.Data, duskmd.Provenance{Version: branch, ObservedAt: w.now()}); err != nil {
+		return nil, err
+	}
+	return &RepositoryFile{
+		Repository: repository, Path: RootFile, Body: contents.Data,
+		Version: duskmd.FileContentHash(contents.Data), Exists: true,
+	}, nil
+}
+
+// SetRepositoryRoot creates or replaces the exact root dusk.md a caller read.
+// Validation happens before Git changes, and land preserves proposal mode.
+func (w *Writer) SetRepositoryRoot(ctx context.Context, token, repository string, body []byte) (*Result, error) {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		return nil, errors.New("write: an owner/name repository is required")
+	}
+	if _, err := duskmd.ParseRoot(RootFile, body, duskmd.Provenance{ObservedAt: w.now()}); err != nil {
+		return nil, err
+	}
+
+	target, err := w.Repositories.Target(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	branch, err := target.DefaultBranch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	contents, err := target.ReadFileContents(ctx, branch, RootFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return w.createRepositoryRoot(ctx, token, repository, body, target, branch)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return w.updateRepositoryRoot(ctx, token, repository, body, target, branch, contents)
+}
+
+func (w *Writer) createRepositoryRoot(ctx context.Context, token, repository string, body []byte, target Target, branch string) (*Result, error) {
+	if err := w.Proof.AuthorizeCreate(token, proof.RepositoryRoot(repository)); err != nil {
+		return nil, err
+	}
+	return w.land(ctx, change{
+		target: target, repository: repository, ref: repository, created: true,
+		commit: githubapp.FileCommit{
+			Branch: branch, Path: RootFile, Message: "repository: opt in with dusk.md", Content: body,
+		},
+	})
+}
+
+func (w *Writer) updateRepositoryRoot(ctx context.Context, token, repository string, body []byte, target Target, branch string, contents *githubapp.FileContents) (*Result, error) {
+	version := duskmd.FileContentHash(contents.Data)
+	if err := w.Proof.AuthorizeUpdateFrom(token, proof.RepositoryRoot(repository), version); err != nil {
+		return nil, err
+	}
+	if string(body) == string(contents.Data) {
+		return &Result{Ref: repository, Repository: repository, Path: RootFile, Existing: true}, nil
+	}
+	return w.land(ctx, change{
+		target: target, repository: repository, ref: repository, before: contents.Data,
+		commit: githubapp.FileCommit{
+			Branch: branch, Path: RootFile, Message: "repository: update dusk.md",
+			Content: body, ReplacingSHA: contents.SHA,
+		},
+	})
+}
+
+// RepositoryTemplate is an explicit, editable starting point for a repository
+// that has no dusk.md. The owner supplies the namespace and the repository
+// supplies the entity name, so no deployment-specific vocabulary is guessed.
+func RepositoryTemplate(repository string) ([]byte, error) {
+	owner, name, ok := strings.Cut(strings.TrimSpace(repository), "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return nil, fmt.Errorf("write: %q is not an owner/name repository", repository)
+	}
+	file := &duskmd.File{Path: RootFile, Entity: &duskv1alpha1.Entity{
+		Ref:       "repository:" + strings.ToLower(owner) + "/" + strings.ToLower(name),
+		Kind:      "repository",
+		Namespace: strings.ToLower(owner),
+		Name:      strings.ToLower(name),
+		Title:     name,
+	}}
+	return duskmd.FormatRoot(file)
+}
+
 // change is one file write, before Dusk decides whether it may make it.
 type change struct {
 	target     Target
@@ -311,7 +436,7 @@ func (w *Writer) create(ctx context.Context, token, ref string, declaration Decl
 	// and its includes decide where a new file may go.
 	root, _, err := w.read(ctx, target, branch, RootFile)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("write: %s has no %s, so it is not in the catalog. Add one to opt it in; Dusk will not, because that file is how a repository consents", declaration.Repository, RootFile)
+		return nil, fmt.Errorf("write: %s has no %s, so it is not in the catalog. Read it with `repository` and write the returned starter to opt it in before declaring included entities", declaration.Repository, RootFile)
 	}
 	if err != nil {
 		return nil, err

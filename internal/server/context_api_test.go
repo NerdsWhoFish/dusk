@@ -66,6 +66,24 @@ func (f *recordingNotes) Record(_ context.Context, token string, note write.Note
 
 func (*recordingNotes) NoteDestination() string { return "example/config" }
 
+type recordingRepositoryFiles struct {
+	file    *write.RepositoryFile
+	token   string
+	written []byte
+}
+
+func (f *recordingRepositoryFiles) RepositoryRoot(context.Context, string) (*write.RepositoryFile, error) {
+	return f.file, nil
+}
+
+func (f *recordingRepositoryFiles) SetRepositoryRoot(_ context.Context, token, repository string, body []byte) (*write.Result, error) {
+	f.token, f.written = token, body
+	return &write.Result{
+		Ref: repository, Repository: repository, Path: write.RootFile, Created: !f.file.Exists,
+		Commit: "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee",
+	}, nil
+}
+
 func postAPI(t *testing.T, handler http.Handler, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -192,6 +210,15 @@ func TestNotesAPIListsAndMutatesCatalogNotes(t *testing.T) {
 		t.Fatalf("page = %+v", page)
 	}
 
+	rec = get(t, handler, "/api/notes?repository=example%2Fconfig")
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || page.Total != 1 {
+		t.Fatalf("repository note page = %+v, error = %v", page, err)
+	}
+	rec = get(t, handler, "/api/notes?repository=example%2Funrelated")
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || page.Total != 0 {
+		t.Fatalf("unrelated repository note page = %+v, error = %v", page, err)
+	}
+
 	update, _ := json.Marshal(map[string]any{
 		"id": note.GetId(), "pinned": false, "proof": page.Proof,
 	})
@@ -208,5 +235,43 @@ func TestNotesAPIListsAndMutatesCatalogNotes(t *testing.T) {
 	}
 	if len(writes.notes) != 2 || writes.notes[0].Pinned == nil || *writes.notes[0].Pinned || !writes.notes[1].Remove || !writes.notes[1].Confirm {
 		t.Fatalf("writes = %+v", writes.notes)
+	}
+}
+
+func TestRepositoryAPIReadsAndCreatesDuskMD(t *testing.T) {
+	files := &recordingRepositoryFiles{file: &write.RepositoryFile{
+		Repository: "example/homelab", Path: write.RootFile,
+		Template: []byte("---\ndusk: v1alpha1\nnamespace: example\nkind: repository\nname: homelab\n---\n"),
+	}}
+	handler := build(t, setup{
+		store: registered(), catalog: emptyCatalog(t), repositories: files, tokens: &proof.Store{},
+		env: map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+
+	rec := get(t, handler, "/api/repository?repository=example%2Fhomelab")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET repository = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var read struct {
+		Template string `json:"template"`
+		Proof    string `json:"proof"`
+		Declared bool   `json:"declared"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &read); err != nil {
+		t.Fatalf("decode repository: %v", err)
+	}
+	if read.Declared || read.Template == "" || read.Proof == "" {
+		t.Fatalf("read = %+v, want an undeclared editable file and proof", read)
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"repository": "example/homelab", "body": read.Template, "proof": read.Proof,
+	})
+	rec = postAPI(t, handler, "/api/repository", string(payload))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST repository = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if files.token != read.Proof || string(files.written) != read.Template {
+		t.Fatalf("token = %q, body = %q", files.token, files.written)
 	}
 }

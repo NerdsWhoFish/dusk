@@ -204,6 +204,7 @@ func run(parent context.Context, log *slog.Logger) error {
 		Version:        version,
 		Tokens:         tokens,
 		Writer:         writer,
+		Repositories:   writer,
 		Plugins:        plugins,
 		SessionTimeout: cfg.MCPSessionTimeout,
 	})
@@ -219,6 +220,7 @@ func run(parent context.Context, log *slog.Logger) error {
 		Notes:        writer,
 		AgentContext: agents,
 		ContextFile:  writer,
+		Repositories: writer,
 		Plugins:      plugins,
 		Rotation:     observers,
 		Events:       ran,

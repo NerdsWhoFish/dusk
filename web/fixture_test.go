@@ -162,9 +162,8 @@ func fixtureContext() string {
 
 ## Pinned notes, about this repository
 
-**gotcha** · pinned · .dusk/gotcha-replication.md
-
-The replication lag alarm fires on the replica, never on the primary.
+- The replication lag alarm fires on the replica, never on the primary.
+    - read: ` + "`note({ id: \".dusk/gotcha-replication.md\" })`" + `
 
 ## What this repository declares (2)
 

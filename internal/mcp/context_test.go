@@ -205,18 +205,15 @@ func TestADR0050_NothingIsDroppedSilently(t *testing.T) {
 		t.Errorf("context is %d bytes, past the %d budget", len(body), mcp.ContextBudget)
 	}
 
-	// The overflow names the ids it dropped, on bullets of their own, so those
-	// have to be told apart from the notes actually rendered. A rendered one
-	// carries its kind in bold; an overflow bullet is the bare id.
-	named, missing, dropNamed := 0, 0, 0
+	// A local pinned note is its title and a nested read call. Overflow names
+	// the ids it dropped on bullets of their own.
+	named, missing, dropNamed := strings.Count(body, "read: `note({ id: \".dusk/pinned-"), 0, 0
 	for _, line := range strings.Split(body, "\n") {
 		switch {
 		case strings.HasPrefix(line, "- `.dusk/pinned-"):
 			dropNamed++
 		default:
-			if _, err := fmt.Sscanf(line, "%d more pinned note(s) about this repository.", &missing); err != nil {
-				named += strings.Count(line, "`.dusk/pinned-")
-			}
+			_, _ = fmt.Sscanf(line, "%d more pinned note(s) about this repository.", &missing)
 		}
 	}
 	if named+missing != len(pinned) {
@@ -483,10 +480,9 @@ func TestADR0076_TheManualStatesAConventionOnce(t *testing.T) {
 	}
 }
 
-// A note is markdown with its own headings, spliced under a section heading. At
-// their written level they read as siblings of the context's own sections, so
-// one long gotcha looks like several, and the outline stops meaning anything.
-func TestADR0076_AWholeNoteDoesNotOutrankTheSectionItIsUnder(t *testing.T) {
+// Repository-local pinned notes are intentionally titles and read calls. Their
+// whole bodies stay one call away instead of spending every session's budget.
+func TestRepositoryPinsAreTitlesWithNestedReadCalls(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	notes(t, idx, []*duskv1alpha1.Note{
@@ -498,13 +494,15 @@ func TestADR0076_AWholeNoteDoesNotOutrankTheSectionItIsUnder(t *testing.T) {
 	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
-	for _, want := range []string{"\n### The title", "\n#### A part of it", "\n##### Deeper"} {
+	for _, want := range []string{"- The title", "    - read: `note({ id: \".dusk/structured.md\" })`"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("a note heading was not sunk below its section (%q):\n%s", want, body)
+			t.Errorf("a local pin did not include %q:\n%s", want, body)
 		}
 	}
-	if !strings.Contains(body, "\n# not a heading, a shell comment") {
-		t.Errorf("a comment inside a fenced block was rewritten as a heading:\n%s", body)
+	for _, unwanted := range []string{"A part of it", "not a heading", "Deeper", "Prose."} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("a local pin printed body content %q instead of its title and read call:\n%s", unwanted, body)
+		}
 	}
 }
 

@@ -40,6 +40,10 @@ const (
 	// replacing it through the browser.
 	FromContext Origin = "context"
 
+	// FromRepository is reading a repository's root dusk.md before replacing
+	// it, or witnessing that the fixed path is absent before creating it.
+	FromRepository Origin = "repository"
+
 	// FromKinds is reading the vocabulary. Extending one you have not read is
 	// how `svc` gets invented next to `service` (ADR-0048).
 	FromKinds Origin = "kinds"
@@ -57,6 +61,8 @@ func (o Origin) Call(ref string) string {
 		return fmt.Sprintf("note(id: %q)", ref)
 	case FromKinds, FromPage, FromContext:
 		return string(o) + "()"
+	case FromRepository:
+		return fmt.Sprintf("repository(repository: %q)", ref)
 	case FromConfigure:
 		return "configure()"
 	case FromSearch, FromNeighbors:
@@ -89,6 +95,11 @@ func Portal(path string) Subject { return Subject{Ref: path, Read: FromPage} }
 // ContextProfile is the operator's agent orientation policy, re-read by the
 // context UI before it is replaced.
 func ContextProfile(path string) Subject { return Subject{Ref: path, Read: FromContext} }
+
+// RepositoryRoot is one repository's opt-in file, re-read by repository.
+func RepositoryRoot(repository string) Subject {
+	return Subject{Ref: repository, Read: FromRepository}
+}
 
 // Vocabulary is the minted kinds at path, re-read by kinds.
 func Vocabulary(path string) Subject { return Subject{Ref: path, Read: FromKinds} }

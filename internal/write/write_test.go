@@ -332,23 +332,53 @@ func TestDeclareRefusesAnIncludeThatNamesOneFile(t *testing.T) {
 	}
 }
 
-// Dusk must never create a dusk.md: that file is how a repository consents, and
-// creating one would be Dusk granting itself permission.
-func TestDeclareWillNotOptARepositoryIn(t *testing.T) {
+func TestRepositoryRootOptsARepositoryIn(t *testing.T) {
 	writer, target, tokens := newWriter(t, nil, map[string]string{})
 
-	token := tokens.Issue(proof.FromSearch, nil)
-	_, err := writer.Declare(t.Context(), token.ID, write.Declaration{
-		Ref: "service:home/navidrome", Repository: repo,
-	})
-	if err == nil {
-		t.Fatal("Declare succeeded against a repository that never opted in")
+	file, err := writer.RepositoryRoot(t.Context(), repo)
+	if err != nil {
+		t.Fatalf("RepositoryRoot: %v", err)
 	}
-	if !strings.Contains(err.Error(), "consent") {
-		t.Errorf("error = %q, want it to explain why Dusk will not add the file", err)
+	if file.Exists || len(file.Template) == 0 {
+		t.Fatalf("file = %+v, want a missing file with an editable starter", file)
 	}
-	if len(target.commits) != 0 {
-		t.Errorf("it wrote anyway: %+v", target.commits)
+
+	token := tokens.Issue(proof.FromRepository, nil)
+	result, err := writer.SetRepositoryRoot(t.Context(), token.ID, repo, file.Template)
+	if err != nil {
+		t.Fatalf("SetRepositoryRoot: %v", err)
+	}
+	if !result.Created || result.Path != RootPath {
+		t.Errorf("result = %+v, want a created root dusk.md", result)
+	}
+	if len(target.commits) != 1 || target.commits[0].ReplacingSHA != "" {
+		t.Fatalf("commits = %+v, want one create", target.commits)
+	}
+	if _, err := duskmd.ParseRoot(RootPath, target.commits[0].Content, duskmd.Provenance{}); err != nil {
+		t.Errorf("starter committed an invalid root: %v", err)
+	}
+}
+
+func TestRepositoryRootEditRequiresItsOwnFreshRead(t *testing.T) {
+	writer, target, tokens := newWriter(t, nil, map[string]string{RootPath: rootFile})
+	changed := strings.Replace(rootFile, "The NAS", "NAS", 1)
+
+	wrong := tokens.Issue(proof.FromSearch, nil)
+	if _, err := writer.SetRepositoryRoot(t.Context(), wrong.ID, repo, []byte(changed)); err == nil {
+		t.Fatal("a search token edited dusk.md")
+	}
+
+	file, err := writer.RepositoryRoot(t.Context(), repo)
+	if err != nil {
+		t.Fatalf("RepositoryRoot: %v", err)
+	}
+	token := tokens.Issue(proof.FromRepository, map[string]string{repo: file.Version})
+	result, err := writer.SetRepositoryRoot(t.Context(), token.ID, repo, []byte(changed))
+	if err != nil {
+		t.Fatalf("SetRepositoryRoot: %v", err)
+	}
+	if result.Created || len(target.commits) != 1 || target.commits[0].ReplacingSHA == "" {
+		t.Errorf("result = %+v, commits = %+v; want one guarded update", result, target.commits)
 	}
 }
 

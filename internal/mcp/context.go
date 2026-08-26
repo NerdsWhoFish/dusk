@@ -316,7 +316,7 @@ func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere
 func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, held estate) (reading, priority []*section) {
 	notesHere := &section{
 		heading: "\n## Pinned notes, about this repository\n\n",
-		items:   noteItems(here),
+		items:   repositoryNoteItems(here),
 		overflow: func(dropped []item) string {
 			return fmt.Sprintf("\n%d more pinned note(s) about this repository. `note` with `pinned: true` answers with every one:\n%s",
 				len(dropped), names(dropped))
@@ -453,6 +453,9 @@ func (s *Server) manual(vocabulary []vocab.Kind) string {
 		if s.opts.Writer.NoteDestination() != "" {
 			out.WriteString("| `page` | Read or rewrite the homepage, as an ordered list of typed queries |\n")
 		}
+	}
+	if s.opts.Repositories != nil && s.opts.Tokens != nil {
+		out.WriteString("| `repository` | Read, create, or rewrite a repository's root `dusk.md` |\n")
 	}
 	if s.opts.Plugins != nil {
 		out.WriteString("| `plugin` | What the integrations here observe, and what they can be told to do |\n" +
@@ -712,7 +715,21 @@ func noteItems(notes []*duskv1alpha1.Note) []item {
 			// pastes straight back into `note`.
 			name:  "`" + note.GetId() + "`",
 			full:  demoteHeadings(renderNote(note)),
-			short: fmt.Sprintf("- **%s** `%s` — %s\n", note.GetKind(), note.GetId(), firstLine(note.GetBody())),
+			short: fmt.Sprintf("- **%s** `%s`: %s\n", note.GetKind(), note.GetId(), firstLine(note.GetBody())),
+		})
+	}
+	return items
+}
+
+// repositoryNoteItems keeps local pinned knowledge cheap and discoverable.
+// The title is the payload and the nested call is the lossless path to the
+// complete note, so every local pin costs two short list lines at every budget.
+func repositoryNoteItems(notes []*duskv1alpha1.Note) []item {
+	items := make([]item, 0, len(notes))
+	for _, note := range notes {
+		line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n", firstLine(note.GetBody()), note.GetId())
+		items = append(items, item{
+			name: "`" + note.GetId() + "`", full: line, short: line,
 		})
 	}
 	return items

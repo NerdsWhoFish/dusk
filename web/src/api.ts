@@ -83,6 +83,15 @@ export type NotePage = {
   proof?: string;
 };
 
+export type RepositoryFile = {
+  repository: string;
+  path: string;
+  body: string;
+  template: string;
+  declared: boolean;
+  proof: string;
+};
+
 export type SearchResult = {
   Type: string;
   Ref: string;
@@ -633,8 +642,19 @@ export const api = {
     cachedGet<EntityDetail>(`/entities/${encodeURIComponent(ref)}`, refresh),
   note: (id: string, refresh?: Refresh<NoteDetail>) =>
     cachedGet<NoteDetail>(`/notes/${encodeURIComponent(id)}`, refresh),
-  notes: (limit = 200, offset = 0) =>
-    get<NotePage>(`/notes?limit=${limit}&offset=${offset}`),
+  notes: (limit = 200, offset = 0, repository = "") =>
+    get<NotePage>(
+      `/notes?limit=${limit}&offset=${offset}${repository ? `&repository=${encodeURIComponent(repository)}` : ""}`,
+    ),
+
+  repository: (repository: string) =>
+    get<RepositoryFile>(`/repository?repository=${encodeURIComponent(repository)}`),
+  setRepository: (repository: string, body: string, proof: string) =>
+    invalidating(post<WriteResult>("/repository", { repository, body, proof }), [
+      "/context",
+      "/home",
+      "/graph",
+    ]),
   writeNote: (note: Note, proof?: string) =>
     invalidating(post<WriteResult>("/notes", { ...note, proof }), [
       "/home",

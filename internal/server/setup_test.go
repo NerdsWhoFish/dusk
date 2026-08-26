@@ -80,15 +80,16 @@ type setup struct {
 
 	// pages and plugins are what the homepage is declared as and what can be
 	// mounted on it. Both nil is the default page with nothing to mount.
-	pages   server.Pages
-	plugins server.Plugins
-	answers *answer.Service
-	control *fakeController
-	syncs   server.Syncs
-	notes   server.Notes
-	context server.AgentContext
-	profile server.ContextFile
-	tokens  *proof.Store
+	pages        server.Pages
+	plugins      server.Plugins
+	answers      *answer.Service
+	control      *fakeController
+	syncs        server.Syncs
+	notes        server.Notes
+	context      server.AgentContext
+	profile      server.ContextFile
+	repositories server.RepositoryFiles
+	tokens       *proof.Store
 }
 
 type fakeController struct {
@@ -155,6 +156,7 @@ func build(t *testing.T, s setup) http.Handler {
 		Notes:        s.notes,
 		AgentContext: s.context,
 		ContextFile:  s.profile,
+		Repositories: s.repositories,
 		Tokens:       s.tokens,
 	})
 	if err != nil {

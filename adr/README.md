@@ -93,6 +93,7 @@ That is what stops the same argument happening again in six months.
 | [0082](0082-ai-search-uses-a-bounded-read-only-estate-agent.md) | AI search uses a bounded read-only estate agent | Replace one-shot lexical grounding with a bounded agent that may repeatedly search and read only viewer-visible catalog documents, then disclose its queries and every document read |
 | [0083](0083-search-fuses-exact-full-text-and-semantic-retrieval.md) | Search fuses exact, full-text, and semantic retrieval | Keep FTS immediate, add optional hash-checked OSS embeddings in SQLite, and fuse both with exact identity for UI, MCP, and AI search |
 | [0084](0084-github-login-grants-the-complete-operator-view.md) | GitHub login grants the complete operator view | Admit a GitHub identity through overlap with the installed App, then grant the same complete operator view as the shared token |
+| [0085](0085-humans-and-agents-share-repository-authority.md) | Humans and agents share repository authority | One proof-gated repository file capability lets humans and agents read, create, and edit root dusk.md with equal authority |
 
 ## Writing one
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 
 import { handle } from "./App";
 import { Markdown } from "./Markdown";
@@ -8,11 +8,13 @@ import {
   type ContextPreview,
   type Note,
   type NotePage,
+  type RepositoryFile,
   type RepositoryStatus,
   type WriteResult,
 } from "./api";
 
 type Editor = { note: Note; creating: boolean };
+type RepositoryEditor = RepositoryFile & { draft: string };
 
 const notePageSize = 100;
 
@@ -44,6 +46,10 @@ export function Context() {
   const [deleting, setDeleting] = useState<Note>();
   const [noteBusy, setNoteBusy] = useState(false);
   const [proposal, setProposal] = useState<WriteResult>();
+  const [repositoryEditor, setRepositoryEditor] = useState<RepositoryEditor>();
+  const [repositoryBusy, setRepositoryBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerIndex, setPickerIndex] = useState(0);
 
   const loadContext = useCallback((scope: string) => {
     setProblem(undefined);
@@ -52,15 +58,16 @@ export function Context() {
       .then((data) => {
         setPreview(data);
         setPolicy(data.profile.body);
-        setActiveRoot(scope);
+        setActiveRoot(data.repository || scope);
+        return data;
       })
       .catch(handle(setProblem));
   }, []);
 
-  const loadNotes = useCallback((offset = 0) => {
+  const loadNotes = useCallback((offset = 0, repository = "") => {
     setNotesBusy(true);
     return api
-      .notes(notePageSize, offset)
+      .notes(notePageSize, offset, repository)
       .then((page) => {
         setNotePage((current) =>
           offset === 0 || !current
@@ -89,7 +96,9 @@ export function Context() {
 
   const notes = useMemo(() => {
     const wanted = query.trim().toLowerCase();
-    const all = notePage?.notes ?? [];
+    const all = [...(notePage?.notes ?? [])].sort(
+      (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)),
+    );
     if (!wanted) {
       return all;
     }
@@ -101,9 +110,97 @@ export function Context() {
     );
   }, [notePage, query]);
 
+  const repositoryMatches = useMemo(() => {
+    const wanted = root.trim().toLowerCase();
+    if (!wanted) {
+      return [];
+    }
+    return [...repositories]
+      .filter((repository) => repository.Repository.toLowerCase().includes(wanted))
+      .sort((a, b) => {
+        const aName = a.Repository.toLowerCase();
+        const bName = b.Repository.toLowerCase();
+        const aRank = aName === wanted ? 0 : aName.startsWith(wanted) ? 1 : aName.split("/")[1]?.startsWith(wanted) ? 2 : 3;
+        const bRank = bName === wanted ? 0 : bName.startsWith(wanted) ? 1 : bName.split("/")[1]?.startsWith(wanted) ? 2 : 3;
+        return aRank - bRank || aName.localeCompare(bName);
+      })
+      .slice(0, 5);
+  }, [repositories, root]);
+
+  const applyScope = (scope: string) => {
+    setPickerOpen(false);
+    setRoot(scope);
+    void loadContext(scope).then((data) => loadNotes(0, data?.repository || scope));
+  };
+
   const showContext = (event: FormEvent) => {
     event.preventDefault();
-    void loadContext(root.trim());
+    applyScope(root.trim());
+  };
+
+  const pickRepository = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!pickerOpen || repositoryMatches.length === 0) {
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setPickerIndex((index) => (index + 1) % repositoryMatches.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setPickerIndex((index) => (index - 1 + repositoryMatches.length) % repositoryMatches.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      applyScope(repositoryMatches[pickerIndex]?.Repository ?? root.trim());
+    } else if (event.key === "Escape") {
+      setPickerOpen(false);
+    }
+  };
+
+  const openRepository = async () => {
+    if (!activeRoot) {
+      return;
+    }
+    setRepositoryBusy(true);
+    setProblem(undefined);
+    try {
+      const file = await api.repository(activeRoot);
+      setRepositoryEditor({ ...file, draft: file.declared ? file.body : file.template });
+    } catch (error) {
+      handle(setProblem)(error);
+    } finally {
+      setRepositoryBusy(false);
+    }
+  };
+
+  const saveRepository = async () => {
+    if (!repositoryEditor) {
+      return;
+    }
+    setRepositoryBusy(true);
+    setProblem(undefined);
+    setNotice(undefined);
+    setProposal(undefined);
+    try {
+      const result = await api.setRepository(
+        repositoryEditor.repository,
+        repositoryEditor.draft,
+        repositoryEditor.proof,
+      );
+      if (result.proposed) {
+        setProposal(result);
+      } else {
+        setNotice(
+          repositoryEditor.declared
+            ? "dusk.md committed. The preview updates after reconciliation."
+            : "Repository opted in with dusk.md. The preview updates after reconciliation.",
+        );
+      }
+      setRepositoryEditor(undefined);
+    } catch (error) {
+      handle(setProblem)(error);
+    } finally {
+      setRepositoryBusy(false);
+    }
   };
 
   const savePolicy = async () => {
@@ -232,18 +329,47 @@ export function Context() {
       <form className="context-scope" onSubmit={showContext}>
         <label htmlFor="context-root">Repository scope</label>
         <div>
-          <input
-            id="context-root"
-            list="context-repositories"
-            value={root}
-            onChange={(event) => setRoot(event.target.value)}
-            placeholder="Whole estate, or owner/name"
-          />
-          <datalist id="context-repositories">
-            {repositories.map((repository) => (
-              <option key={repository.Repository} value={repository.Repository} />
-            ))}
-          </datalist>
+          <div className="repository-picker">
+            <input
+              id="context-root"
+              value={root}
+              onChange={(event) => {
+                setRoot(event.target.value);
+                setPickerIndex(0);
+                setPickerOpen(Boolean(event.target.value.trim()));
+              }}
+              onFocus={() => setPickerOpen(Boolean(root.trim()))}
+              onKeyDown={pickRepository}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={pickerOpen && repositoryMatches.length > 0}
+              aria-controls="context-repository-results"
+              aria-activedescendant={pickerOpen ? `context-repository-${pickerIndex}` : undefined}
+              placeholder="Type an owner or repository"
+              autoComplete="off"
+            />
+            {pickerOpen && repositoryMatches.length > 0 && (
+              <ul id="context-repository-results" className="repository-results" role="listbox">
+                {repositoryMatches.map((repository, index) => (
+                  <li
+                    id={`context-repository-${index}`}
+                    key={repository.Repository}
+                    role="option"
+                    aria-selected={index === pickerIndex}
+                  >
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applyScope(repository.Repository)}
+                    >
+                      <span>{repository.Repository}</span>
+                      <small>{repository.Participating ? `${repository.Entities} entities` : "Add dusk.md"}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <button className="btn" type="submit">
             Preview
           </button>
@@ -264,13 +390,20 @@ export function Context() {
               <p className="eyebrow">Exact output</p>
               <strong>{preview?.repository || "Entire catalog"}</strong>
             </div>
-            <div className="context-tabs" aria-label="Preview format">
-              <button type="button" className={!raw ? "on" : ""} onClick={() => setRaw(false)}>
-                Rendered
-              </button>
-              <button type="button" className={raw ? "on" : ""} onClick={() => setRaw(true)}>
-                Raw
-              </button>
+            <div className="context-preview-actions">
+              {activeRoot && (
+                <button className="btn secondary repository-edit" type="button" disabled={repositoryBusy} onClick={() => void openRepository()}>
+                  {repositoryBusy ? "Opening..." : preview?.repository ? "Edit dusk.md" : "Add dusk.md"}
+                </button>
+              )}
+              <div className="context-tabs" aria-label="Preview format">
+                <button type="button" className={!raw ? "on" : ""} onClick={() => setRaw(false)}>
+                  Rendered
+                </button>
+                <button type="button" className={raw ? "on" : ""} onClick={() => setRaw(true)}>
+                  Raw
+                </button>
+              </div>
             </div>
           </header>
 
@@ -334,6 +467,7 @@ export function Context() {
                       : `${notePage.total} notes`
                     : "Loading notes"}
                 </strong>
+                <small>{activeRoot ? `Relevant to ${activeRoot}` : "Entire catalog, pinned first"}</small>
               </div>
               <button
                 type="button"
@@ -392,7 +526,7 @@ export function Context() {
                 className="btn secondary notes-more"
                 type="button"
                 disabled={notesBusy}
-                onClick={() => void loadNotes(notePage.notes.length)}
+                onClick={() => void loadNotes(notePage.notes.length, activeRoot)}
               >
                 {notesBusy
                   ? "Loading..."
@@ -409,6 +543,15 @@ export function Context() {
           busy={noteBusy}
           onCancel={() => setEditor(undefined)}
           onSave={(note) => void saveNote(note)}
+        />
+      )}
+      {repositoryEditor && (
+        <RepositoryFileEditor
+          file={repositoryEditor}
+          busy={repositoryBusy}
+          onChange={(draft) => setRepositoryEditor({ ...repositoryEditor, draft })}
+          onCancel={() => setRepositoryEditor(undefined)}
+          onSave={() => void saveRepository()}
         />
       )}
     </main>
@@ -477,6 +620,55 @@ function NoteEditor({
         </div>
         <footer>
           <button className="btn" type="submit" disabled={busy}>{busy ? "Saving..." : "Save note"}</button>
+          <button className="btn secondary" type="button" onClick={onCancel}>Cancel</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function RepositoryFileEditor({
+  file,
+  busy,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  file: RepositoryEditor;
+  busy: boolean;
+  onChange: (draft: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    onSave();
+  };
+
+  return (
+    <div className="editor-backdrop">
+      <form className="note-editor repository-file-editor" role="dialog" aria-modal="true" aria-labelledby="repository-editor-title" onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">{file.declared ? "Repository declaration" : "Opt repository in"}</p>
+            <h2 id="repository-editor-title">{file.repository}/dusk.md</h2>
+          </div>
+          <button type="button" className="editor-close" aria-label="Close editor" onClick={onCancel}>×</button>
+        </header>
+        <p className="repository-editor-help">
+          This is the complete file. Dusk validates it before Git changes. The starter uses the GitHub owner as the namespace and stays fully editable.
+        </p>
+        <textarea
+          aria-label={`${file.repository} dusk.md`}
+          value={file.draft}
+          onChange={(event) => onChange(event.target.value)}
+          spellCheck={false}
+          autoFocus
+        />
+        <footer>
+          <button className="btn" type="submit" disabled={busy || !file.draft.trim()}>
+            {busy ? "Saving..." : file.declared ? "Save dusk.md" : "Create dusk.md"}
+          </button>
           <button className="btn secondary" type="button" onClick={onCancel}>Cancel</button>
         </footer>
       </form>

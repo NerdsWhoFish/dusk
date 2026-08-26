@@ -114,6 +114,14 @@ type Declarer interface {
 	MintKind(ctx context.Context, token string, kind vocab.Kind) (*write.Result, error)
 }
 
+// RepositoryFiles is the shared Git-backed repository opt-in path. It is kept
+// separate from Declarer so read-only and test deployments can expose exactly
+// the capabilities they have.
+type RepositoryFiles interface {
+	RepositoryRoot(ctx context.Context, repository string) (*write.RepositoryFile, error)
+	SetRepositoryRoot(ctx context.Context, token, repository string, body []byte) (*write.Result, error)
+}
+
 // Options are the server's dependencies.
 type Options struct {
 	Catalog Catalog
@@ -122,8 +130,9 @@ type Options struct {
 
 	// Tokens issues the proof a write must present. Without it the read tools
 	// still answer, but nothing can be written.
-	Tokens *proof.Store
-	Writer Declarer
+	Tokens       *proof.Store
+	Writer       Declarer
+	Repositories RepositoryFiles
 
 	// Plugins is what an entity can have done to it. Optional: a deployment
 	// with none offers no invoke tool rather than one that always refuses.
@@ -245,6 +254,10 @@ func (s *Server) sdkServer() *sdk.Server {
 		}
 	}
 
+	if s.opts.Repositories != nil && s.opts.Tokens != nil {
+		sdk.AddTool(server, resultTool("repository", "Read, create, or replace a repository's root dusk.md. Omit dusk_md to read the exact file and get the proof token needed to write it. A missing file returns an editable starter, and writing it opts the repository into Dusk."), s.repository)
+	}
+
 	return server
 }
 
@@ -278,7 +291,8 @@ func (p issuedProof) withData(data map[string]any) map[string]any {
 // since read-before-write is a contract nobody discovers. Markdown and
 // structured clients receive the same token so either can complete the write.
 func (s *Server) issue(origin proof.Origin, seen map[string]string, spend string) issuedProof {
-	if s.opts.Tokens == nil || s.opts.Writer == nil {
+	canWrite := s.opts.Writer != nil || origin == proof.FromRepository && s.opts.Repositories != nil
+	if s.opts.Tokens == nil || !canWrite {
 		return issuedProof{}
 	}
 	token := s.opts.Tokens.Issue(origin, seen)
@@ -712,6 +726,56 @@ func (s *Server) declare(ctx context.Context, _ *sdk.CallToolRequest, in declare
 	return success(fmt.Sprintf(
 		"%s `%s` in %s at `%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.%s",
 		verb, result.Ref, result.Repository, result.Path, result.URL, warning), result), nil, nil
+}
+
+type repositoryInput struct {
+	Repository string  `json:"repository" jsonschema:"the exact owner/name repository whose root dusk.md to read or write"`
+	DuskMD     *string `json:"dusk_md,omitempty" jsonschema:"the complete root dusk.md to create or replace. Omit to read the current file and an editable starter when it is absent"`
+	Proof      string  `json:"proof,omitempty" jsonschema:"the proof token from reading this repository, required when writing dusk_md"`
+}
+
+func (s *Server) repository(ctx context.Context, _ *sdk.CallToolRequest, in repositoryInput) (*sdk.CallToolResult, any, error) {
+	if in.DuskMD == nil {
+		file, err := s.opts.Repositories.RepositoryRoot(ctx, in.Repository)
+		if err != nil {
+			return failure("repository_read_failed", err), nil, nil
+		}
+		seen := map[string]string{}
+		if file.Exists {
+			seen[file.Repository] = file.Version
+		}
+		issued := s.issue(proof.FromRepository, seen,
+			"Pass it back to `repository` with `dusk_md` to replace this file or create the editable starter.")
+		data := map[string]any{
+			"repository": file.Repository, "path": file.Path, "exists": file.Exists,
+			"dusk_md": string(file.Body), "template": string(file.Template),
+		}
+		if file.Exists {
+			return success(fmt.Sprintf("# `%s/%s`\n\n```markdown\n%s\n```%s",
+				file.Repository, file.Path, strings.TrimSpace(string(file.Body)), issued.markdown),
+				issued.withData(data)), nil, nil
+		}
+		return success(fmt.Sprintf("`%s` has no `%s` yet. Creating the editable starter below opts it into Dusk.\n\n```markdown\n%s\n```%s",
+			file.Repository, file.Path, strings.TrimSpace(string(file.Template)), issued.markdown),
+			issued.withData(data)), nil, nil
+	}
+
+	result, err := s.opts.Repositories.SetRepositoryRoot(ctx, in.Proof, in.Repository, []byte(*in.DuskMD))
+	if err != nil {
+		return failure("repository_write_failed", fmt.Errorf("the write was not made: %w", err)), nil, nil
+	}
+	if result.Proposed {
+		return success(proposal(result), result), nil, nil
+	}
+	if result.Existing {
+		return success(fmt.Sprintf("`%s/%s` already has the requested contents, so nothing was written.", result.Repository, result.Path), result), nil, nil
+	}
+	verb := "Updated"
+	if result.Created {
+		verb = "Created"
+	}
+	return success(fmt.Sprintf("%s `%s/%s`.\n\nCommit: %s\n\nIt reaches the catalog on the next reconcile, which the push already triggered.",
+		verb, result.Repository, result.Path, result.URL), result), nil, nil
 }
 
 // nothingToWrite reports that a call asked for notes rather than changing one.

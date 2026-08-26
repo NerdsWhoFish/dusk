@@ -26,7 +26,7 @@ func (s *Server) handleAPINotes(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 100, 200)
 	filter := index.NoteFilter{
 		Kind: r.URL.Query().Get("kind"), Status: r.URL.Query().Get("status"),
-		Ref: r.URL.Query().Get("ref"), Limit: limit,
+		Ref: r.URL.Query().Get("ref"), AboutRepository: r.URL.Query().Get("repository"), Limit: limit,
 		Offset: queryInt(r, "offset", 0, 100000),
 	}
 	if raw := r.URL.Query().Get("pinned"); raw != "" {

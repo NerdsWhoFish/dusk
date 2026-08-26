@@ -55,6 +55,7 @@ type Server struct {
 	notes        Notes
 	agentContext AgentContext
 	contextFile  ContextFile
+	repositories RepositoryFiles
 	answers      *answer.Service
 	events       *events.Log
 	tokens       *proof.Store
@@ -108,6 +109,10 @@ type Options struct {
 	AgentContext AgentContext
 	ContextFile  ContextFile
 
+	// Repositories reads and writes each repository's root dusk.md through the
+	// same proof-gated Git path offered to agents.
+	Repositories RepositoryFiles
+
 	// Events is what has been run. Optional: without it the events route
 	// answers empty rather than failing.
 	Events *events.Log
@@ -150,6 +155,7 @@ func New(opts Options) (*Server, error) {
 		notes:        opts.Notes,
 		agentContext: opts.AgentContext,
 		contextFile:  opts.ContextFile,
+		repositories: opts.Repositories,
 		answers:      opts.Answers,
 		events:       opts.Events,
 		tokens:       opts.Tokens,
@@ -294,6 +300,8 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /home", s.handleAPIHome)
 	api.HandleFunc("GET /context", s.handleAPIContext)
 	api.HandleFunc("POST /context", s.handleAPISetContext)
+	api.HandleFunc("GET /repository", s.handleAPIRepository)
+	api.HandleFunc("POST /repository", s.handleAPISetRepository)
 	api.HandleFunc("GET /viewer", s.handleAPIViewer)
 	api.HandleFunc("GET /diff", s.handleAPIDiff)
 

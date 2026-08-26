@@ -53,12 +53,13 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
-| `dusk_context(repository?)` | The operator's estate and what they pinned worth knowing, tailored to an exact `owner/name` repository |
+| `dusk_context(root?)` | The operator's estate and what they pinned worth knowing, tailored to an exact `owner/name` repository |
 | `plugin(name?)` | Every installed integration, what each puts in the catalog and what each can be told to do. `name` reads one whole |
 | `invoke(ref?, action?, params?, proof?, confirm?, preview?, idempotency_key?, plugin?, handle?)` | Do something from what `get` or `plugin` offered, or poll an asynchronous handle with `plugin` and `handle` |
 | `configure(plugin, settings?, instance?, version?, proof?)` | Read a plugin's non-sensitive configuration and its version/proof, or pass both back to change it |
 | `declare(ref, proof, …)` | Create, correct, decommission, reactivate, or remove an entity declaration |
 | `relate(from, to, type, proof, …)` | Add, correct, or withdraw one exact outbound relation |
+| `repository(repository, dusk_md?, proof?)` | Read, create, or replace a repository's root `dusk.md` |
 | `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?, limit?, offset?)` | Read or record a gotcha, a runbook, an idea, a decision |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
@@ -212,6 +213,16 @@ No section takes more than half of what is left when its turn comes, which is wh
 
 Relevance orders the pinned set and does not widen it.
 An unpinned note about this repository still does not appear, because pinning is the operator saying it is worth every future session.
+
+A repository-local pinned note is always an unordered-list title with a nested read call:
+
+```markdown
+- Git commits are authoritative
+    - read: `note({ id: ".dusk/gotcha-git.md" })`
+```
+
+The title carries orientation and the id makes the complete note one call away, without spending every session's budget on the same body.
+Estate-wide pinned notes keep the whole-or-named budget behavior below.
 
 The inventory is ordered by **what a kind is for**: `infrastructure` above `reference`, and within each, the kind carrying most of the estate first.
 An orientation that opens with airports and never reaches services is ordered backwards, and a kind's role is the thing that knows the difference ([ADR-0048](../adr/0048-the-kind-vocabulary.md)).
@@ -431,6 +442,18 @@ See [storage](storage.md).
 Pull request previews render a specific ref and are a UI concern, so the MCP tools do not take one.
 
 ## Writing
+
+### Opting in and editing `dusk.md`
+
+Humans and agents have the same repository authority ([ADR-0085](../adr/0085-humans-and-agents-share-repository-authority.md)).
+Call `repository` with an exact `owner/name` and omit `dusk_md` to read its root file.
+If it does not exist, the answer includes an explicit editable starter.
+The read also returns the proof token needed to pass the complete file back as `dusk_md`.
+
+Creating that fixed file opts the repository into Dusk.
+Replacing it edits the actual declaration, including its root entity, includes, relations, attributes, and prose.
+Both operations validate the complete file before Git changes and follow the configured read, proposal, or write access mode.
+The GitHub App installation is the authority boundary, so there is no separate human-only opt-in gate.
 
 **Every write presents a proof token issued by a read**, so an agent cannot write what it has not looked at ([ADR-0009](../adr/0009-proof-tokens.md)).
 

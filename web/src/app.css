@@ -1584,6 +1584,55 @@ select,
   gap: 0.5rem;
 }
 
+.repository-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.repository-results {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 0.3rem;
+  overflow: hidden;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--purple);
+  border-radius: 0.625rem;
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.5);
+}
+
+.repository-results button {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.7rem;
+  background: none;
+  border: 0;
+  border-radius: 0.4rem;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.repository-results [aria-selected="true"] button,
+.repository-results button:hover {
+  background: rgb(189 147 249 / 0.13);
+}
+
+.repository-results small {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
 .context-scope input,
 .note-filter {
   width: 100%;
@@ -1684,6 +1733,18 @@ select,
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 0.5rem;
+}
+
+.context-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.repository-edit {
+  min-height: 44px;
 }
 
 .context-tabs button {
@@ -1799,6 +1860,13 @@ select,
 
 .knowledge-head {
   padding: 0.875rem 1rem;
+}
+
+.knowledge-head small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.6875rem;
 }
 
 .note-filter {
@@ -1990,6 +2058,33 @@ select,
 
 .note-editor-body textarea {
   min-height: 15rem;
+}
+
+.repository-file-editor {
+  width: min(58rem, 100%);
+}
+
+.repository-editor-help {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.repository-file-editor > textarea {
+  width: 100%;
+  min-height: min(58vh, 34rem);
+  margin: 0 0 1rem;
+  padding: 0.875rem;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--fg);
+  font: 0.8125rem/1.6 var(--mono);
+}
+
+.repository-file-editor > textarea:focus {
+  border-color: var(--purple);
+  outline: none;
 }
 
 .note-editor-fields input:focus,
