@@ -27,15 +27,17 @@ type OpenAI struct {
 }
 
 type completionRequest struct {
-	Model               string    `json:"model"`
-	Messages            []Message `json:"messages"`
-	MaxCompletionTokens int       `json:"max_completion_tokens"`
+	Model               string           `json:"model"`
+	Messages            []Message        `json:"messages"`
+	MaxCompletionTokens int              `json:"max_completion_tokens"`
+	Tools               []ToolDefinition `json:"tools,omitempty"`
 }
 
 type completionResponse struct {
 	Choices []struct {
 		Message struct {
-			Content json.RawMessage `json:"content"`
+			Content   json.RawMessage `json:"content"`
+			ToolCalls []ToolCall      `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
 	Error *struct {
@@ -43,18 +45,18 @@ type completionResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// Complete requests one non-streaming text answer.
-func (c *OpenAI) Complete(ctx context.Context, model string, messages []Message) (string, error) {
+// Complete exchanges one turn with the configured Chat Completions endpoint.
+func (c *OpenAI) Complete(ctx context.Context, model string, messages []Message, tools []ToolDefinition) (Completion, error) {
 	body, err := json.Marshal(completionRequest{
-		Model: model, Messages: messages, MaxCompletionTokens: maxCompletionTokens,
+		Model: model, Messages: messages, MaxCompletionTokens: maxCompletionTokens, Tools: tools,
 	})
 	if err != nil {
-		return "", fmt.Errorf("openai: encode request: %w", err)
+		return Completion{}, fmt.Errorf("openai: encode request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimSuffix(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("openai: build request: %w", err)
+		return Completion{}, fmt.Errorf("openai: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
@@ -62,43 +64,43 @@ func (c *OpenAI) Complete(ctx context.Context, model string, messages []Message)
 
 	response, err := c.httpClient().Do(req)
 	if err != nil {
-		return "", fmt.Errorf("openai: chat completion: %w", err)
+		return Completion{}, fmt.Errorf("openai: chat completion: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	return decodeCompletion(response)
 }
 
-func decodeCompletion(response *http.Response) (string, error) {
+func decodeCompletion(response *http.Response) (Completion, error) {
 	limited := io.LimitReader(response.Body, maxProviderResponse+1)
 	encoded, err := io.ReadAll(limited)
 	if err != nil {
-		return "", fmt.Errorf("openai: read response: %w", err)
+		return Completion{}, fmt.Errorf("openai: read response: %w", err)
 	}
 	if len(encoded) > maxProviderResponse {
-		return "", fmt.Errorf("openai: response exceeds %d bytes", maxProviderResponse)
+		return Completion{}, fmt.Errorf("openai: response exceeds %d bytes", maxProviderResponse)
 	}
 
 	var decoded completionResponse
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		return "", fmt.Errorf("openai: decode response with status %d: %w", response.StatusCode, err)
+		return Completion{}, fmt.Errorf("openai: decode response with status %d: %w", response.StatusCode, err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		if decoded.Error != nil && strings.TrimSpace(decoded.Error.Message) != "" {
-			return "", fmt.Errorf("openai: provider returned status %d: %s", response.StatusCode, bounded(decoded.Error.Message, 512))
+			return Completion{}, fmt.Errorf("openai: provider returned status %d: %s", response.StatusCode, bounded(decoded.Error.Message, 512))
 		}
-		return "", fmt.Errorf("openai: provider returned status %d", response.StatusCode)
+		return Completion{}, fmt.Errorf("openai: provider returned status %d", response.StatusCode)
 	}
 	if decoded.Error != nil {
-		return "", errors.New("openai: provider returned an error in a successful response: " + bounded(decoded.Error.Message, 512))
+		return Completion{}, errors.New("openai: provider returned an error in a successful response: " + bounded(decoded.Error.Message, 512))
 	}
 	if len(decoded.Choices) == 0 {
-		return "", errors.New("openai: response contains no choices")
+		return Completion{}, errors.New("openai: response contains no choices")
 	}
 	content, err := textContent(decoded.Choices[0].Message.Content)
 	if err != nil {
-		return "", err
+		return Completion{}, err
 	}
-	return content, nil
+	return Completion{Content: content, ToolCalls: decoded.Choices[0].Message.ToolCalls}, nil
 }
 
 func (c *OpenAI) httpClient() *http.Client {
@@ -109,6 +111,9 @@ func (c *OpenAI) httpClient() *http.Client {
 }
 
 func textContent(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
 		return text, nil

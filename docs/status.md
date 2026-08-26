@@ -115,8 +115,8 @@ This tracks the product. It deliberately says nothing about any particular deplo
 - [x] **HTTP API**: search, entities, notes, the estate graph, dependents, overview, status, drift, integrity, home, viewer, diff, and the plugin routes.
   The UI is an ordinary client of it with no privileged path.
   A search hit keeps its type through navigation, so a note path opens the note API and is never sent to the entity API as though URL encoding changed what it is
-- [x] **Grounded AI search**: ordinary search remains the default local FTS read, while an explicitly selected **Ask AI** mode retrieves a bounded slice of the viewer-visible graph and sends it to an allowlisted model through a configured OpenAI-compatible Chat Completions endpoint.
-  The API key stays server side, the UI names the provider host and links every supplied entity and note as a source, model selection is per question, and a non-sensitive browser-local preference can override the deployment default ([0081](../adr/0081-ai-search-is-grounded-and-opt-in.md))
+- [x] **Grounded AI search**: ordinary search remains the default local FTS read, while an explicitly selected **Ask AI** mode gives an allowlisted OpenAI-compatible model bounded read-only tools to search the viewer-visible estate and open exact entities or notes.
+  The API key stays server side, the UI names the provider host and discloses every query and document read, model selection is per question, and a non-sensitive browser-local preference can override the deployment default ([0081](../adr/0081-ai-search-is-grounded-and-opt-in.md), [0082](../adr/0082-ai-search-uses-a-bounded-read-only-estate-agent.md))
 - [x] **React app**: React 19 and TypeScript, built by Vite, embedded via `go:embed`, dark only, Dracula Pro
 - [x] **Browser auth**: a session cookie exchanged for the same token agents present, so one policy covers both surfaces
 - [x] **Pages**: the homepage is `.dusk/home.md` in the config repository, an ordered list of typed blocks, each a query rather than a widget.

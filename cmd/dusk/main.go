@@ -274,6 +274,7 @@ func answersFor(cfg *config.Config, catalog answer.Catalog) *answer.Service {
 		Completer: &answer.OpenAI{
 			BaseURL: cfg.AI.BaseURL,
 			APIKey:  cfg.AI.APIKey,
+			HTTP:    telemetry.HTTPClient(60 * time.Second),
 		},
 		Models:       cfg.AI.Models,
 		DefaultModel: cfg.AI.DefaultModel,

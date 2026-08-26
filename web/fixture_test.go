@@ -163,6 +163,7 @@ func fixtureEntity() string {
 func stubAPI() map[string]string {
 	return map[string]string{
 		"/api/viewer": `{"signed_in":true,"login":"octocat","restricted":true,"readable":3,"github":true,"cache_scope":"fixture"}`,
+		"/api/ai":     `{"enabled":true,"models":["qwen3.8-max","deepseek-v4-flash"],"default_model":"qwen3.8-max","provider":"opencode.ai"}`,
 
 		"/api/kinds": fmt.Sprintf(`{
   "roles": ["infrastructure", "reference"],

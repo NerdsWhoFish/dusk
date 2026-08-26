@@ -4,7 +4,9 @@ Date: 2026-08-25
 
 ## Status
 
-Accepted
+Accepted. The retrieval half is superseded by [ADR-0082](0082-ai-search-uses-a-bounded-read-only-estate-agent.md).
+
+Its opt-in UI, viewer-visibility, bounded-context, provider-credential, and browser-default decisions still stand.
 
 ## Context and Problem Statement
 

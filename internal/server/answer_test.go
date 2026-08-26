@@ -13,8 +13,16 @@ import (
 
 type answerCompleter struct{}
 
-func (answerCompleter) Complete(_ context.Context, _ string, _ []answer.Message) (string, error) {
-	return "The catalog has no matching evidence.", nil
+func (answerCompleter) Complete(_ context.Context, _ string, messages []answer.Message, _ []answer.ToolDefinition) (answer.Completion, error) {
+	for _, message := range messages {
+		if message.Role == "tool" {
+			return answer.Completion{Content: "The catalog has no matching evidence."}, nil
+		}
+	}
+	return answer.Completion{ToolCalls: []answer.ToolCall{{
+		ID: "search-1", Type: "function",
+		Function: answer.FunctionCall{Name: "search_estate", Arguments: `{"query":"missing"}`},
+	}}}, nil
 }
 
 func TestAIConfigurationIsDisabledWithoutAProvider(t *testing.T) {

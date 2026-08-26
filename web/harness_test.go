@@ -21,7 +21,8 @@ type route struct {
 
 	// Click is followed before measuring, which is how a panel that is closed
 	// until somebody opens it gets measured at all.
-	Click string `json:"click,omitempty"`
+	Click   string `json:"click,omitempty"`
+	Clicked string `json:"clicked,omitempty"`
 }
 
 // A control that failed the touch target minimum, named so a failure says which
@@ -188,7 +189,7 @@ const harnessHTML = `<!doctype html>
       await settle(page.rendered);
       if (page.click) {
         frame.contentDocument.querySelector(page.click).click();
-        await settle(page.click);
+        await settle(page.clicked || page.click);
       }
       await painted();
       measured.push(measure(page.name));
