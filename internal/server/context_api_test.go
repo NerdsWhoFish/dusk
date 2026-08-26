@@ -72,6 +72,19 @@ type recordingRepositoryFiles struct {
 	written []byte
 }
 
+type recordingDeclarations struct {
+	token       string
+	declaration write.Declaration
+}
+
+func (f *recordingDeclarations) Declare(_ context.Context, token string, declaration write.Declaration) (*write.Result, error) {
+	f.token, f.declaration = token, declaration
+	return &write.Result{
+		Ref: declaration.Ref, Repository: declaration.Repository, Path: "services/jellyfin.md",
+		Commit: "c0ffee", URL: "https://github.com/example/homelab/commit/c0ffee", Removed: declaration.Remove,
+	}, nil
+}
+
 func (f *recordingRepositoryFiles) RepositoryRoot(context.Context, string) (*write.RepositoryFile, error) {
 	return f.file, nil
 }
@@ -273,5 +286,65 @@ func TestRepositoryAPIReadsAndCreatesDuskMD(t *testing.T) {
 	}
 	if files.token != read.Proof || string(files.written) != read.Template {
 		t.Fatalf("token = %q, body = %q", files.token, files.written)
+	}
+}
+
+func TestEntityAPIReadsAndWritesOneExactDeclaration(t *testing.T) {
+	db := emptyCatalog(t)
+	entity := &duskv1alpha1.Entity{
+		Ref: "service:home/jellyfin", Kind: "service", Namespace: "home", Name: "jellyfin",
+		Title: "Jellyfin from homelab", Provenance: &duskv1alpha1.Provenance{Version: "entity-version"},
+	}
+	declaration := index.Declaration{
+		Entity: entity, Path: "services/jellyfin.md", ContentHash: "file-version",
+		ObservedAs: []string{"service:cluster/jellyfin"},
+	}
+	if err := db.(*index.DB).Put(t.Context(), "example/homelab", "refs/heads/main", []index.Declaration{declaration}, nil, nil); err != nil {
+		t.Fatalf("seed declaration: %v", err)
+	}
+	if err := db.(*index.DB).SetDefaultView(t.Context(), "example/homelab", "refs/heads/main"); err != nil {
+		t.Fatalf("set default view: %v", err)
+	}
+	writes := &recordingDeclarations{}
+	handler := build(t, setup{
+		store: registered(), catalog: db, declarations: writes, tokens: &proof.Store{},
+		env: map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+
+	rec := get(t, handler, "/api/entities/service:home%2Fjellyfin?repository=example%2Fhomelab")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET entity = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var read struct {
+		Entity struct {
+			Title string `json:"title"`
+		} `json:"entity"`
+		ObservedAs []string `json:"observed_as"`
+		Proof      string   `json:"proof"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &read); err != nil {
+		t.Fatalf("decode entity: %v", err)
+	}
+	if read.Entity.Title != entity.GetTitle() || len(read.ObservedAs) != 1 || read.Proof == "" {
+		t.Fatalf("entity read = %+v", read)
+	}
+
+	decommissioned := true
+	payload, _ := json.Marshal(map[string]any{
+		"proof": read.Proof, "repository": "example/homelab",
+		"title": "Media", "description": "Streaming", "attributes": map[string]string{"url": "https://media.example.com"},
+		"observed_as": []string{"service:cluster/media"}, "unset": []string{"attributes.owner"},
+		"decommissioned": decommissioned,
+	})
+	rec = postAPI(t, handler, "/api/entities/service:home%2Fjellyfin", string(payload))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST entity = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	got := writes.declaration
+	if writes.token != read.Proof || got.Ref != entity.GetRef() || got.Repository != "example/homelab" || got.Title != "Media" || got.Decommissioned == nil || !*got.Decommissioned {
+		t.Fatalf("write = token %q, declaration %+v", writes.token, got)
+	}
+	if got.Attributes["url"] != "https://media.example.com" || len(got.ObservedAs) != 1 || len(got.Unset) != 1 {
+		t.Fatalf("write fields = %+v", got)
 	}
 }

@@ -56,6 +56,7 @@ type Server struct {
 	agentContext AgentContext
 	contextFile  ContextFile
 	repositories RepositoryFiles
+	declarations Declarations
 	answers      *answer.Service
 	events       *events.Log
 	tokens       *proof.Store
@@ -113,6 +114,10 @@ type Options struct {
 	// same proof-gated Git path offered to agents.
 	Repositories RepositoryFiles
 
+	// Declarations writes entity changes through the same proof-gated Git path
+	// used by agents.
+	Declarations Declarations
+
 	// Events is what has been run. Optional: without it the events route
 	// answers empty rather than failing.
 	Events *events.Log
@@ -156,6 +161,7 @@ func New(opts Options) (*Server, error) {
 		agentContext: opts.AgentContext,
 		contextFile:  opts.ContextFile,
 		repositories: opts.Repositories,
+		declarations: opts.Declarations,
 		answers:      opts.Answers,
 		events:       opts.Events,
 		tokens:       opts.Tokens,
@@ -287,6 +293,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /graph", s.handleAPIGraph)
 	api.HandleFunc("GET /entities", s.handleAPIEntities)
 	api.HandleFunc("GET /entities/{ref}", s.handleAPIEntity)
+	api.HandleFunc("POST /entities/{ref}", s.handleAPISetEntity)
 	api.HandleFunc("GET /notes", s.handleAPINotes)
 	api.HandleFunc("POST /notes", s.handleAPIWriteNote)
 	api.HandleFunc("GET /notes/{id}", s.handleAPINote)

@@ -221,6 +221,7 @@ func run(parent context.Context, log *slog.Logger) error {
 		AgentContext: agents,
 		ContextFile:  writer,
 		Repositories: writer,
+		Declarations: writer,
 		Plugins:      plugins,
 		Rotation:     observers,
 		Events:       ran,

@@ -70,12 +70,25 @@ export function CatalogCheckpoint({ repositories }: { repositories: RepositorySt
           <ul className="checkpoint-list">
             {changes.map((change) => (
               <li key={change.key}>
-                <code>
-                  {change.to?.gitRef || change.from?.gitRef
-                    ? `${change.repository} @ ${change.to?.gitRef ?? change.from?.gitRef}`
-                    : change.repository}
-                </code>
-                <span>{describe(change)}</span>
+                <div>
+                  <code>
+                    {change.to?.gitRef || change.from?.gitRef
+                      ? `${change.repository} @ ${change.to?.gitRef ?? change.from?.gitRef}`
+                      : change.repository}
+                  </code>
+                  <span>{describe(change)}</span>
+                </div>
+                {changeURL(change) && (
+                  <a
+                    className="checkpoint-link"
+                    href={changeURL(change)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`View source changes for ${change.repository}`}
+                  >
+                    View source changes ↗
+                  </a>
+                )}
               </li>
             ))}
           </ul>
@@ -137,6 +150,21 @@ function describe(change: Change): string {
 
 function short(commit: string): string {
   return commit.length > 7 ? commit.slice(0, 7) : commit;
+}
+
+export function changeURL(change: Change): string | undefined {
+  const [owner, name, ...rest] = change.repository.split("/");
+  if (!owner || !name || rest.length > 0) {
+    return undefined;
+  }
+  const repository = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  const before = change.from?.commit;
+  const after = change.to?.commit;
+  if (before && after && before !== after) {
+    return `${repository}/compare/${encodeURIComponent(before)}...${encodeURIComponent(after)}`;
+  }
+  const commit = after || before;
+  return commit ? `${repository}/commit/${encodeURIComponent(commit)}` : undefined;
 }
 
 function when(value: string): string {

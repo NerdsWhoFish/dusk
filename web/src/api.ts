@@ -213,10 +213,24 @@ export type EntityDetail = {
   sources?: EntitySource[];
   dependents?: Dependent[];
   events?: Event[];
+  observed_as?: string[];
 
   // proof is the token an action presents, from this very read. The browser
   // meets the same read-before-write contract an agent does (ADR-0009).
   proof?: string;
+};
+
+export type DeclarationChange = {
+  proof: string;
+  repository: string;
+  title?: string;
+  description?: string;
+  attributes?: Record<string, string>;
+  observed_as?: string[];
+  unset?: string[];
+  decommissioned?: boolean;
+  remove?: boolean;
+  confirm?: boolean;
 };
 
 export type NoteDetail = {
@@ -640,6 +654,17 @@ export const api = {
     post<AIAnswer>("/ai/ask", { question, model }),
   entity: (ref: string, refresh?: Refresh<EntityDetail>) =>
     cachedGet<EntityDetail>(`/entities/${encodeURIComponent(ref)}`, refresh),
+  declaration: (ref: string, repository: string) =>
+    get<EntityDetail>(
+      `/entities/${encodeURIComponent(ref)}?repository=${encodeURIComponent(repository)}`,
+    ),
+  updateEntity: (ref: string, change: DeclarationChange) =>
+    invalidating(post<WriteResult>(`/entities/${encodeURIComponent(ref)}`, change), [
+      "/home",
+      "/graph",
+      `/entities/${encodeURIComponent(ref)}`,
+      `/entities/${encodeURIComponent(ref)}?repository=${encodeURIComponent(change.repository)}`,
+    ]),
   note: (id: string, refresh?: Refresh<NoteDetail>) =>
     cachedGet<NoteDetail>(`/notes/${encodeURIComponent(id)}`, refresh),
   notes: (limit = 200, offset = 0, repository = "") =>

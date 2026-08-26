@@ -140,6 +140,7 @@ func fixtureEntity() string {
     {"Repository":"example/platform","Path":"services/checkout/dusk.md","Source":"services/checkout/dusk.md","Version":"0f4c1ab9d2e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0","Observed":false},
     {"Repository":"ingester:plugin:kubernetes","Path":"","Source":"plugin:kubernetes","Version":"refs/dusk/observed","Observed":true}
   ],
+  "observed_as": ["service:cluster/checkout-api-gateway"],
   "views": [
     {"plugin":"example","title":"Replicas","spec":{"layout":"table","empty":"No replicas.","fields":[
       {"source":"name","label":"Replica"},
@@ -248,6 +249,11 @@ func fixtureHandler(shell []byte, files http.Handler, root http.FileSystem) http
 	api := stubAPI()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/entities/"+fixtureRef {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_, _ = io.WriteString(w, `{"ref":"`+fixtureRef+`","repository":"example/platform","path":"services/checkout/dusk.md","commit":"c0ffee","url":"https://github.com/example/platform/commit/c0ffee"}`)
+			return
+		}
 		if body, ok := api[r.URL.Path]; ok {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			_, _ = io.WriteString(w, body)

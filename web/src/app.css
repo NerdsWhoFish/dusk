@@ -1964,6 +1964,80 @@ select,
   gap: 0.5rem;
 }
 
+.entity-editor {
+  width: min(58rem, 100%);
+}
+
+.entity-source-picker {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1rem;
+}
+
+.entity-source-picker span,
+.entity-attributes legend {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.entity-source-picker select {
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--fg);
+  font: inherit;
+}
+
+.entity-description,
+.entity-aliases,
+.entity-attributes {
+  grid-column: 1 / -1;
+}
+
+.entity-attributes {
+  display: grid;
+  gap: 0.625rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.entity-attribute {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.entity-write-success {
+  padding: 0.75rem;
+  background: rgb(128 255 234 / 0.08);
+  border: 1px solid rgb(128 255 234 / 0.3);
+  border-radius: 0.5rem;
+  color: var(--green);
+}
+
+.entity-danger {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(255 85 85 / 0.3);
+}
+
+.entity-danger p {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.entity-danger > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .editor-backdrop {
   position: fixed;
   inset: 0;
@@ -2335,10 +2409,29 @@ select,
   font-size: 0.8125rem;
 }
 
+.checkpoint-list li > div {
+  display: grid;
+  gap: 0.125rem;
+}
+
 .checkpoint-list code {
   color: var(--fg);
   font-family: var(--mono);
   overflow-wrap: anywhere;
+}
+
+.checkpoint-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  width: fit-content;
+  color: var(--purple);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.checkpoint-link:hover {
+  color: var(--fg);
 }
 
 /* Entity -------------------------------------------------------------- */
@@ -2362,6 +2455,18 @@ select,
   position: relative;
   margin: 0 0 1.75rem;
   padding: 1.25rem 0 1.5rem;
+}
+
+.identity-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.entity-edit {
+  flex: none;
 }
 
 .identity::after {
@@ -2802,6 +2907,10 @@ h2::after {
 
   .note-editor-fields {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .entity-attribute {
+    grid-template-columns: minmax(10rem, 0.7fr) minmax(12rem, 1fr) auto;
   }
 
   .note-editor-body,

@@ -89,6 +89,7 @@ type setup struct {
 	context      server.AgentContext
 	profile      server.ContextFile
 	repositories server.RepositoryFiles
+	declarations server.Declarations
 	tokens       *proof.Store
 }
 
@@ -157,6 +158,7 @@ func build(t *testing.T, s setup) http.Handler {
 		AgentContext: s.context,
 		ContextFile:  s.profile,
 		Repositories: s.repositories,
+		Declarations: s.declarations,
 		Tokens:       s.tokens,
 	})
 	if err != nil {

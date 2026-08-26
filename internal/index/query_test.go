@@ -120,7 +120,7 @@ func TestGetFromAndLocateInSelectOneDuplicateDeclaration(t *testing.T) {
 	for _, repository := range []string{"example/one", "example/two"} {
 		declaration := index.Declaration{
 			Path: repository + "/dusk.md", ContentHash: "hash-" + repository,
-			Entity: entity(ref, repository, ""),
+			Entity: entity(ref, repository, ""), ObservedAs: []string{"service:observed/" + repository},
 		}
 		if err := db.Put(t.Context(), repository, mainRef, []index.Declaration{declaration}, nil, nil); err != nil {
 			t.Fatalf("Put %s: %v", repository, err)
@@ -137,6 +137,10 @@ func TestGetFromAndLocateInSelectOneDuplicateDeclaration(t *testing.T) {
 	location, err := db.LocateIn(t.Context(), "", ref, "example/two")
 	if err != nil || location.Repository != "example/two" || location.ContentHash != "hash-example/two" {
 		t.Fatalf("LocateIn = %+v, %v", location, err)
+	}
+	aliases, err := db.ObservedAs(t.Context(), "", ref, "example/two")
+	if err != nil || len(aliases) != 1 || aliases[0] != "service:observed/example/two" {
+		t.Fatalf("ObservedAs = %+v, %v", aliases, err)
 	}
 }
 

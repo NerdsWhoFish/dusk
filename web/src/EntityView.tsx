@@ -4,6 +4,7 @@ import { api } from "./api";
 import type { EntityDetail, EntitySource, Event } from "./api";
 import { handle } from "./App";
 import { Events } from "./Events";
+import { EntityEditor } from "./EntityEditor";
 import { Markdown } from "./Markdown";
 import { Notes } from "./Notes";
 import { PluginBlock } from "./PluginView";
@@ -19,6 +20,7 @@ export function EntityView({
 }) {
   const [detail, setDetail] = useState<EntityDetail | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const vocabulary = useVocabulary();
 
   // Reloading after an action is not a nicety: the answer carried the proof
@@ -77,6 +79,7 @@ export function EntityView({
 
   const { entity, relations, notes } = detail;
   const attributes = Object.entries(entity.attributes ?? {});
+  const declared = (detail.sources ?? []).filter((source) => !source.Observed);
 
   return (
     <>
@@ -86,14 +89,21 @@ export function EntityView({
           the horizon gradient so an entity page belongs to the same product
           as the landing rather than reading as a bare document. */}
       <header className="identity">
-        <div className="title">
-          <h1>{entity.title || entity.name}</h1>
-          <span className={`tag kind-${entity.kind}`}>{entity.kind}</span>
+        <div className="identity-main">
+          <div className="title">
+            <h1>{entity.title || entity.name}</h1>
+            <span className={`tag kind-${entity.kind}`}>{entity.kind}</span>
           {/* Only reference is shown. Infrastructure is the default and says
               nothing; reference says nobody is expected to declare these, which
               is why drift stays quiet about them (ADR-0048). */}
-          {describe(entity.kind, vocabulary)?.role === "reference" && (
-            <span className="tag reference">reference</span>
+            {describe(entity.kind, vocabulary)?.role === "reference" && (
+              <span className="tag reference">reference</span>
+            )}
+          </div>
+          {declared.length > 0 && (
+            <button type="button" className="btn secondary entity-edit" onClick={() => setEditing(true)}>
+              Edit entity
+            </button>
           )}
         </div>
         <p className="ref">{entity.ref}</p>
@@ -194,6 +204,15 @@ export function EntityView({
             <p className="ref">Observed only — no repository declares this entity.</p>
           )}
         </section>
+      )}
+
+      {editing && (
+        <EntityEditor
+          entityRef={entity.ref}
+          sources={detail.sources ?? []}
+          onClose={() => setEditing(false)}
+          onChanged={load}
+        />
       )}
     </>
   );

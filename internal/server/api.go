@@ -24,6 +24,8 @@ import (
 type Catalog interface {
 	Search(ctx context.Context, gitRef string, filter index.SearchFilter) ([]index.SearchResult, int, error)
 	Get(ctx context.Context, gitRef, entityRef string) (*duskv1alpha1.Entity, error)
+	GetFrom(ctx context.Context, gitRef, entityRef, repository string) (*duskv1alpha1.Entity, error)
+	ObservedAs(ctx context.Context, gitRef, entityRef, repository string) ([]string, error)
 	Sources(ctx context.Context, gitRef, entityRef string) ([]index.EntitySource, error)
 	Neighbors(ctx context.Context, gitRef, entityRef string) ([]*duskv1alpha1.Relation, error)
 	Dependents(ctx context.Context, gitRef, entityRef string, maxDepth int) ([]index.Dependent, error)
@@ -276,6 +278,7 @@ func (s *Server) searched(results []index.SearchResult) string {
 // agent asking the same question should not get different answers.
 func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
+	repository := strings.TrimSpace(r.URL.Query().Get("repository"))
 
 	visible, err := s.visible(r)
 	if err != nil {
@@ -283,7 +286,7 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entity, err := s.catalog.Get(r.Context(), refOf(r), ref)
+	entity, observedAs, err := s.entityDeclaration(r.Context(), refOf(r), ref, repository)
 	// Not-visible answers exactly as not-found. Telling somebody an entity
 	// exists but is none of their business leaks the thing being protected.
 	if errors.Is(err, index.ErrNotFound) || (err == nil && !visible(ref)) {
@@ -321,14 +324,15 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	answer := map[string]any{
-		"entity":     asEntity(entity),
-		"relations":  asRelations(relations),
-		"notes":      asNotes(notes),
-		"views":      views,
-		"actions":    actions,
-		"sources":    operational.sources,
-		"dependents": operational.dependents,
-		"events":     operational.events,
+		"entity":      asEntity(entity),
+		"relations":   asRelations(relations),
+		"notes":       asNotes(notes),
+		"views":       views,
+		"actions":     actions,
+		"sources":     operational.sources,
+		"dependents":  operational.dependents,
+		"events":      operational.events,
+		"observed_as": observedAs,
 	}
 
 	// The browser meets the same read-before-write contract an agent does, so
@@ -344,6 +348,19 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+func (s *Server) entityDeclaration(ctx context.Context, gitRef, ref, repository string) (*duskv1alpha1.Entity, []string, error) {
+	if repository == "" {
+		entity, err := s.catalog.Get(ctx, gitRef, ref)
+		return entity, nil, err
+	}
+	entity, err := s.catalog.GetFrom(ctx, gitRef, ref, repository)
+	if err != nil {
+		return nil, nil, err
+	}
+	observedAs, err := s.catalog.ObservedAs(ctx, gitRef, ref, repository)
+	return entity, observedAs, err
 }
 
 type operationalEntity struct {

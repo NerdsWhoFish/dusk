@@ -100,6 +100,18 @@ func (db *DB) GetFrom(ctx context.Context, gitRef, entityRef, repository string)
 	return row.entity()
 }
 
+// ObservedAs returns the aliases attached to one exact declaration.
+func (db *DB) ObservedAs(ctx context.Context, gitRef, entityRef, repository string) ([]string, error) {
+	var aliases []string
+	err := scoped(db.gorm.WithContext(ctx).Model(&aliasRow{}), gitRef).
+		Where("ref = ? AND repository = ?", entityRef, repository).
+		Order("alias").Pluck("alias", &aliases).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: aliases for %q in %q: %w", entityRef, repository, err)
+	}
+	return aliases, nil
+}
+
 // NotesFor returns the notes attached to an entity, pinned first, then by what
 // their kind is for, then by id. A gotcha reaching the top without anybody
 // pinning it is what ADR-0049 exists for.
