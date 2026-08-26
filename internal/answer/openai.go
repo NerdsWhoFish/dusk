@@ -14,7 +14,10 @@ import (
 	"github.com/NerdsWhoFish/dusk/pkg/secret"
 )
 
-const maxProviderResponse = 2 << 20
+const (
+	maxCompletionTokens = 4_096
+	maxProviderResponse = 2 << 20
+)
 
 // OpenAI calls an OpenAI-compatible Chat Completions endpoint.
 type OpenAI struct {
@@ -43,7 +46,7 @@ type completionResponse struct {
 // Complete requests one non-streaming text answer.
 func (c *OpenAI) Complete(ctx context.Context, model string, messages []Message) (string, error) {
 	body, err := json.Marshal(completionRequest{
-		Model: model, Messages: messages, MaxCompletionTokens: 1_200,
+		Model: model, Messages: messages, MaxCompletionTokens: maxCompletionTokens,
 	})
 	if err != nil {
 		return "", fmt.Errorf("openai: encode request: %w", err)

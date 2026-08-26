@@ -35,7 +35,8 @@ DUSK_AI_MODELS=qwen3.8-max,deepseek-v4-flash,glm-5.2,mimo-v2.5,kimi-k3
 DUSK_AI_DEFAULT_MODEL=qwen3.8-max
 ```
 
-The server calls `POST {DUSK_AI_BASE_URL}/chat/completions` with a bearer token, `model`, `messages`, and `max_completion_tokens`.
+The server calls `POST {DUSK_AI_BASE_URL}/chat/completions` with a bearer token, `model`, `messages`, and a 4,096-token completion ceiling.
+That ceiling leaves room for providers whose reasoning tokens count against `max_completion_tokens` before visible answer text is emitted.
 The endpoint is deliberately not queried for a live model catalog because that part of OpenAI compatibility is inconsistent and would let provider-side changes silently alter Dusk's UI.
 
 ## Model defaults
