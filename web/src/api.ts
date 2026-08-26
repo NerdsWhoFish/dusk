@@ -73,6 +73,7 @@ export type AISource = {
 export type AIAnswer = {
   answer: string;
   model: string;
+  searches: string[];
   sources: AISource[];
 };
 

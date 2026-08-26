@@ -18,6 +18,7 @@ type GraphNode struct {
 type Graph struct {
 	Nodes     []GraphNode
 	Relations []*duskv1alpha1.Relation
+	Notes     []*duskv1alpha1.Note
 }
 
 // Graph returns the default view as one graph-shaped read. It resolves
@@ -54,13 +55,11 @@ func (db *DB) Graph(ctx context.Context, gitRef string, v Visibility) (Graph, er
 		return Graph{}, err
 	}
 
-	if len(nodes) == 0 {
-		return Graph{Nodes: nodes, Relations: relations}, nil
-	}
-	if err := db.attachGraphNotes(ctx, gitRef, nodes, byRef); err != nil {
+	notes, err := db.attachGraphNotes(ctx, gitRef, v, nodes, byRef)
+	if err != nil {
 		return Graph{}, err
 	}
-	return Graph{Nodes: nodes, Relations: relations}, nil
+	return Graph{Nodes: nodes, Relations: relations, Notes: notes}, nil
 }
 
 func graphRelations(rows []relationRow, byRef map[string]int) ([]*duskv1alpha1.Relation, error) {
@@ -87,10 +86,11 @@ func graphRelations(rows []relationRow, byRef map[string]int) ([]*duskv1alpha1.R
 	return relations, nil
 }
 
-func (db *DB) attachGraphNotes(ctx context.Context, gitRef string, nodes []GraphNode, byRef map[string]int) error {
+func (db *DB) attachGraphNotes(ctx context.Context, gitRef string, v Visibility, nodes []GraphNode, byRef map[string]int) ([]*duskv1alpha1.Note, error) {
 	var notes []noteRow
-	if err := scoped(db.gorm.WithContext(ctx), gitRef).Order("pinned DESC, observed_at DESC, note_id").Find(&notes).Error; err != nil {
-		return fmt.Errorf("index: graph notes at %q: %w", gitRef, err)
+	query := visible(scoped(db.gorm.WithContext(ctx).Model(&noteRow{}), gitRef), v, "")
+	if err := query.Order("pinned DESC, observed_at DESC, note_id").Find(&notes).Error; err != nil {
+		return nil, fmt.Errorf("index: graph notes at %q: %w", gitRef, err)
 	}
 
 	type noteKey struct {
@@ -99,13 +99,21 @@ func (db *DB) attachGraphNotes(ctx context.Context, gitRef string, nodes []Graph
 		id         string
 	}
 	byNote := make(map[noteKey]*duskv1alpha1.Note, len(notes))
+	all := make([]*duskv1alpha1.Note, 0, len(notes))
+	seen := make(map[string]bool, len(notes))
 	for _, row := range notes {
-		byNote[noteKey{row.Repository, row.GitRef, row.NoteID}] = row.note()
+		note := row.note()
+		byNote[noteKey{row.Repository, row.GitRef, row.NoteID}] = note
+		if !seen[note.GetId()] {
+			seen[note.GetId()] = true
+			all = append(all, note)
+		}
 	}
 
 	var refs []noteRefRow
-	if err := scoped(db.gorm.WithContext(ctx), gitRef).Order("ref, note_id").Find(&refs).Error; err != nil {
-		return fmt.Errorf("index: graph note refs at %q: %w", gitRef, err)
+	refsQuery := visible(scoped(db.gorm.WithContext(ctx).Model(&noteRefRow{}), gitRef), v, "")
+	if err := refsQuery.Order("ref, note_id").Find(&refs).Error; err != nil {
+		return nil, fmt.Errorf("index: graph note refs at %q: %w", gitRef, err)
 	}
 	for _, ref := range refs {
 		node, visible := byRef[ref.Ref]
@@ -129,7 +137,7 @@ func (db *DB) attachGraphNotes(ctx context.Context, gitRef string, nodes []Graph
 			return compareNotes(a, b)
 		})
 	}
-	return nil
+	return all, nil
 }
 
 func compareNotes(a, b *duskv1alpha1.Note) int {

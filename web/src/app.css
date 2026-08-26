@@ -345,8 +345,8 @@ select,
 }
 
 .ai-controls {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 0.5rem 0.75rem;
   margin-top: 0.625rem;
@@ -355,13 +355,13 @@ select,
 }
 
 .ai-controls label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
 }
 
-.ai-controls select,
-.model-default {
+.ai-controls select {
+  width: 100%;
   min-height: 40px;
   padding: 0 0.75rem;
   background: var(--card);
@@ -372,22 +372,31 @@ select,
   font-size: 0.8125rem;
 }
 
-.ai-controls select {
-  max-width: min(15rem, 56vw);
-}
-
 .model-default {
-  color: var(--muted);
+  justify-self: start;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--purple);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.model-default.on {
-  border-color: rgb(80 250 123 / 0.35);
+.model-default-status {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: 32px;
   color: var(--green);
+  font-size: 0.8125rem;
+  font-weight: 700;
 }
 
 .ai-provider {
-  flex-basis: 100%;
+  min-width: 0;
 }
 
 .ai-answer {
@@ -480,6 +489,27 @@ select,
   margin-top: 1.25rem;
   padding-top: 1rem;
   border-top: 1px solid var(--line);
+}
+
+.ai-search-trail {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.ai-search-trail > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.ai-search-trail code {
+  padding: 0.25rem 0.5rem;
+  background: rgb(189 147 249 / 0.08);
+  border: 1px solid rgb(189 147 249 / 0.2);
+  border-radius: 0.375rem;
+  color: var(--purple);
+  font-size: 0.75rem;
 }
 
 .ai-sources-title {
@@ -2123,6 +2153,26 @@ h2::after {
   .hero input {
     min-height: 60px;
     font-size: 1.125rem;
+  }
+
+  .ai-controls {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .ai-controls label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .ai-controls select {
+    width: auto;
+    max-width: 15rem;
+  }
+
+  .ai-provider {
+    flex-basis: 100%;
   }
 
   /* Blocks pair up on a wide screen. A plugin block drops into the same grid,

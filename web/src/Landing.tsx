@@ -249,12 +249,16 @@ export function Landing({
               </label>
               <button
                 type="button"
-                className={model === defaultModel ? "model-default on" : "model-default"}
-                disabled={!model || model === defaultModel}
+                className="model-default"
+                disabled={!model}
+                hidden={model === defaultModel}
                 onClick={rememberModel}
               >
-                {model === defaultModel ? "Default model" : "Make default"}
+                Set as default
               </button>
+              {model === defaultModel && (
+                <span className="model-default-status">✓ Default</span>
+              )}
               {ai.provider && (
                 <span className="ai-provider">Relevant excerpts go to {ai.provider}</span>
               )}
@@ -334,8 +338,8 @@ function AIResult({
       <section className="ai-answer loading" aria-live="polite" aria-busy="true">
         <span className="ai-orbit" aria-hidden="true" />
         <div>
-          <strong>Reading the estate</strong>
-          <p>Finding the relevant entities, relations, and notes before asking the model.</p>
+          <strong>Researching the estate</strong>
+          <p>The agent is searching, opening relevant documents, and checking its evidence.</p>
         </div>
       </section>
     );
@@ -355,9 +359,17 @@ function AIResult({
         <code>{answer.model}</code>
       </div>
       <Markdown>{answer.answer}</Markdown>
+      {(answer.searches ?? []).length > 0 && (
+        <div className="ai-search-trail">
+          <span className="ai-sources-title">Estate searches</span>
+          <div>
+            {(answer.searches ?? []).map((query) => <code key={query}>{query}</code>)}
+          </div>
+        </div>
+      )}
       {answer.sources.length > 0 && (
         <div className="ai-sources">
-          <span className="ai-sources-title">Catalog sources</span>
+          <span className="ai-sources-title">Documents read</span>
           <div className="ai-source-list">
             {answer.sources.map((source, index) => (
               <button
@@ -373,7 +385,7 @@ function AIResult({
           </div>
         </div>
       )}
-      <p className="ai-caveat">Generated from catalog excerpts. Open the sources before acting.</p>
+      <p className="ai-caveat">The answer is grounded only in the documents listed above. Open them before acting.</p>
     </section>
   );
 }
