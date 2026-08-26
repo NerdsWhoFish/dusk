@@ -139,6 +139,10 @@ The chart intentionally keeps one replica and uses `Recreate` because SQLite and
 | `DUSK_AI_API_KEY` | unset | Provider bearer token; required with the AI base URL |
 | `DUSK_AI_MODELS` | unset | Comma-separated model allowlist shown in search |
 | `DUSK_AI_DEFAULT_MODEL` | first allowed model | Deployment default model when AI search is enabled |
+| `DUSK_EMBEDDINGS_BASE_URL` | unset | OpenAI-compatible embeddings base URL; unset keeps exact plus FTS search |
+| `DUSK_EMBEDDINGS_API_KEY` | unset | Optional bearer token; local endpoints may be keyless |
+| `DUSK_EMBEDDINGS_MODEL` | unset | Embedding model name; required with the embeddings base URL |
+| `DUSK_EMBEDDINGS_REPAIR_INTERVAL` | `1h` | Full repair sweep; catalog writes also refresh changed documents |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP collector endpoint; leaving it unset disables telemetry |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP transport protocol when telemetry is enabled |
 | `OTEL_RESOURCE_ATTRIBUTES` | unset | Comma-separated OpenTelemetry resource attributes such as the deployment environment |

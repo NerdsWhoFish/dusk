@@ -282,6 +282,55 @@ func TestAISearchConfiguration(t *testing.T) {
 	}
 }
 
+func TestEmbeddingConfiguration(t *testing.T) {
+	base := map[string]string{
+		"DUSK_PRIVATE_HOST":   "https://dusk.example.com",
+		"DUSK_ENCRYPTION_KEY": validKey(t),
+	}
+	with := func(extra map[string]string) map[string]string {
+		merged := map[string]string{}
+		for key, value := range base {
+			merged[key] = value
+		}
+		for key, value := range extra {
+			merged[key] = value
+		}
+		return merged
+	}
+
+	cfg, err := config.Load(env(with(map[string]string{
+		"DUSK_EMBEDDINGS_BASE_URL":        "http://embeddings:11434/v1/",
+		"DUSK_EMBEDDINGS_MODEL":           "all-minilm",
+		"DUSK_EMBEDDINGS_REPAIR_INTERVAL": "30m",
+	})))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Embeddings.Enabled() || cfg.Embeddings.BaseURL != "http://embeddings:11434/v1" {
+		t.Fatalf("Embeddings = %+v", cfg.Embeddings)
+	}
+	if cfg.Embeddings.RepairInterval != 30*time.Minute {
+		t.Errorf("RepairInterval = %v", cfg.Embeddings.RepairInterval)
+	}
+
+	for _, test := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"missing endpoint", map[string]string{"DUSK_EMBEDDINGS_MODEL": "all-minilm"}, "DUSK_EMBEDDINGS_BASE_URL"},
+		{"missing model", map[string]string{"DUSK_EMBEDDINGS_BASE_URL": "http://embeddings:11434/v1"}, "DUSK_EMBEDDINGS_MODEL"},
+		{"invalid interval", map[string]string{"DUSK_EMBEDDINGS_BASE_URL": "http://embeddings:11434/v1", "DUSK_EMBEDDINGS_MODEL": "all-minilm", "DUSK_EMBEDDINGS_REPAIR_INTERVAL": "never"}, "REPAIR_INTERVAL"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := config.Load(env(with(test.env)))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 // ADR-0012 allows an unauthenticated agent surface and requires it to be
 // explicit. Two answers to "who may read the catalog" is an unanswered
 // question, not a stricter setting.

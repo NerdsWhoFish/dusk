@@ -218,6 +218,7 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 
 	results, total, err := s.catalog.Search(r.Context(), refOf(r), index.SearchFilter{
 		Query: query, Kind: r.URL.Query().Get("kind"), Limit: limit,
+		Visibility: s.visibilityFor(r),
 	})
 	if err != nil {
 		writeError(w, err)

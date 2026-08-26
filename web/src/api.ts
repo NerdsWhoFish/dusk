@@ -54,6 +54,7 @@ export type SearchResult = {
   Kind: string;
   Title: string;
   Snippet: string;
+  MatchedBy?: "exact" | "keyword" | "semantic" | "hybrid";
 };
 
 export type AIConfig = {
