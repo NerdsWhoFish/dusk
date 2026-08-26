@@ -188,6 +188,7 @@ const harnessHTML = `<!doctype html>
       await load(page.path);
       await settle(page.rendered);
       if (page.click) {
+        await settle(page.click);
         frame.contentDocument.querySelector(page.click).click();
         await settle(page.clicked || page.click);
       }
