@@ -33,6 +33,24 @@ func (e meaningEmbedder) Embed(_ context.Context, input []string) ([][]float32, 
 	return vectors, nil
 }
 
+type batchingEmbedder struct {
+	batches [][]string
+}
+
+func (e *batchingEmbedder) Embed(_ context.Context, input []string) ([][]float32, error) {
+	e.batches = append(e.batches, append([]string(nil), input...))
+	vectors := make([][]float32, len(input))
+	for i, text := range input {
+		text = strings.ToLower(text)
+		if strings.Contains(text, "distributed spans") || strings.Contains(text, "tracing") {
+			vectors[i] = []float32{1, 0}
+		} else {
+			vectors[i] = []float32{0, 1}
+		}
+	}
+	return vectors, nil
+}
+
 func semanticDB(t *testing.T) *DB {
 	t.Helper()
 	db, err := Open(t.TempDir() + "/index.db")
@@ -102,6 +120,42 @@ func TestADR0083_StaleEmbeddingsAreExcludedUntilRefreshed(t *testing.T) {
 	results, _, err = db.Search(t.Context(), "", SearchFilter{Query: "tracing", Limit: 10})
 	if err != nil || len(results) == 0 || results[0].Ref != "service:home/grafana-cloud" {
 		t.Fatalf("repaired Search = %+v, %v", results, err)
+	}
+}
+
+func TestEmbeddingBackfillChunksDocumentsAndBoundsProviderBatches(t *testing.T) {
+	db := semanticDB(t)
+	description := strings.Repeat("ordinary metrics backend content ", 80) + "distributed spans live here"
+	putSearchable(t, db, "hash-1", description)
+	embedder := &batchingEmbedder{}
+	db.semantic = &semanticIndex{
+		db: db, embedder: embedder, model: "test", repair: time.Hour,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)), cache: make(map[string][]float32),
+	}
+	if _, err := db.semantic.rebuild(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, batch := range embedder.batches {
+		if len(batch) > embeddingProviderBatch {
+			t.Fatalf("provider batch size = %d, want at most %d", len(batch), embeddingProviderBatch)
+		}
+		for _, input := range batch {
+			if len(input) > embeddingChunkBytes {
+				t.Fatalf("provider input length = %d, want at most %d", len(input), embeddingChunkBytes)
+			}
+		}
+	}
+	var row embeddingRow
+	if err := db.gorm.Where("id = ?", "service:home/grafana-cloud").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(row.Vector) <= row.Dimensions*4 {
+		t.Fatalf("stored vector bytes = %d, want multiple %d-dimension chunks", len(row.Vector), row.Dimensions)
+	}
+
+	results, _, err := db.Search(t.Context(), "", SearchFilter{Query: "tracing", Limit: 10})
+	if err != nil || len(results) == 0 || results[0].Ref != "service:home/grafana-cloud" {
+		t.Fatalf("semantic Search = %+v, %v", results, err)
 	}
 }
 
