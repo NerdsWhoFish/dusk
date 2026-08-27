@@ -12,6 +12,7 @@ import { Rows } from "./Rows";
 export function renderBlock(
   block: ResolvedBlock,
   onOpen: (ref: string) => void,
+  onOpenNote: (id: string) => void,
   proof?: string,
   onChanged?: () => void,
 ) {
@@ -57,7 +58,13 @@ export function renderBlock(
               works something out, and they show up here.
             </p>
           ) : (
-            <Notes notes={block.notes ?? []} proof={proof} compact onChanged={onChanged} />
+            <Notes
+              notes={block.notes ?? []}
+              proof={proof}
+              compact
+              onOpenNote={onOpenNote}
+              onChanged={onChanged}
+            />
           )}
         </Block>
       );
