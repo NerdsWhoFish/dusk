@@ -326,7 +326,7 @@ func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere
 // the order they are paid for.
 func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, held estate, fullNoteKinds []string) (reading, priority []*section) {
 	notesHere := &section{
-		heading: "\n## Pinned notes, about this repository\n\n",
+		heading: "\n## Notes\n\n",
 		items:   noteItems(here, fullNoteKinds),
 		overflow: func(dropped []item) string {
 			return fmt.Sprintf("\n%d more pinned note(s) about this repository. `note` with `pinned: true` answers with every one:\n%s",
@@ -347,7 +347,7 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 	}
 
 	notesElsewhere := &section{
-		heading: "\n## Pinned notes, across the estate\n\n",
+		heading: "\n## Global Notes\n\n",
 		items:   noteItems(elsewhere, fullNoteKinds),
 		overflow: func(dropped []item) string {
 			return fmt.Sprintf("\n%d more pinned note(s). `note` with `pinned: true` answers with every one:\n%s",
@@ -588,6 +588,7 @@ func listed(names []string) string {
 // overflow line calls it when it does not fit at all.
 type item struct {
 	name  string
+	group string
 	full  string
 	short string
 }
@@ -638,14 +639,23 @@ func (s *section) render(budget int) int {
 
 	spent := 0
 	var dropped []item
+	shownGroups := map[string]bool{}
 	for _, entry := range s.items {
+		prefix := ""
+		if entry.group != "" && !shownGroups[entry.group] {
+			prefix = fmt.Sprintf("### %s\n\n", noteKindHeading(entry.group))
+		}
 		switch {
-		case spent+len(entry.full) <= budget:
+		case spent+len(prefix)+len(entry.full) <= budget:
+			out.WriteString(prefix)
 			out.WriteString(entry.full)
-			spent += len(entry.full)
-		case spent+len(entry.short) <= budget:
+			spent += len(prefix) + len(entry.full)
+			shownGroups[entry.group] = true
+		case spent+len(prefix)+len(entry.short) <= budget:
+			out.WriteString(prefix)
 			out.WriteString(entry.short)
-			spent += len(entry.short)
+			spent += len(prefix) + len(entry.short)
+			shownGroups[entry.group] = true
 		default:
 			dropped = append(dropped, entry)
 		}
@@ -717,25 +727,61 @@ func spend(budget int, priority []*section) {
 
 func noteItems(notes []*duskv1alpha1.Note, fullNoteKinds []string) []item {
 	items := make([]item, 0, len(notes))
+	byKind := map[string][]*duskv1alpha1.Note{}
+	var fullKinds, collapsedKinds []string
 	for _, note := range notes {
-		if !slices.Contains(fullNoteKinds, note.GetKind()) {
-			items = append(items, collapsedNoteItem(note))
-			continue
+		kind := note.GetKind()
+		if len(byKind[kind]) == 0 {
+			if slices.Contains(fullNoteKinds, kind) {
+				fullKinds = append(fullKinds, kind)
+			} else {
+				collapsedKinds = append(collapsedKinds, kind)
+			}
 		}
-		items = append(items, item{
-			// Backticked, because an overflow line naming it is the id an agent
-			// pastes straight back into `note`.
-			name:  "`" + note.GetId() + "`",
-			full:  demoteHeadings(renderNote(note)),
-			short: fmt.Sprintf("- **%s** `%s`: %s\n", note.GetKind(), note.GetId(), firstLine(note.GetBody())),
-		})
+		byKind[kind] = append(byKind[kind], note)
+	}
+	for _, kind := range append(fullKinds, collapsedKinds...) {
+		for _, note := range byKind[kind] {
+			if !slices.Contains(fullNoteKinds, kind) {
+				items = append(items, collapsedNoteItem(note))
+				continue
+			}
+			items = append(items, item{
+				// Backticked, because an overflow line naming it is the id an agent
+				// pastes straight back into `note`.
+				name:  "`" + note.GetId() + "`",
+				group: kind,
+				full:  demoteHeadings(renderNote(note)),
+				short: fmt.Sprintf("- **%s** `%s`: %s\n", kind, note.GetId(), firstLine(note.GetBody())),
+			})
+		}
 	}
 	return items
 }
 
 func collapsedNoteItem(note *duskv1alpha1.Note) item {
 	line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n\n", firstLine(note.GetBody()), note.GetId())
-	return item{name: "`" + note.GetId() + "`", full: line, short: line}
+	return item{name: "`" + note.GetId() + "`", group: note.GetKind(), full: line, short: line}
+}
+
+func noteKindHeading(kind string) string {
+	if kind == "howto" {
+		return "How-tos"
+	}
+	if kind == "todo" {
+		return "Todos"
+	}
+	words := strings.FieldsFunc(kind, func(r rune) bool { return r == '-' || r == '_' })
+	for i, word := range words {
+		if word != "" {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	heading := strings.Join(words, " ")
+	if heading == "" || strings.HasSuffix(strings.ToLower(heading), "s") {
+		return heading
+	}
+	return heading + "s"
 }
 
 // demoteHeadings sinks a note's headings below the section it prints under, so
@@ -766,8 +812,8 @@ func demoteHeadings(body string) string {
 }
 
 // contextHeadingDepth is how far a note's headings move: its `#` lands below
-// the `##` its section heading uses.
-const contextHeadingDepth = 2
+// the `###` its kind heading uses.
+const contextHeadingDepth = 3
 
 // firstLine stands in for a title, because ADR-0031 gives a note none. The
 // heading markers come off: the line lands inside a list item, where a stray

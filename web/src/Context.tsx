@@ -570,6 +570,7 @@ export function Context() {
       {editor && (
         <NoteEditor
           editor={editor}
+          noteKinds={availableNoteKinds}
           busy={noteBusy}
           onCancel={() => setEditor(undefined)}
           onSave={(note) => void saveNote(note)}
@@ -590,17 +591,20 @@ export function Context() {
 
 function NoteEditor({
   editor,
+  noteKinds,
   busy,
   onCancel,
   onSave,
 }: {
   editor: Editor;
+  noteKinds: string[];
   busy: boolean;
   onCancel: () => void;
   onSave: (note: Note) => void;
 }) {
   const [note, setNote] = useState<Note>({ ...editor.note, refs: [...(editor.note.refs ?? [])] });
   const [refs, setRefs] = useState((editor.note.refs ?? []).join("\n"));
+  const kinds = [...new Set([note.kind, ...noteKinds])];
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -611,8 +615,8 @@ function NoteEditor({
   };
 
   return (
-    <div className="editor-backdrop">
-      <form className="note-editor" role="dialog" aria-modal="true" aria-labelledby="note-editor-title" onSubmit={submit}>
+    <div className="editor-backdrop" role="dialog" aria-modal="true" aria-labelledby="note-editor-title">
+      <form className="note-editor" onSubmit={submit}>
         <header>
           <div>
             <p className="eyebrow">{editor.creating ? "New knowledge" : "Edit knowledge"}</p>
@@ -624,7 +628,14 @@ function NoteEditor({
         <div className="note-editor-fields">
           <label>
             <span>Kind</span>
-            <input required value={note.kind} onChange={(event) => setNote({ ...note, kind: event.target.value })} />
+            <select
+              className="note-kind-select"
+              required
+              value={note.kind}
+              onChange={(event) => setNote({ ...note, kind: event.target.value })}
+            >
+              {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+            </select>
           </label>
           <label>
             <span>Status</span>
@@ -676,8 +687,8 @@ function RepositoryFileEditor({
   };
 
   return (
-    <div className="editor-backdrop">
-      <form className="note-editor repository-file-editor" role="dialog" aria-modal="true" aria-labelledby="repository-editor-title" onSubmit={submit}>
+    <div className="editor-backdrop" role="dialog" aria-modal="true" aria-labelledby="repository-editor-title">
+      <form className="note-editor repository-file-editor" onSubmit={submit}>
         <header>
           <div>
             <p className="eyebrow">{file.declared ? "Repository declaration" : "Opt repository in"}</p>

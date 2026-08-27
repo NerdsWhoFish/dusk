@@ -161,7 +161,9 @@ func fixtureEntity() string {
 func fixtureContext() string {
 	context := `# example/platform in the catalog
 
-## Pinned notes, about this repository
+## Notes
+
+### Gotchas
 
 - The replication lag alarm fires on the replica, never on the primary.
     - read: ` + "`note({ id: \".dusk/gotcha-replication.md\" })`" + `

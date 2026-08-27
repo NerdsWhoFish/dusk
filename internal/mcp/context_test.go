@@ -114,7 +114,7 @@ Ask before restarting the NAS.
 	if !strings.Contains(body, "Ask before restarting the NAS") {
 		t.Errorf("operator instructions missing:\n%s", body)
 	}
-	if strings.Contains(body, "Pinned notes, across the estate") || strings.Contains(body, "What this repository declares") {
+	if strings.Contains(body, "## Global Notes") || strings.Contains(body, "What this repository declares") {
 		t.Errorf("disabled sections were still injected:\n%s", body)
 	}
 	if strings.Index(body, "**host**") > strings.Index(body, "**service**") {
@@ -138,9 +138,10 @@ func TestADR0050_PinnedNotesReachTheContext(t *testing.T) {
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
 	for _, want := range []string{
-		"Pinned notes, about this repository",
+		"## Notes",
+		"### Gotchas",
 		"Transcoding is off on purpose.",
-		"Pinned notes, across the estate",
+		"## Global Notes",
 		"The registry runs out of disk quarterly.",
 	} {
 		if !strings.Contains(body, want) {
@@ -389,9 +390,9 @@ func TestADR0057_AnOverflowLineCarriesItsHeading(t *testing.T) {
 	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
 
 	for _, block := range []struct{ heading, overflow string }{
-		{"## Pinned notes, about this repository", "more pinned note(s) about this repository are not listed"},
+		{"## Notes", "more pinned note(s) about this repository are not listed"},
 		{"## What this repository declares", "more it declares are not listed"},
-		{"## Pinned notes, across the estate", "more pinned note(s) are not listed"},
+		{"## Global Notes", "more pinned note(s) are not listed"},
 		{"## What this operator has", "Other kinds:"},
 	} {
 		heading := strings.Index(body, block.heading)
@@ -503,6 +504,47 @@ func TestCollapsedKindsAreTitlesWithNestedReadCalls(t *testing.T) {
 	}
 }
 
+func TestADR0087_ContextGroupsNotesByScopeAndKindWithExpandedFirst(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("local-gotcha", "gotcha", "# Local trap", true, "service:home/jellyfin"),
+		note("local-reference", "reference", "# Local fact\n\nThe local body.", true, "service:home/jellyfin"),
+		note("global-a-runbook", "runbook", "# Global procedure", true),
+		note("global-z-idea", "idea", "# Global possibility\n\nThe global body.", true),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	local := body[strings.Index(body, "## Notes"):strings.Index(body, "## What this repository declares")]
+	localReference, localGotcha := strings.Index(local, "### References"), strings.Index(local, "### Gotchas")
+	if localReference < 0 || localGotcha < 0 {
+		t.Fatalf("the local note-kind headings are missing:\n%s", local)
+	}
+	if localReference > localGotcha {
+		t.Errorf("the local expanded group follows the collapsed group:\n%s", local)
+	}
+	global := body[strings.Index(body, "## Global Notes"):strings.Index(body, "## What this operator has")]
+	globalIdea, globalRunbook := strings.Index(global, "### Ideas"), strings.Index(global, "### Runbooks")
+	if globalIdea < 0 || globalRunbook < 0 {
+		t.Fatalf("the global note-kind headings are missing:\n%s", global)
+	}
+	if globalIdea > globalRunbook {
+		t.Errorf("the global expanded group follows the collapsed group:\n%s", global)
+	}
+	for _, want := range []string{
+		"The local body.",
+		"The global body.",
+		"note({ id: \".dusk/local-gotcha.md\" })",
+		"note({ id: \".dusk/global-a-runbook.md\" })",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the grouped context is missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestCollapseDependsOnKindInsteadOfRepositoryScope(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
@@ -566,8 +608,8 @@ full_note_kinds: [gotcha]
 ---
 `)
 	written := []*duskv1alpha1.Note{
-		note("expanded", "gotcha", "# Full gotcha\n\nThe configured body.", true, "service:home/jellyfin"),
 		note("collapsed", "reference", "# Named reference\n\nThe unconfigured body.", true),
+		note("expanded", "gotcha", "# Full gotcha\n\nThe configured body.", true),
 	}
 	if err := idx.PutCatalog(t.Context(), "example/config", mainRef, nil, nil, written, nil, profile); err != nil {
 		t.Fatalf("PutCatalog: %v", err)
@@ -584,6 +626,13 @@ full_note_kinds: [gotcha]
 	}
 	if strings.Contains(body, "The unconfigured body.") || !strings.Contains(body, "note({ id: \".dusk/collapsed.md\" })") {
 		t.Errorf("an unlisted kind did not stay collapsed:\n%s", body)
+	}
+	gotchaHeading, referenceHeading := strings.Index(body, "### Gotchas"), strings.Index(body, "### References")
+	if gotchaHeading < 0 || referenceHeading < 0 {
+		t.Fatalf("the configured note-kind headings are missing:\n%s", body)
+	}
+	if gotchaHeading > referenceHeading {
+		t.Errorf("the configured full gotcha did not move ahead of the collapsed reference:\n%s", body)
 	}
 }
 

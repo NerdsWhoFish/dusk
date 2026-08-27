@@ -2191,9 +2191,13 @@ select,
 }
 
 .note-editor-fields label > span {
-  color: var(--muted);
+  color: var(--purple);
   font-size: 0.75rem;
   font-weight: 650;
+}
+
+.note-editor .btn.secondary {
+  color: var(--purple);
 }
 
 .note-editor-fields input:not([type="checkbox"]),

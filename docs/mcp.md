@@ -193,9 +193,9 @@ It carries four budgeted sections plus a fixed manual, and pinning is how someth
 
 | Section | What it is |
 | --- | --- |
-| Pinned notes, about this repository | Notes somebody pinned that attach to something this repository declares |
+| Notes | Notes somebody pinned that attach to something this repository declares, grouped by note kind |
 | What this repository declares | The refs it owns |
-| Pinned notes, across the estate | Everything else pinned |
+| Global Notes | Everything else pinned, grouped by note kind |
 | What this operator has | Every ref, grouped by kind, listed once however many sources declared it |
 | Working with this catalog | The manual: the calls, the ref and note-id shapes, the proof rule, and the note kinds |
 
@@ -207,6 +207,7 @@ A convention is stated there once rather than on every line that depends on it, 
 
 Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 Written knowledge wins that contest because a ref left out is one `search` away and a gotcha left out is reachable by nothing.
+Within each note section, kinds configured to print their full bodies come before collapsed title-and-read groups. First-seen kind order is preserved within those two partitions ([ADR-0087](../adr/0087-agent-context-groups-notes-by-scope-and-kind.md)).
 
 A section is **charged what it printed** and not what it asked for, so one that degrades to short forms hands the difference down to the section below it ([ADR-0057](../adr/0057-charged-for-what-was-printed.md)).
 No section takes more than half of what is left when its turn comes, which is what leaves something for the section after it.
