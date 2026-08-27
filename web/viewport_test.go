@@ -68,6 +68,9 @@ func TestADR0025_NoViewportScrollsThePageSideways(t *testing.T) {
 					t.Errorf("%s scrolls sideways: the body is %dpx wide in a %dpx viewport.\n%s",
 						measured.Page, measured.BodyScrollWidth, measured.ClientWidth, blame(measured))
 				}
+				for _, culprit := range measured.ContainedOverflow {
+					t.Errorf("%s clips content inside a panel: %s", measured.Page, culprit)
+				}
 			}
 		})
 	}

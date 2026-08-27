@@ -97,6 +97,7 @@ That is what stops the same argument happening again in six months.
 | [0086](0086-pinned-note-kinds-collapse-by-default.md) | Pinned note kinds collapse by default | Pinned note bodies are omitted from initial context unless their kind is explicitly configured as a full-body exception, so new kinds cannot silently spend the context budget |
 | [0087](0087-agent-context-groups-notes-by-scope-and-kind.md) | Agent context groups notes by scope and kind | Pinned notes are grouped by repository scope and note kind, with full-body kinds before collapsed kinds |
 | [0088](0088-dashboard-analytics-are-derived-locally.md) | Dashboard analytics are derived locally | Dashboard analytics summarize the current catalog and bounded action history without tracking browsing or calling an analytics service |
+| [0089](0089-catalog-footprint-excludes-config-repositories-by-declared-r.md) | Catalog footprint excludes config repositories by declared role | Keeps Dusk's filing repository out of estate footprint rankings without hardcoding an operator-specific repository name. |
 
 ## Writing one
 

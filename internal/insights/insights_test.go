@@ -7,6 +7,7 @@ import (
 	"time"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/NerdsWhoFish/dusk/internal/events"
@@ -51,7 +52,17 @@ func TestSnapshotExplainsCurrentCatalogAndBoundedActions(t *testing.T) {
 	}, nil, nil); err != nil {
 		t.Fatalf("put homelab: %v", err)
 	}
-	for _, repository := range []string{"example/platform", "example/homelab"} {
+	configRepository := entity("repository:home/config", "repository", "config")
+	configRepository.Attributes, err = structpb.NewStruct(map[string]any{"role": "config-repository"})
+	if err != nil {
+		t.Fatalf("build config repository attributes: %v", err)
+	}
+	if err := db.Put(t.Context(), "example/config", "refs/heads/main", []index.Declaration{
+		{Entity: configRepository},
+	}, nil, nil); err != nil {
+		t.Fatalf("put config repository: %v", err)
+	}
+	for _, repository := range []string{"example/platform", "example/homelab", "example/config"} {
 		if err := db.SetDefaultView(t.Context(), repository, "refs/heads/main"); err != nil {
 			t.Fatalf("set default for %s: %v", repository, err)
 		}
@@ -72,11 +83,16 @@ func TestSnapshotExplainsCurrentCatalogAndBoundedActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
 	}
-	if snapshot.Entities != 3 || snapshot.Repositories != 2 || snapshot.Notes != 12 || snapshot.OpenWork != 1 {
+	if snapshot.Entities != 4 || snapshot.Repositories != 2 || snapshot.Notes != 12 || snapshot.OpenWork != 1 {
 		t.Fatalf("totals = %+v", snapshot)
 	}
 	if len(snapshot.Sources) != 2 || snapshot.Sources[0].Repository != "example/platform" || snapshot.Sources[0].Entities != 2 {
 		t.Fatalf("sources = %+v", snapshot.Sources)
+	}
+	for _, source := range snapshot.Sources {
+		if source.Repository == "example/config" {
+			t.Fatalf("config repository reached the footprint ranking: %+v", snapshot.Sources)
+		}
 	}
 	if len(snapshot.Knowledge) != 5 || snapshot.Knowledge[0].ID != ".dusk/gotcha-wide.md" || snapshot.Knowledge[0].Links != 3 {
 		t.Fatalf("knowledge = %+v", snapshot.Knowledge)
