@@ -15,6 +15,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/config"
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/events"
+	"github.com/NerdsWhoFish/dusk/internal/insights"
 	"github.com/NerdsWhoFish/dusk/internal/store"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
@@ -59,6 +60,7 @@ type Server struct {
 	declarations Declarations
 	answers      *answer.Service
 	events       *events.Log
+	insights     Insights
 	tokens       *proof.Store
 	access       *access.Policy
 	oauth        *access.OAuth
@@ -74,6 +76,11 @@ type Server struct {
 // answer from a missing one.
 type Syncs interface {
 	Status() []controller.Status
+}
+
+// Insights derives the local analytics block shown on the operator dashboard.
+type Insights interface {
+	Read(context.Context) (insights.Snapshot, error)
 }
 
 // Options are the server's dependencies. Zero values get sane defaults.
@@ -122,6 +129,10 @@ type Options struct {
 	// answers empty rather than failing.
 	Events *events.Log
 
+	// Insights combines current catalog shape with the retained action log.
+	// Optional: without it an analytics block explains why it is empty.
+	Insights Insights
+
 	// Answers backs the optional grounded AI mode in search. Without it the
 	// configuration route says disabled and the ordinary search is unchanged.
 	Answers *answer.Service
@@ -164,6 +175,7 @@ func New(opts Options) (*Server, error) {
 		declarations: opts.Declarations,
 		answers:      opts.Answers,
 		events:       opts.Events,
+		insights:     opts.Insights,
 		tokens:       opts.Tokens,
 		mcp:          opts.MCP,
 		state:        newSetupState(),

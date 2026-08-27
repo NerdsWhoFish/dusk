@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { api, type Drift, type Problem, type ResolvedBlock } from "./api";
+import { Analytics } from "./Analytics";
 import { Block } from "./Block";
 import { EstateGraph } from "./EstateGraph";
 import { Notes } from "./Notes";
@@ -132,6 +133,17 @@ export function renderBlock(
                 </li>
               ))}
             </ul>
+          )}
+        </Block>
+      );
+
+    case "analytics":
+      return (
+        <Block title={block.title} wide={block.wide} key={block.title}>
+          {block.analytics ? (
+            <Analytics snapshot={block.analytics} onOpenNote={onOpenNote} />
+          ) : (
+            <p className="quiet">There is no local analytics snapshot yet.</p>
           )}
         </Block>
       );

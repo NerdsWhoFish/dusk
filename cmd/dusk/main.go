@@ -23,6 +23,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/events"
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/insights"
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 	"github.com/NerdsWhoFish/dusk/internal/server"
@@ -225,6 +226,7 @@ func run(parent context.Context, log *slog.Logger) error {
 		Plugins:      plugins,
 		Rotation:     observers,
 		Events:       ran,
+		Insights:     &insights.Service{Catalog: idx, Actions: ran},
 		Answers:      answersFor(cfg, idx),
 		Tokens:       tokens,
 		MCP:          agentSurface,

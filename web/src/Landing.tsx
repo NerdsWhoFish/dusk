@@ -512,13 +512,15 @@ function empty(block: {
   drift?: unknown[];
   problems?: unknown[];
   reads?: unknown[];
+  analytics?: unknown;
 }): boolean {
   return (
     (block.entities?.length ?? 0) === 0 &&
     (block.notes?.length ?? 0) === 0 &&
     (block.drift?.length ?? 0) === 0 &&
     (block.problems?.length ?? 0) === 0 &&
-    (block.reads?.length ?? 0) === 0
+    (block.reads?.length ?? 0) === 0 &&
+    !block.analytics
   );
 }
 

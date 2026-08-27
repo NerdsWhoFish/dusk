@@ -457,6 +457,39 @@ export type Read = {
   observed?: boolean;
 };
 
+export type AnalyticsSource = {
+  repository: string;
+  entities: number;
+};
+
+export type AnalyticsKnowledge = {
+  id: string;
+  kind: string;
+  body: string;
+  links: number;
+  pinned?: boolean;
+};
+
+export type AnalyticsPlugin = {
+  plugin: string;
+  actions: number;
+  succeeded: number;
+  problems: number;
+  last_used?: string;
+};
+
+export type AnalyticsSnapshot = {
+  entities: number;
+  repositories: number;
+  notes: number;
+  open_work: number;
+  actions: number;
+  sources?: AnalyticsSource[];
+  knowledge?: AnalyticsKnowledge[];
+  plugins?: AnalyticsPlugin[];
+  note_kinds?: { kind: string; count: number }[];
+};
+
 // ResolvedBlock is one declared query with its result. The server runs the
 // query (ADR-0035), so the browser only decides how a result looks.
 export type ResolvedBlock = {
@@ -467,6 +500,7 @@ export type ResolvedBlock = {
     | "integrity"
     | "kinds"
     | "reads"
+    | "analytics"
     | "graph"
     | "view";
   plugin?: string;
@@ -482,6 +516,7 @@ export type ResolvedBlock = {
   problems?: Problem[];
   kinds?: KindCount[];
   reads?: Read[];
+  analytics?: AnalyticsSnapshot;
   truncated?: boolean;
   error?: string;
 };

@@ -610,6 +610,30 @@ type ScopeCount struct {
 	Entities   int
 }
 
+// RepositoryCount is one declared source and the number of distinct entities
+// it contributes to the selected catalog view.
+type RepositoryCount struct {
+	Repository string `json:"repository"`
+	Entities   int    `json:"entities"`
+}
+
+// RepositoryCounts ranks declared sources in one catalog view. Observations
+// are a separate source class and previews are a separate view, so neither is
+// folded into the repository footprint shown on the operator dashboard.
+func (db *DB) RepositoryCounts(ctx context.Context, gitRef string) ([]RepositoryCount, error) {
+	var counts []RepositoryCount
+	err := scoped(db.gorm.WithContext(ctx), gitRef).Model(&entityRow{}).
+		Select("repository, count(distinct ref) as entities").
+		Where("observed = ?", false).
+		Group("repository").
+		Order("entities DESC, repository").
+		Find(&counts).Error
+	if err != nil {
+		return nil, fmt.Errorf("index: count repositories at %q: %w", gitRef, err)
+	}
+	return counts, nil
+}
+
 // ScopeCounts answers the portal's source summary in one aggregate read.
 // Scopes remains the identity-only set the controller uses as map keys.
 func (db *DB) ScopeCounts(ctx context.Context) ([]ScopeCount, error) {

@@ -49,6 +49,7 @@ This is the memory: an entity is one markdown file in the repository that owns i
 - Git is the source of truth. Entities are markdown with frontmatter in the repos they describe. Agents read files directly, and agent writes are file edits, so review and history come for free.
 - Pull requests are first class. Any open PR renders as the catalog as it would be after merge, with a semantic diff of what actually changed.
 - Plugins are subprocesses. A plugin can be a shell script that prints JSON. Write one in any language.
+- Homepage analytics rank repository footprint, knowledge reach, and plugin activity from local Dusk state without tracking browsing or sending data anywhere.
 - Search fuses exact identity and local FTS5, can add local OSS semantic retrieval, and offers an optional grounded AI mode that cites the catalog entities and notes it used.
 
 Together, the catalog, memory, and actions are the platform.
@@ -75,6 +76,7 @@ That account list is the code trust boundary, but a plugin does not inherit Dusk
 - [docs/plugins.md](docs/plugins.md) is for plugin authors: what an action's parameter schema may contain, which shape becomes which control, and what a form refuses before the plugin sees it.
 - [docs/observability.md](docs/observability.md) covers OTLP export, collector configuration, trace propagation, and log correlation.
 - [docs/ai-search.md](docs/ai-search.md) covers the optional OpenAI-compatible question mode, what leaves Dusk, model selection, and failure behavior.
+- [docs/analytics.md](docs/analytics.md) defines the local dashboard measures, their limits, and what Dusk deliberately does not track.
 - [docs/packages.md](docs/packages.md) maps every package to its job, and the rules for adding one. Read it before writing anything new.
 - [docs/philosophy.md](docs/philosophy.md) is the posture behind the design.
 - [docs/status.md](docs/status.md) tracks what is built and what is not.
