@@ -208,6 +208,7 @@ A convention is stated there once rather than on every line that depends on it, 
 Sections are **paid for in priority order and printed in reading order**, so a pinned note outranks an inventory printed above it ([ADR-0050](../adr/0050-what-the-context-budget-buys-first.md)).
 Written knowledge wins that contest because a ref left out is one `search` away and a gotcha left out is reachable by nothing.
 Within each note section, kinds configured to print their full bodies come before collapsed title-and-read groups. First-seen kind order is preserved within those two partitions ([ADR-0087](../adr/0087-agent-context-groups-notes-by-scope-and-kind.md)).
+An expanded note puts its `note({ id: ... })` read handle immediately below its title, so the identity remains attached when several full bodies appear together.
 
 A section is **charged what it printed** and not what it asked for, so one that degrades to short forms hands the difference down to the section below it ([ADR-0057](../adr/0057-charged-for-what-was-printed.md)).
 No section takes more than half of what is left when its turn comes, which is what leaves something for the section after it.

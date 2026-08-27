@@ -545,6 +545,25 @@ func TestADR0087_ContextGroupsNotesByScopeAndKindWithExpandedFirst(t *testing.T)
 	}
 }
 
+func TestExpandedNotesBindTheirReadCallToTheirTitle(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	expanded := note("expanded", "reference", "# Exact title\n\nThe full body.", true)
+	expanded.Status = "done"
+	notes(t, idx, []*duskv1alpha1.Note{expanded})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{})
+
+	want := "#### Exact title\n`note({ id: \".dusk/expanded.md\" })` · done\n\nThe full body."
+	if !strings.Contains(body, want) {
+		t.Errorf("the expanded note did not bind its read call to its title:\n%s", body)
+	}
+	if strings.Count(body, ".dusk/expanded.md") != 1 {
+		t.Errorf("the expanded note id was repeated:\n%s", body)
+	}
+}
+
 func TestCollapseDependsOnKindInsteadOfRepositoryScope(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)

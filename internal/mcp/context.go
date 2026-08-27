@@ -15,6 +15,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/contextconfig"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
+	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/vocab"
 )
 
@@ -751,12 +752,26 @@ func noteItems(notes []*duskv1alpha1.Note, fullNoteKinds []string) []item {
 				// pastes straight back into `note`.
 				name:  "`" + note.GetId() + "`",
 				group: kind,
-				full:  demoteHeadings(renderNote(note)),
+				full:  renderContextNote(note),
 				short: fmt.Sprintf("- **%s** `%s`: %s\n", kind, note.GetId(), firstLine(note.GetBody())),
 			})
 		}
 	}
 	return items
+}
+
+func renderContextNote(note *duskv1alpha1.Note) string {
+	body := demoteHeadings(strings.TrimSpace(note.GetBody()))
+	read := fmt.Sprintf("`note({ id: %q })`", note.GetId())
+	if status := note.GetStatus(); status != "" && status != duskmd.StatusOpen {
+		read += " · " + status
+	}
+
+	title, rest, found := strings.Cut(body, "\n")
+	if !found {
+		return title + "\n" + read
+	}
+	return title + "\n" + read + "\n\n" + strings.TrimLeft(rest, "\n")
 }
 
 func collapsedNoteItem(note *duskv1alpha1.Note) item {

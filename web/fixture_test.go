@@ -186,6 +186,15 @@ func fixtureContext() string {
 - The replication lag alarm fires on the replica, never on the primary.
     - read: ` + "`note({ id: \".dusk/gotcha-replication.md\" })`" + `
 
+## Global Notes
+
+### References
+
+#### Check the image before rollout
+` + "`note({ id: \".dusk/reference-rollout.md\" })`" + `
+
+Production runs the exact published image.
+
 ## What this repository declares (2)
 
 - service:platform/checkout-api-gateway-replication-eu-west
