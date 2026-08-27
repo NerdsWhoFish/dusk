@@ -550,7 +550,8 @@ func TestExpandedNotesBindTheirReadCallToTheirTitle(t *testing.T) {
 	seed(t, idx)
 	expanded := note("expanded", "reference", "# Exact title\n\nThe full body.", true)
 	expanded.Status = "done"
-	notes(t, idx, []*duskv1alpha1.Note{expanded})
+	second := note("second", "reference", "# Second title\n\nAnother full body.", true)
+	notes(t, idx, []*duskv1alpha1.Note{expanded, second})
 
 	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
 	body := call(t, session, "dusk_context", map[string]any{})
@@ -561,6 +562,10 @@ func TestExpandedNotesBindTheirReadCallToTheirTitle(t *testing.T) {
 	}
 	if strings.Count(body, ".dusk/expanded.md") != 1 {
 		t.Errorf("the expanded note id was repeated:\n%s", body)
+	}
+	boundary := "The full body.\n\n#### Second title\n`note({ id: \".dusk/second.md\" })`\n\nAnother full body."
+	if !strings.Contains(body, boundary) {
+		t.Errorf("consecutive expanded notes ran together:\n%s", body)
 	}
 }
 

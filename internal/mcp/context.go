@@ -769,9 +769,9 @@ func renderContextNote(note *duskv1alpha1.Note) string {
 
 	title, rest, found := strings.Cut(body, "\n")
 	if !found {
-		return title + "\n" + read
+		return title + "\n" + read + "\n\n"
 	}
-	return title + "\n" + read + "\n\n" + strings.TrimLeft(rest, "\n")
+	return title + "\n" + read + "\n\n" + strings.TrimLeft(rest, "\n") + "\n\n"
 }
 
 func collapsedNoteItem(note *duskv1alpha1.Note) item {
