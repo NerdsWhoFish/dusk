@@ -124,11 +124,11 @@ export function Analytics({
       </div>
 
       <footer className="analytics-footer">
-        <div className="analytics-kinds" aria-label="Note kinds">
+        <ul className="analytics-kinds" aria-label="Note kinds">
           {(snapshot.note_kinds ?? []).map((kind) => (
-            <span key={kind.kind}><strong>{kind.count}</strong> {kind.kind}</span>
+            <li key={kind.kind}><strong>{kind.count}</strong> {kind.kind}</li>
           ))}
-        </div>
+        </ul>
         <p>Computed inside Dusk from the current catalog and retained action history. Nothing is sent out.</p>
       </footer>
     </div>

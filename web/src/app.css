@@ -1002,9 +1002,12 @@ select,
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.analytics-kinds span {
+.analytics-kinds li {
   padding: 0.25rem 0.45rem;
   background: color-mix(in srgb, var(--purple) 7%, var(--bg));
   border: 1px solid var(--line);
