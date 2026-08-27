@@ -255,13 +255,24 @@ func (db *DB) Notes(ctx context.Context, gitRef string, filter NoteFilter) ([]*d
 	if filter.Limit <= 0 {
 		filter.Limit = 10
 	}
+	return db.notes(ctx, gitRef, filter, true)
+}
+
+// AllNotes answers every note matching a filter. It is for aggregate reads
+// that would become dishonest if the ordinary page-sized default applied.
+func (db *DB) AllNotes(ctx context.Context, gitRef string, filter NoteFilter) ([]*duskv1alpha1.Note, error) {
+	return db.notes(ctx, gitRef, filter, false)
+}
+
+func (db *DB) notes(ctx context.Context, gitRef string, filter NoteFilter, limited bool) ([]*duskv1alpha1.Note, error) {
+	query := db.notesQuery(ctx, gitRef, filter).
+		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id")
+	if limited {
+		query = query.Limit(filter.Limit).Offset(filter.Offset)
+	}
 
 	var rows []noteRow
-	err := db.notesQuery(ctx, gitRef, filter).
-		Order("notes.pinned DESC, notes.observed_at DESC, notes.note_id").
-		Limit(filter.Limit).
-		Offset(filter.Offset).
-		Find(&rows).Error
+	err := query.Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: notes at %q: %w", gitRef, err)
 	}

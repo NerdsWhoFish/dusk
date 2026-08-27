@@ -21,6 +21,9 @@ blocks:
   - type: recent-notes
     limit: 5
     wide: true
+  - type: analytics
+    title: Estate pulse
+    wide: true
 ---
 
 What this operator runs.
@@ -33,8 +36,8 @@ What this operator runs.
 	if parsed.Title != "Home" {
 		t.Errorf("title = %q", parsed.Title)
 	}
-	if len(parsed.Blocks) != 3 {
-		t.Fatalf("blocks = %d, want 3", len(parsed.Blocks))
+	if len(parsed.Blocks) != 4 {
+		t.Fatalf("blocks = %d, want 4", len(parsed.Blocks))
 	}
 	if parsed.Blocks[0].Query != "kind:service prod" {
 		t.Errorf("query = %q", parsed.Blocks[0].Query)
@@ -118,10 +121,17 @@ func TestDefaultPageNeedsNoDeclaration(t *testing.T) {
 	if len(page.Default().Blocks) == 0 {
 		t.Fatal("the default page is empty, so a catalog only looks presentable after homework")
 	}
+	analytics := false
 	for _, block := range page.Default().Blocks {
 		if block.Type == "" {
 			t.Error("a default block has no type")
 		}
+		if block.Type == page.TypeAnalytics {
+			analytics = block.Wide
+		}
+	}
+	if !analytics {
+		t.Error("the default page does not include a wide analytics block")
 	}
 }
 

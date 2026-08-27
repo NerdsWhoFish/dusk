@@ -14,6 +14,7 @@ import (
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/insights"
 	"github.com/NerdsWhoFish/dusk/internal/plugin"
 )
 
@@ -40,6 +41,9 @@ const (
 	// TypeReads reports what Dusk last read, per repository.
 	TypeReads Type = "reads"
 
+	// TypeAnalytics summarizes the current estate and retained action history.
+	TypeAnalytics Type = "analytics"
+
 	// TypeGraph mounts the estate explorer. Its graph-shaped query is deferred
 	// to /api/graph so the homepage can become useful before the full estate
 	// payload arrives.
@@ -51,7 +55,7 @@ const (
 )
 
 // Types are the block types a page may declare.
-var Types = []Type{TypeEntities, TypeNotes, TypeDrift, TypeIntegrity, TypeKinds, TypeReads, TypeGraph, TypeView}
+var Types = []Type{TypeEntities, TypeNotes, TypeDrift, TypeIntegrity, TypeKinds, TypeReads, TypeAnalytics, TypeGraph, TypeView}
 
 // Block is one declared query.
 type Block struct {
@@ -101,12 +105,13 @@ func (p Page) Searchable() bool { return p.Search == nil || *p.Search }
 type Resolved struct {
 	Block
 
-	Entities []*duskv1alpha1.Entity `json:"entities,omitempty"`
-	Notes    []*duskv1alpha1.Note   `json:"notes,omitempty"`
-	Drift    []index.Drift          `json:"drift,omitempty"`
-	Problems []index.Problem        `json:"problems,omitempty"`
-	Kinds    []index.KindCount      `json:"kinds,omitempty"`
-	Reads    []Read                 `json:"reads,omitempty"`
+	Entities  []*duskv1alpha1.Entity `json:"entities,omitempty"`
+	Notes     []*duskv1alpha1.Note   `json:"notes,omitempty"`
+	Drift     []index.Drift          `json:"drift,omitempty"`
+	Problems  []index.Problem        `json:"problems,omitempty"`
+	Kinds     []index.KindCount      `json:"kinds,omitempty"`
+	Reads     []Read                 `json:"reads,omitempty"`
+	Analytics *insights.Snapshot     `json:"analytics,omitempty"`
 
 	// Source is where a view block's JavaScript is served from, and Spec is the
 	// declared view to draw instead. One or the other, filled in by whatever
@@ -153,6 +158,7 @@ func Default() Page {
 		Title: "Home",
 		Blocks: []Block{
 			{Type: TypeKinds},
+			{Type: TypeAnalytics, Title: "Estate pulse", Wide: true},
 			{Type: TypeGraph, Title: "Estate map", Wide: true},
 			{Type: TypeDrift, Title: "Drifted", Limit: 6},
 			{Type: TypeReads, Title: "What Dusk has read"},
@@ -192,10 +198,9 @@ func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visib
 		out.Kinds, err = catalog.Kinds(ctx, "", v)
 	case TypeReads:
 		out.Reads, err = readsFor(ctx, catalog)
-	case TypeGraph:
-		// The graph is resolved by its dedicated endpoint after the page has
-		// painted. Returning it here would make every homepage wait for the
-		// largest read it contains.
+	case TypeAnalytics, TypeGraph:
+		// The server joins analytics to action history, while the browser loads
+		// the graph from its dedicated endpoint after the page has painted.
 	case TypeView:
 		out.Entities, out.Truncated, err = viewFor(ctx, catalog, block)
 	default:

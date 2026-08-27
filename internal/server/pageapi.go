@@ -32,6 +32,7 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 
 	blocks := page.Resolve(r.Context(), s.catalog, declared, s.visibilityFor(r))
 	s.mountViews(blocks)
+	s.mountAnalytics(r.Context(), blocks)
 
 	// A block whose query counts is filtered where it is computed; one that
 	// lists is filtered here, so a hidden ref cannot arrive under a count that
@@ -69,6 +70,25 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+func (s *Server) mountAnalytics(ctx context.Context, blocks []page.Resolved) {
+	for i := range blocks {
+		block := &blocks[i]
+		if block.Type != page.TypeAnalytics || block.Err != "" {
+			continue
+		}
+		if s.insights == nil {
+			block.Err = "analytics are not configured"
+			continue
+		}
+		snapshot, err := s.insights.Read(ctx)
+		if err != nil {
+			block.Err = err.Error()
+			continue
+		}
+		block.Analytics = &snapshot
+	}
 }
 
 // hideEntities drops the entities a viewer may not see from every resolved

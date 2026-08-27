@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 
 import { handle } from "./App";
 import { Markdown } from "./Markdown";
+import { opening } from "./Notes";
 import {
   api,
   type ContextPreview,
@@ -520,7 +521,7 @@ export function Context() {
                   <div className="managed-note-copy">
                     <span className="tag note-kind">{note.kind}</span>
                     {note.pinned && <span className="tag pinned">in context</span>}
-                    <p>{opening(note.body)}</p>
+                    <p>{opening(note.body, 150)}</p>
                     <code>{note.id}</code>
                   </div>
                   <div className="managed-note-actions">
@@ -726,9 +727,4 @@ function Proposal({ result }: { result: WriteResult }) {
       <pre>{result.diff}</pre>
     </div>
   );
-}
-
-function opening(body: string): string {
-  const first = body.trim().split(/\n\s*\n/, 1)[0] ?? "";
-  return first.length > 150 ? `${first.slice(0, 150)}...` : first;
 }

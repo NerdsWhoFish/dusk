@@ -85,6 +85,7 @@ type setup struct {
 	answers      *answer.Service
 	control      *fakeController
 	syncs        server.Syncs
+	insights     server.Insights
 	notes        server.Notes
 	context      server.AgentContext
 	profile      server.ContextFile
@@ -154,6 +155,7 @@ func build(t *testing.T, s setup) http.Handler {
 		Answers:      s.answers,
 		Controller:   s.control,
 		Syncs:        s.syncs,
+		Insights:     s.insights,
 		Notes:        s.notes,
 		AgentContext: s.context,
 		ContextFile:  s.profile,

@@ -53,6 +53,24 @@ func fixtureHome() string {
       {"Kind":"airport","Count":1406},
       {"Kind":"country","Count":195}
     ]},
+    {"type":"analytics","title":"Estate pulse","wide":true,"analytics":{
+      "entities":1783,"repositories":12,"notes":103,"open_work":14,"actions":37,
+      "sources":[
+        {"repository":"example/an-organisation-with-a-very-long-platform-repository-name","entities":128},
+        {"repository":"example/homelab","entities":93},
+        {"repository":"example/automation","entities":41}
+      ],
+      "knowledge":[
+        {"id":".dusk/gotcha-replication.md","kind":"gotcha","body":"# Replication alarms page from the replica\n\nThe primary never emits this alert.","links":8,"pinned":true},
+        {"id":".dusk/runbook-rollout.md","kind":"runbook","body":"# Verify the image digest before calling a rollout complete","links":5}
+      ],
+      "plugins":[
+        {"plugin":"kubernetes","actions":21,"succeeded":20,"problems":1,"last_used":"2026-08-16T09:20:04Z"},
+        {"plugin":"home-assistant-with-a-long-instance-name","actions":12,"succeeded":12,"problems":0,"last_used":"2026-08-15T18:02:00Z"},
+        {"plugin":"airtrail","actions":4,"succeeded":2,"problems":2,"last_used":"2026-08-14T11:30:00Z"}
+      ],
+      "note_kinds":[{"kind":"gotcha","count":38},{"kind":"runbook","count":27},{"kind":"todo","count":14}]
+    }},
     {"type":"graph","title":"Estate map","wide":true},
     {"type":"entities","title":"Recently declared","entities":[
       {"ref":%q,"kind":"service","namespace":"platform","name":"checkout-api-gateway-replication-eu-west","title":"Checkout API gateway"},

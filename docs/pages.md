@@ -12,6 +12,9 @@ With it, **what you declare is the whole page**. Blocks are not merged with the 
 title: Home
 blocks:
   - type: kinds
+  - type: analytics
+    title: Estate pulse
+    wide: true
   - type: graph
     title: Estate map
     wide: true
@@ -37,6 +40,9 @@ Paste it, then change what you want:
 title: Home
 blocks:
   - type: kinds
+  - type: analytics
+    title: Estate pulse
+    wide: true
   - type: graph
     title: Estate map
     wide: true
@@ -67,12 +73,28 @@ The order is not accidental: it pairs a tall block with a short one, because two
 | `integrity` | What is wrong with the catalog itself |
 | `kinds` | How many entities of each kind, which is the estate's shape |
 | `reads` | What Dusk last read, per repository |
+| `analytics` | The current catalog shape, knowledge reach, and retained plugin action activity ([ADR-0088](../adr/0088-dashboard-analytics-are-derived-locally.md)) |
 | `graph` | The estate as connected entities, with knowledge attached to each node ([ADR-0078](../adr/0078-the-estate-map-is-progressive.md)) |
 | `view` | A plugin's own view, declared or drawn ([ADR-0020](../adr/0020-plugin-ui.md)) |
 
 Every block takes `title` and `wide`. `wide` is a hint asking for the full width, not a layout: blocks stay queries.
 
 Every block resolves against the complete operator catalog. GitHub and token sessions receive the same answer ([ADR-0084](../adr/0084-github-login-grants-the-complete-operator-view.md)).
+
+## Understanding the analytics block
+
+The analytics block is a local snapshot rather than behavior tracking.
+It ranks declared repositories by the distinct entities they contribute, notes by how many refs they connect, and plugins by invocations in the retained action window.
+It does not record page views or search text, ask GitHub for history, or send anything to an analytics service.
+
+```yaml
+  - type: analytics
+    title: Estate pulse
+    wide: true
+```
+
+The rankings are deliberately bounded and take no query or limit.
+See [the analytics guide](analytics.md) for the exact measures and their limits.
 
 The graph loads after the rest of the page rather than riding inside the home response.
 It starts with the most connected part of the estate, says exactly how many nodes are visible, and searches the whole graph even when a node is outside that first wave.

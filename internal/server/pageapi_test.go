@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
@@ -11,7 +12,40 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/controller"
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/insights"
 )
+
+type fixedInsights insights.Snapshot
+
+func (f fixedInsights) Read(context.Context) (insights.Snapshot, error) {
+	return insights.Snapshot(f), nil
+}
+
+func TestHomeMountsLocalAnalytics(t *testing.T) {
+	handler := build(t, setup{
+		store:    registered(),
+		catalog:  emptyCatalog(t),
+		pages:    declaredPage("---\ntitle: Home\nblocks:\n  - type: analytics\n    title: Estate pulse\n    wide: true\n---\n"),
+		insights: fixedInsights{Entities: 42, Repositories: 3, Notes: 9, Actions: 5},
+		env:      map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+
+	rec := get(t, handler, "/api/home")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/home = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var answer struct {
+		Blocks []struct {
+			Analytics *insights.Snapshot `json:"analytics"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode home: %v", err)
+	}
+	if len(answer.Blocks) != 1 || answer.Blocks[0].Analytics == nil || answer.Blocks[0].Analytics.Entities != 42 {
+		t.Fatalf("blocks = %+v", answer.Blocks)
+	}
+}
 
 type fixedSyncs []controller.Status
 

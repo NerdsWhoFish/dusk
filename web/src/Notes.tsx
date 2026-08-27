@@ -46,9 +46,9 @@ export function Notes({
 
 // opening keeps a note in a panel to its first paragraph. The whole thing lives
 // on the entity it is about; here it is a pointer, not the text.
-function opening(body: string): string {
+export function opening(body: string, limit = 240): string {
   const first = body.trim().split(/\n\s*\n/, 1)[0] ?? "";
-  return first.length > 240 ? `${first.slice(0, 240)}...` : first;
+  return first.length > limit ? `${first.slice(0, limit)}...` : first;
 }
 
 function Written({
