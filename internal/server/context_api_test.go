@@ -110,6 +110,7 @@ func TestContextAPIUsesTheAgentRendererAndReturnsTheEditableProfile(t *testing.T
 	agent := &fixedAgentContext{preview: mcp.ContextPreview{
 		Repository: "example/homelab", Declared: []string{"service:home/jellyfin"},
 		EntityCount: 42, Budget: 8000, Context: "# Dusk context\n\nExact agent payload.\n",
+		NoteKinds: []string{"gotcha", "reference"}, FullNoteKinds: []string{"reference"},
 	}}
 	profile := &memoryContextFile{body: []byte(`---
 dusk: context/v1
@@ -135,9 +136,11 @@ Read every pinned note.
 		Budget     int      `json:"budget"`
 		Bytes      int      `json:"bytes"`
 		Profile    struct {
-			Body  string `json:"body"`
-			Proof string `json:"proof"`
-			Path  string `json:"path"`
+			Body          string   `json:"body"`
+			Proof         string   `json:"proof"`
+			Path          string   `json:"path"`
+			NoteKinds     []string `json:"note_kinds"`
+			FullNoteKinds []string `json:"full_note_kinds"`
 		} `json:"profile"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
@@ -152,6 +155,9 @@ Read every pinned note.
 	if answer.Profile.Path != contextconfig.Path || answer.Profile.Proof == "" || answer.Profile.Body != string(profile.body) {
 		t.Fatalf("profile = %+v", answer.Profile)
 	}
+	if strings.Join(answer.Profile.NoteKinds, ",") != "gotcha,reference" || strings.Join(answer.Profile.FullNoteKinds, ",") != "reference" {
+		t.Fatalf("profile kinds = %+v", answer.Profile)
+	}
 
 	replacement := strings.Replace(answer.Profile.Body, "budget: 8000", "budget: 12000", 1)
 	payload, err := json.Marshal(map[string]string{"body": replacement, "proof": answer.Profile.Proof})
@@ -164,6 +170,60 @@ Read every pinned note.
 	}
 	if profile.token != answer.Profile.Proof || string(profile.written) != replacement {
 		t.Fatalf("token = %q, written = %q", profile.token, profile.written)
+	}
+}
+
+func TestContextAPIUpdatesTheFullBodyKindExceptions(t *testing.T) {
+	agent := &fixedAgentContext{preview: mcp.ContextPreview{
+		Context: "# Dusk context\n", NoteKinds: []string{"gotcha", "reference"},
+		FullNoteKinds: []string{"reference"},
+	}}
+	profile := &memoryContextFile{body: []byte("---\ndusk: context/v1\nbudget: 8000\n---\n")}
+	tokens := &proof.Store{}
+	handler := build(t, setup{
+		store: registered(), catalog: emptyCatalog(t), context: agent, profile: profile, tokens: tokens,
+		env: map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+
+	rec := get(t, handler, "/api/context")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET context = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var read struct {
+		Profile struct {
+			Body  string `json:"body"`
+			Proof string `json:"proof"`
+		} `json:"profile"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &read); err != nil {
+		t.Fatalf("decode context: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"body": read.Profile.Body, "proof": read.Profile.Proof,
+		"full_note_kinds": []string{},
+	})
+	if err != nil {
+		t.Fatalf("encode context update: %v", err)
+	}
+	rec = postAPI(t, handler, "/api/context", string(payload))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST context = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	written, err := contextconfig.Parse(profile.written)
+	if err != nil {
+		t.Fatalf("parse written profile: %v", err)
+	}
+	if written.FullNoteKinds == nil || len(written.FullNoteKinds) != 0 {
+		t.Fatalf("full note kinds = %#v, want explicit empty list", written.FullNoteKinds)
+	}
+	var answer struct {
+		Body string `json:"body"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode context update: %v", err)
+	}
+	if !strings.Contains(answer.Body, "full_note_kinds: []") {
+		t.Fatalf("response does not return the normalized profile: %q", answer.Body)
 	}
 }
 

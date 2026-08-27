@@ -477,9 +477,9 @@ func TestADR0076_TheManualStatesAConventionOnce(t *testing.T) {
 	}
 }
 
-// Repository-local pinned notes are intentionally titles and read calls. Their
-// whole bodies stay one call away instead of spending every session's budget.
-func TestRepositoryPinsAreTitlesWithNestedReadCalls(t *testing.T) {
+// A collapsed kind stays one call away instead of spending every session's
+// budget, whether or not the note is attached to a repository.
+func TestCollapsedKindsAreTitlesWithNestedReadCalls(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	notes(t, idx, []*duskv1alpha1.Note{
@@ -503,14 +503,14 @@ func TestRepositoryPinsAreTitlesWithNestedReadCalls(t *testing.T) {
 	}
 }
 
-func TestRepositoryPinsStayTitleOnlyWithoutRepositoryScope(t *testing.T) {
+func TestCollapseDependsOnKindInsteadOfRepositoryScope(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
 	notes(t, idx, []*duskv1alpha1.Note{
 		note("repository-pin", "gotcha",
 			"# Repository knowledge\n\nThis body belongs only in a relevant repository session.",
 			true, "service:home/jellyfin"),
-		note("global-pin", "gotcha",
+		note("global-pin", "reference",
 			"# Global knowledge\n\nThis body belongs in every session.", true),
 	})
 
@@ -528,6 +528,62 @@ func TestRepositoryPinsStayTitleOnlyWithoutRepositoryScope(t *testing.T) {
 	}
 	if strings.Contains(body, "This body belongs only in a relevant repository session.") {
 		t.Errorf("the whole-estate preview expanded repository-scoped knowledge:\n%s", body)
+	}
+}
+
+func TestNewKindsCollapseUnlessTheProfileOptsThemOut(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	notes(t, idx, []*duskv1alpha1.Note{
+		note("project", "project", "# Build a marina map\n\nThe whole project plan.", true),
+		note("future", "field-guide", "# Unknown by default\n\nA newly minted kind's body.", true),
+	})
+
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test"}))
+	body := call(t, session, "dusk_context", map[string]any{})
+
+	for _, want := range []string{
+		"- Build a marina map\n    - read: `note({ id: \".dusk/project.md\" })`",
+		"- Unknown by default\n    - read: `note({ id: \".dusk/future.md\" })`",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("context is missing %q:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"The whole project plan.", "A newly minted kind's body."} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("a default-collapsed kind printed %q:\n%s", unwanted, body)
+		}
+	}
+}
+
+func TestProfileCanOptAKindOutOfCollapse(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	profile := []byte(`---
+dusk: context/v1
+full_note_kinds: [gotcha]
+---
+`)
+	written := []*duskv1alpha1.Note{
+		note("expanded", "gotcha", "# Full gotcha\n\nThe configured body.", true, "service:home/jellyfin"),
+		note("collapsed", "reference", "# Named reference\n\nThe unconfigured body.", true),
+	}
+	if err := idx.PutCatalog(t.Context(), "example/config", mainRef, nil, nil, written, nil, profile); err != nil {
+		t.Fatalf("PutCatalog: %v", err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/config", mainRef); err != nil {
+		t.Fatalf("SetDefaultView: %v", err)
+	}
+	writer := &recordingWriter{notesGo: "example/config"}
+	session := serve(t, mcp.New(mcp.Options{Catalog: idx, Version: "test", Writer: writer}))
+	body := call(t, session, "dusk_context", map[string]any{"root": homelabRoot})
+
+	if !strings.Contains(body, "The configured body.") {
+		t.Errorf("the opted-out kind stayed collapsed:\n%s", body)
+	}
+	if strings.Contains(body, "The unconfigured body.") || !strings.Contains(body, "note({ id: \".dusk/collapsed.md\" })") {
+		t.Errorf("an unlisted kind did not stay collapsed:\n%s", body)
 	}
 }
 

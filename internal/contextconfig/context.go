@@ -4,6 +4,7 @@ package contextconfig
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -27,13 +28,16 @@ var sections = map[string]bool{
 	"inventory":           true,
 }
 
+var defaultFullNoteKinds = []string{"reference", "todo", "idea"}
+
 // Profile controls the server-side assembly of dusk_context.
 type Profile struct {
-	Budget       int      `yaml:"budget,omitempty"`
-	Sections     []string `yaml:"sections,omitempty"`
-	Inventory    string   `yaml:"inventory,omitempty"`
-	KindOrder    []string `yaml:"kind_order,omitempty"`
-	Instructions string   `yaml:"-"`
+	Budget        int      `yaml:"budget,omitempty"`
+	Sections      []string `yaml:"sections,omitempty"`
+	Inventory     string   `yaml:"inventory,omitempty"`
+	KindOrder     []string `yaml:"kind_order,omitempty"`
+	FullNoteKinds []string `yaml:"full_note_kinds"`
+	Instructions  string   `yaml:"-"`
 }
 
 type frontmatter struct {
@@ -42,10 +46,18 @@ type frontmatter struct {
 }
 
 // Default returns the policy used when the config repository declares none.
-func Default() Profile { return Profile{Budget: DefaultBudget, Inventory: "full"} }
+func Default() Profile {
+	return Profile{
+		Budget: DefaultBudget, Inventory: "full",
+		FullNoteKinds: slices.Clone(defaultFullNoteKinds),
+	}
+}
 
 // Format writes a complete profile in the same file shape Parse accepts.
 func Format(profile Profile) ([]byte, error) {
+	if profile.FullNoteKinds == nil {
+		profile.FullNoteKinds = slices.Clone(defaultFullNoteKinds)
+	}
 	if err := validate(profile); err != nil {
 		return nil, err
 	}
@@ -97,6 +109,9 @@ func parseFrontmatter(data string) (Profile, error) {
 	if profile.Inventory == "" {
 		profile.Inventory = "full"
 	}
+	if profile.FullNoteKinds == nil {
+		profile.FullNoteKinds = slices.Clone(defaultFullNoteKinds)
+	}
 	if err := validate(profile); err != nil {
 		return Profile{}, err
 	}
@@ -119,6 +134,23 @@ func validate(profile Profile) error {
 			return fmt.Errorf("context: section %q is listed twice", section)
 		}
 		seen[section] = true
+	}
+	if err := validateFullNoteKinds(profile.FullNoteKinds); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateFullNoteKinds(kinds []string) error {
+	seen := map[string]bool{}
+	for _, kind := range kinds {
+		if kind == "" || kind != strings.TrimSpace(kind) {
+			return fmt.Errorf("context: full note kind must be a non-empty trimmed name, got %q", kind)
+		}
+		if seen[kind] {
+			return fmt.Errorf("context: full note kind %q is listed twice", kind)
+		}
+		seen[kind] = true
 	}
 	return nil
 }

@@ -40,6 +40,7 @@ export function Context() {
   const [raw, setRaw] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [policy, setPolicy] = useState("");
+  const [fullNoteKinds, setFullNoteKinds] = useState<string[]>([]);
   const [policyBusy, setPolicyBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<Editor>();
@@ -58,6 +59,7 @@ export function Context() {
       .then((data) => {
         setPreview(data);
         setPolicy(data.profile.body);
+        setFullNoteKinds(data.profile.full_note_kinds);
         setActiveRoot(data.repository || scope);
         return data;
       })
@@ -212,7 +214,10 @@ export function Context() {
     setNotice(undefined);
     setProposal(undefined);
     try {
-      const result = await api.setContext(policy, preview.profile.proof);
+      const result = await api.setContext(policy, preview.profile.proof, fullNoteKinds);
+      if (result.body) {
+        setPolicy(result.body);
+      }
       if (result.proposed) {
         setProposal(result);
       } else {
@@ -223,6 +228,17 @@ export function Context() {
     } finally {
       setPolicyBusy(false);
     }
+  };
+
+  const availableNoteKinds = useMemo(
+    () => [...new Set([...(preview?.profile.note_kinds ?? []), ...fullNoteKinds])],
+    [preview, fullNoteKinds],
+  );
+
+  const setFullBody = (kind: string, full: boolean) => {
+    setFullNoteKinds((current) =>
+      full ? [...current, kind] : current.filter((item) => item !== kind),
+    );
   };
 
   const updateLocal = (note: Note, result: WriteResult) => {
@@ -441,8 +457,22 @@ export function Context() {
             {policyOpen && (
               <div className="context-policy">
                 <p>
-                  The whole file. Invalid profiles are refused before Git changes.
+                  New note kinds stay compact automatically. Opt out only when a kind's full body belongs in every agent's initial context.
                 </p>
+                <fieldset className="context-note-kinds">
+                  <legend>Full note bodies</legend>
+                  {availableNoteKinds.map((kind) => (
+                    <label key={kind}>
+                      <input
+                        type="checkbox"
+                        checked={fullNoteKinds.includes(kind)}
+                        onChange={(event) => setFullBody(kind, event.target.checked)}
+                      />
+                      <span>{kind}</span>
+                    </label>
+                  ))}
+                  <small>Unchecked kinds render as a title with a nested note(id) read call.</small>
+                </fieldset>
                 <textarea
                   aria-label="Agent context policy"
                   value={policy}

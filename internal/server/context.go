@@ -53,15 +53,19 @@ func (s *Server) handleAPIContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	profile.NoteKinds = preview.NoteKinds
+	profile.FullNoteKinds = preview.FullNoteKinds
 	answer["profile"] = profile
 	writeJSON(w, http.StatusOK, answer)
 }
 
 type contextFileJSON struct {
-	Body     string `json:"body"`
-	Declared bool   `json:"declared"`
-	Path     string `json:"path"`
-	Proof    string `json:"proof,omitempty"`
+	Body          string   `json:"body"`
+	Declared      bool     `json:"declared"`
+	Path          string   `json:"path"`
+	Proof         string   `json:"proof,omitempty"`
+	NoteKinds     []string `json:"note_kinds"`
+	FullNoteKinds []string `json:"full_note_kinds"`
 }
 
 func (s *Server) readContextFile(ctx context.Context) (contextFileJSON, error) {
@@ -106,20 +110,38 @@ func (s *Server) handleAPISetContext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Body  string `json:"body"`
-		Proof string `json:"proof"`
+		Body          string    `json:"body"`
+		Proof         string    `json:"proof"`
+		FullNoteKinds *[]string `json:"full_note_kinds"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, contextconfig.MaxBudget+8<<10)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "that context profile could not be read"})
 		return
 	}
 
-	result, err := s.contextFile.SetContext(r.Context(), body.Proof, []byte(body.Body))
+	contents := []byte(body.Body)
+	if body.FullNoteKinds != nil {
+		profile, err := contextconfig.Parse(contents)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		profile.FullNoteKinds = *body.FullNoteKinds
+		contents, err = contextconfig.Format(profile)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+	}
+
+	result, err := s.contextFile.SetContext(r.Context(), body.Proof, contents)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, writeResult(result))
+	answer := writeResult(result)
+	answer["body"] = string(contents)
+	writeJSON(w, http.StatusOK, answer)
 }
 
 func writeResult(result *write.Result) map[string]any {

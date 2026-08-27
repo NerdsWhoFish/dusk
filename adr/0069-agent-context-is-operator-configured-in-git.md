@@ -68,3 +68,7 @@ It hid well because both failures look like success. Nothing errors, the profile
 Two constants naming the same ceiling is what let them drift. `mcp.ContextBudget` is now an alias of `contextconfig.DefaultBudget` rather than a second 8,000, and `assemble` takes the ceiling as an argument.
 
 A test asserts the property rather than the plumbing: doubling the budget must return more than the default did. Getting it to fail correctly took two attempts, and both are the reason it is worth writing down. Comparing a *smaller* budget against the default proves nothing, because truncation shrinks the answer whether or not the allocation moved. And one long note proves nothing either, because a section packs greedily and an item is all-or-nothing, so a note too large for both budgets degrades identically under each. The fixture is many medium notes, where the extra room changes how many arrive whole.
+
+### 2026-08-26: note-kind body policy joined the profile
+
+[ADR-0086](0086-pinned-note-kinds-collapse-by-default.md) adds `full_note_kinds` to the same Git-backed profile. It names the exceptions whose pinned notes print whole, while every omitted or future kind stays collapsed.

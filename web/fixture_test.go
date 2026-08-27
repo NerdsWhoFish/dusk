@@ -179,6 +179,7 @@ Every write needs the proof token from the read that found it.
 dusk: context/v1
 budget: 8000
 inventory: full
+full_note_kinds: [reference, todo, idea]
 ---
 Read the pinned gotchas before changing production.
 `
@@ -189,7 +190,7 @@ Read the pinned gotchas before changing production.
   "entity_count": 1795,
   "budget": 8000,
   "bytes": %d,
-  "profile": {"body":%q,"declared":true,"path":".dusk/context.md","proof":"proof-context"}
+  "profile": {"body":%q,"declared":true,"path":".dusk/context.md","proof":"proof-context","note_kinds":["gotcha","incident","runbook","howto","decision","reference","todo","idea","project"],"full_note_kinds":["reference","todo","idea"]}
 }`, context, fixtureRef, len(context), profile)
 }
 

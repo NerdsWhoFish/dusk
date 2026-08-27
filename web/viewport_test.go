@@ -48,6 +48,7 @@ func routes() []route {
 		{Name: "entity editor", Path: "/entity/" + url.PathEscape(fixtureRef), Rendered: ".identity", Click: ".entity-edit", Clicked: ".entity-editor"},
 		{Name: "plugins", Path: "/plugins", Rendered: ".row.plugin"},
 		{Name: "agent context", Path: "/context", Rendered: ".context-document"},
+		{Name: "agent context, policy open", Path: "/context", Rendered: ".context-document", Click: ".context-panel-head", Clicked: ".context-note-kinds"},
 		{Name: "agent context, note editor", Path: "/context", Rendered: ".context-document", Click: ".knowledge-head .btn", Clicked: ".note-editor"},
 	}
 }

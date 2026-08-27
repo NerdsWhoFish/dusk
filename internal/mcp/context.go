@@ -49,11 +49,13 @@ type contextInput struct {
 // UI consumes this same value, so its preview cannot drift into a second
 // implementation of the session orientation policy.
 type ContextPreview struct {
-	Repository  string
-	Declared    []string
-	EntityCount int
-	Budget      int
-	Context     string
+	Repository    string
+	Declared      []string
+	EntityCount   int
+	Budget        int
+	Context       string
+	NoteKinds     []string
+	FullNoteKinds []string
 }
 
 type contextPreviewError struct {
@@ -132,7 +134,7 @@ func (s *Server) PreviewContext(ctx context.Context, root string) (ContextPrevie
 		return ContextPreview{}, previewError("catalog_read_failed", "render context guidance", err)
 	}
 
-	reading, _ := contextSections(declared, here, elsewhere, held)
+	reading, _ := contextSections(declared, here, elsewhere, held, profile.FullNoteKinds)
 	reading, priority := profileSections(profile, reading)
 	body := assemble(profile.Budget,
 		contextHeader(root, repository, len(declared), held.total, profile.Instructions),
@@ -141,8 +143,19 @@ func (s *Server) PreviewContext(ctx context.Context, root string) (ContextPrevie
 
 	return ContextPreview{
 		Repository: repository, Declared: declared, EntityCount: held.total,
-		Budget: profile.Budget, Context: rendered,
+		Budget: profile.Budget, Context: rendered, NoteKinds: noteKindNames(vocabulary),
+		FullNoteKinds: slices.Clone(profile.FullNoteKinds),
 	}, nil
+}
+
+func noteKindNames(kinds []vocab.Kind) []string {
+	var names []string
+	for _, kind := range kinds {
+		if kind.Namespace == vocab.Note {
+			names = append(names, kind.Name)
+		}
+	}
+	return names
 }
 
 func (s *Server) contextProfile(ctx context.Context) (contextconfig.Profile, error) {
@@ -311,10 +324,10 @@ func (s *Server) pinned(ctx context.Context, repository string) (here, elsewhere
 
 // contextSections builds the answer's blocks, in reading order and again in
 // the order they are paid for.
-func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, held estate) (reading, priority []*section) {
+func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, held estate, fullNoteKinds []string) (reading, priority []*section) {
 	notesHere := &section{
 		heading: "\n## Pinned notes, about this repository\n\n",
-		items:   repositoryNoteItems(here),
+		items:   noteItems(here, fullNoteKinds),
 		overflow: func(dropped []item) string {
 			return fmt.Sprintf("\n%d more pinned note(s) about this repository. `note` with `pinned: true` answers with every one:\n%s",
 				len(dropped), names(dropped))
@@ -335,7 +348,7 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 
 	notesElsewhere := &section{
 		heading: "\n## Pinned notes, across the estate\n\n",
-		items:   noteItems(elsewhere),
+		items:   noteItems(elsewhere, fullNoteKinds),
 		overflow: func(dropped []item) string {
 			return fmt.Sprintf("\n%d more pinned note(s). `note` with `pinned: true` answers with every one:\n%s",
 				len(dropped), names(dropped))
@@ -702,11 +715,11 @@ func spend(budget int, priority []*section) {
 	}
 }
 
-func noteItems(notes []*duskv1alpha1.Note) []item {
+func noteItems(notes []*duskv1alpha1.Note, fullNoteKinds []string) []item {
 	items := make([]item, 0, len(notes))
 	for _, note := range notes {
-		if len(note.GetRefs()) > 0 {
-			items = append(items, repositoryNoteItem(note))
+		if !slices.Contains(fullNoteKinds, note.GetKind()) {
+			items = append(items, collapsedNoteItem(note))
 			continue
 		}
 		items = append(items, item{
@@ -720,16 +733,7 @@ func noteItems(notes []*duskv1alpha1.Note) []item {
 	return items
 }
 
-// repositoryNoteItems keeps attached knowledge cheap and discoverable.
-func repositoryNoteItems(notes []*duskv1alpha1.Note) []item {
-	items := make([]item, 0, len(notes))
-	for _, note := range notes {
-		items = append(items, repositoryNoteItem(note))
-	}
-	return items
-}
-
-func repositoryNoteItem(note *duskv1alpha1.Note) item {
+func collapsedNoteItem(note *duskv1alpha1.Note) item {
 	line := fmt.Sprintf("- %s\n    - read: `note({ id: %q })`\n\n", firstLine(note.GetBody()), note.GetId())
 	return item{name: "`" + note.GetId() + "`", full: line, short: line}
 }

@@ -214,7 +214,7 @@ No section takes more than half of what is left when its turn comes, which is wh
 Relevance orders the pinned set and does not widen it.
 An unpinned note about this repository still does not appear, because pinning is the operator saying it is worth every future session.
 
-A repository-local pinned note is always an unordered-list title with a nested read call:
+A pinned note is an unordered-list title with a nested read call unless its kind is configured as a full-body exception:
 
 ```markdown
 - Git commits are authoritative
@@ -222,7 +222,8 @@ A repository-local pinned note is always an unordered-list title with a nested r
 ```
 
 The title carries orientation and the id makes the complete note one call away, without spending every session's budget on the same body.
-Estate-wide pinned notes keep the whole-or-named budget behavior below.
+This depends on kind rather than repository attachment, and it applies in both pinned-note sections.
+Every kind starts collapsed, including a kind minted later. The default full-body exceptions are `reference`, `todo`, and `idea` ([ADR-0086](../adr/0086-pinned-note-kinds-collapse-by-default.md)).
 
 The inventory is ordered by **what a kind is for**: `infrastructure` above `reference`, and within each, the kind carrying most of the estate first.
 An orientation that opens with airports and never reaches services is ordered backwards, and a kind's role is the thing that knows the difference ([ADR-0048](../adr/0048-the-kind-vocabulary.md)).
@@ -263,16 +264,18 @@ budget: 12000
 sections: [repository-notes, repository-entities, inventory]
 inventory: counts
 kind_order: [service, host, datastore]
+full_note_kinds: [reference, todo, idea]
 ---
 Ask before restarting storage or changing network policy.
 ```
 
 `sections` accepts `repository-notes`, `repository-entities`, `estate-notes`, and `inventory` in the order they should be printed and funded.
 `inventory` is `full`, `counts`, or `off`.
+`full_note_kinds` is the explicit exception list for kinds whose pinned notes print whole. An empty list collapses every kind, and omitting the field uses the default exceptions above.
 The budget is 1024 through 32768 bytes, and the markdown body is operator instruction included in the same budget.
 The file is optional; omitting it keeps the default policy described above.
 
-The trusted operator UI exposes the same renderer at **Agent context**. It can preview any `owner/name` scope, edit this profile, and manage the notes whose pins fund future sessions. Those mutations use the same Git writer and proof-token rules as MCP writes.
+The trusted operator UI exposes the same renderer at **Agent context**. It can preview any `owner/name` scope, choose full-body note kinds, edit the complete profile, and manage the notes whose pins fund future sessions. Those mutations use the same Git writer and proof-token rules as MCP writes.
 
 ## Injecting it at the start of a session
 

@@ -59,6 +59,7 @@ export type WriteResult = {
   removed?: boolean;
   proposed?: boolean;
   diff?: string;
+  body?: string;
 };
 
 export type ContextPreview = {
@@ -73,6 +74,8 @@ export type ContextPreview = {
     declared: boolean;
     path: string;
     proof?: string;
+    note_kinds: string[];
+    full_note_kinds: string[];
   };
 };
 
@@ -634,8 +637,11 @@ export const api = {
   home: (refresh?: Refresh<Home>) => cachedGet<Home>("/home", refresh),
   context: (root = "") =>
     get<ContextPreview>(`/context${root ? `?root=${encodeURIComponent(root)}` : ""}`),
-  setContext: (body: string, proof?: string) =>
-    invalidating(post<WriteResult>("/context", { body, proof }), ["/context"]),
+  setContext: (body: string, proof?: string, fullNoteKinds?: string[]) =>
+    invalidating(
+      post<WriteResult>("/context", { body, proof, full_note_kinds: fullNoteKinds }),
+      ["/context"],
+    ),
   graph: (refresh?: Refresh<EstateGraph>) => cachedGet<EstateGraph>("/graph", refresh),
   drift: () => get<{ drift: Drift[] }>("/drift"),
   overview: () => get<Overview>("/overview"),
