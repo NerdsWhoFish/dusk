@@ -15,11 +15,13 @@ export function Notes({
   notes,
   proof,
   compact,
+  onOpenNote,
   onChanged,
 }: {
   notes: Note[];
   proof?: string;
   compact?: boolean;
+  onOpenNote?: (id: string) => void;
   onChanged?: () => void;
 }) {
   if (notes.length === 0) {
@@ -34,6 +36,7 @@ export function Notes({
           note={note}
           proof={proof}
           compact={compact}
+          onOpenNote={onOpenNote}
           onChanged={onChanged}
         />
       ))}
@@ -52,11 +55,13 @@ function Written({
   note,
   proof,
   compact,
+  onOpenNote,
   onChanged,
 }: {
   note: Note;
   proof?: string;
   compact?: boolean;
+  onOpenNote?: (id: string) => void;
   onChanged?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -65,6 +70,7 @@ function Written({
 
   const closed = note.status === "done" || note.status === "dropped";
   const closable = working.has(note.kind) && !closed && Boolean(proof) && Boolean(onChanged);
+  const prefetch = () => void api.prefetchNote(note.id).catch(() => undefined);
 
   const close = async (status: "done" | "dropped") => {
     setBusy(true);
@@ -88,8 +94,27 @@ function Written({
 
   return (
     <article className={`note ${compact ? "note-compact" : ""} ${closed ? "closed" : ""}`}>
-      <span className="tag note-kind">{note.kind}</span>
-      {closed && <span className={`tag status-${note.status}`}>{note.status}</span>}
+      <div className="note-head">
+        <div className="note-tags">
+          <span className="tag note-kind">{note.kind}</span>
+          {closed && <span className={`tag status-${note.status}`}>{note.status}</span>}
+        </div>
+        {compact && onOpenNote && (
+          <a
+            className="note-open"
+            href={`/note/${encodeURIComponent(note.id)}`}
+            onMouseEnter={prefetch}
+            onFocus={prefetch}
+            onTouchStart={prefetch}
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenNote(note.id);
+            }}
+          >
+            Open note <span aria-hidden="true">→</span>
+          </a>
+        )}
+      </div>
 
       <Markdown>{compact ? opening(note.body) : note.body}</Markdown>
 

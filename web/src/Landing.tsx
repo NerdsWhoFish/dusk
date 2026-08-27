@@ -310,6 +310,7 @@ export function Landing({
           entities={entities}
           onKind={setKind}
           onOpen={onOpen}
+          onOpenNote={onOpenNote}
           onChanged={load}
         />
       )}
@@ -411,6 +412,7 @@ function Portal({
   entities,
   onKind,
   onOpen,
+  onOpenNote,
   onChanged,
 }: {
   home: Home | null;
@@ -419,6 +421,7 @@ function Portal({
   entities: Entity[] | null;
   onKind: (kind: string | null) => void;
   onOpen: (ref: string) => void;
+  onOpenNote: (id: string) => void;
   onChanged: () => void;
 }) {
   if (!home) {
@@ -493,7 +496,9 @@ function Portal({
         <>
           {home.prose && <Markdown>{home.prose}</Markdown>}
           <div className="blocks">
-            {home.blocks.map((block) => renderBlock(block, onOpen, home.proof, onChanged))}
+            {home.blocks.map((block) =>
+              renderBlock(block, onOpen, onOpenNote, home.proof, onChanged),
+            )}
           </div>
         </>
       )}

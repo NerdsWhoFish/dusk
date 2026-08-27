@@ -42,6 +42,7 @@ var matrix = []struct {
 func routes() []route {
 	return []route{
 		{Name: "landing", Path: "/", Rendered: ".kinds .chip"},
+		{Name: "landing, note open", Path: "/", Rendered: ".note-open", Click: ".note-open", Clicked: ".note-identity"},
 		{Name: "landing, menu open", Path: "/", Rendered: ".kinds .chip", Click: ".menu-button"},
 		{Name: "landing, Ask AI", Path: "/", Rendered: ".kinds .chip", Click: ".search-modes button:nth-child(2)", Clicked: ".ai-controls select"},
 		{Name: "entity", Path: "/entity/" + url.PathEscape(fixtureRef), Rendered: ".identity"},

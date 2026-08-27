@@ -220,6 +220,7 @@ func stubAPI() map[string]string {
 		"/api/graph":                  fixtureGraph(),
 		"/api/context":                fixtureContext(),
 		"/api/entities/" + fixtureRef: fixtureEntity(),
+		"/api/notes/note/9f2c1b":      `{"note":{"id":"note/9f2c1b","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary, so paging on the primary means nobody is paged.","pinned":true},"proof":"proof-note"}`,
 		"/api/status": `{"repositories":[
   {"Repository":"example/platform","GitRef":"","Commit":"0f4c1ab","Entities":128,"Relations":214,"Error":"","Participating":true},
   {"Repository":"example/lab","GitRef":"","Commit":"7d881ef","Entities":42,"Relations":60,"Error":"","Participating":true}
