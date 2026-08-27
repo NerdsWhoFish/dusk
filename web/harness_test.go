@@ -52,6 +52,10 @@ type measurement struct {
 	// its own, which is the diagnosis for the two widths above.
 	Overflowing []string `json:"overflowing"`
 
+	// ContainedOverflow names descendants that escape an analytics panel even
+	// when an ancestor clips them before they can widen the page.
+	ContainedOverflow []string `json:"containedOverflow"`
+
 	// Counted is how many controls were measured. Zero means the selector
 	// matched nothing, which passes every assertion while testing none.
 	Counted int      `json:"counted"`
@@ -153,6 +157,22 @@ const harnessHTML = `<!doctype html>
       overflowing.push(describe(el) + ' spans ' + Math.round(box.left) + ' to ' + Math.round(box.right));
     }
 
+	var containedOverflow = [];
+	var panels = doc.querySelectorAll('.analytics-panel');
+	for (var p = 0; p < panels.length && containedOverflow.length < 8; p++) {
+	  var panel = panels[p];
+	  var boundary = panel.getBoundingClientRect();
+	  var descendants = panel.querySelectorAll('*');
+	  for (var d = 0; d < descendants.length && containedOverflow.length < 8; d++) {
+	    var descendant = descendants[d];
+	    var descendantBox = descendant.getBoundingClientRect();
+	    if (descendantBox.width < 1 && descendantBox.height < 1) { continue; }
+	    if (descendantBox.left >= boundary.left - 0.5 && descendantBox.right <= boundary.right + 0.5) { continue; }
+	    if (scrolls(win, descendant)) { continue; }
+	    containedOverflow.push(describe(panel) + ' contains ' + describe(descendant) + ' spanning ' + Math.round(descendantBox.left) + ' to ' + Math.round(descendantBox.right) + ' outside ' + Math.round(boundary.left) + ' to ' + Math.round(boundary.right));
+	  }
+	}
+
     var counted = 0;
     var small = [];
     var controls = doc.querySelectorAll(CONTROLS);
@@ -176,6 +196,7 @@ const harnessHTML = `<!doctype html>
       docScrollWidth: doc.documentElement.scrollWidth,
       bodyScrollWidth: doc.body.scrollWidth,
       overflowing: overflowing,
+	  containedOverflow: containedOverflow,
       counted: counted,
       small: small
     };

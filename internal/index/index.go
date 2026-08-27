@@ -617,14 +617,20 @@ type RepositoryCount struct {
 	Entities   int    `json:"entities"`
 }
 
-// RepositoryCounts ranks declared sources in one catalog view. Observations
-// are a separate source class and previews are a separate view, so neither is
-// folded into the repository footprint shown on the operator dashboard.
+// RepositoryCounts ranks declared sources, excluding observations, previews,
+// and ADR-0089 config repositories whose volume only reflects filing location.
 func (db *DB) RepositoryCounts(ctx context.Context, gitRef string) ([]RepositoryCount, error) {
 	var counts []RepositoryCount
 	err := scoped(db.gorm.WithContext(ctx), gitRef).Model(&entityRow{}).
 		Select("repository, count(distinct ref) as entities").
 		Where("observed = ?", false).
+		Where(`NOT EXISTS (
+			SELECT 1 FROM entities AS config_repository
+			WHERE config_repository.repository = entities.repository
+				AND config_repository.git_ref = entities.git_ref
+				AND config_repository.observed = ?
+				AND COALESCE(json_extract(CAST(config_repository.attributes AS TEXT), '$.role'), '') = ?
+		)`, false, "config-repository").
 		Group("repository").
 		Order("entities DESC, repository").
 		Find(&counts).Error

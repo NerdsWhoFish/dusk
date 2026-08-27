@@ -6,7 +6,7 @@ It does not install a tracker and does not send analytics anywhere.
 ## What it measures
 
 - **Current catalog** is the number of distinct entities in the default catalog view.
-- **Declared sources** ranks repositories by the distinct entities each one contributes.
+- **Declared sources** ranks repositories by the distinct entities each one contributes, excluding catalog storage identified by `role: config-repository`.
 - **Knowledge** counts notes and open work, shows the most common note kinds, and ranks notes by how many catalog refs they connect.
 - **Plugin activity** ranks plugins by invocations in Dusk's retained action history, with completed outcomes and the last recorded use.
 
