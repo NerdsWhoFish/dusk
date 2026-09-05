@@ -271,6 +271,7 @@ func (s *Server) Handler() http.Handler {
 	// configured (ADR-0012). Both routes sit outside the gate they open.
 	mux.HandleFunc("GET /auth/github", s.handleSignIn)
 	mux.HandleFunc("GET /auth/callback", s.handleAuthCallback)
+	mux.HandleFunc("GET /telemetry/config", s.handleTelemetryConfig)
 
 	if s.catalog != nil {
 		// No method: the API answers POST as well as GET, and "GET /api/" let
