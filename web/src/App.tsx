@@ -20,6 +20,12 @@ function noteFromPath(path: string): string | null {
   return id ? decodeURIComponent(id) : null;
 }
 
+function previewTitle(ref: string): string {
+  const parts = ref.split("/");
+  const repository = parts.slice(2, -2).join("/");
+  return `${repository ? `${repository}, ` : ""}PR #${parts.at(-2)}`;
+}
+
 export function App() {
   const [ref, setRef] = useState(() => refFromPath(location.pathname));
   const [note, setNote] = useState(() => noteFromPath(location.pathname));
@@ -99,7 +105,7 @@ export function App() {
         {preview && (
           <aside className="preview-banner" aria-label="Catalog preview">
             <strong>Read-only preview</strong>
-            <code>{preview}</code>
+            <code>{previewTitle(preview)}</code>
             <a href={path}>Return to the live catalog</a>
           </aside>
         )}
