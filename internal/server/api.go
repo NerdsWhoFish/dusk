@@ -494,7 +494,7 @@ func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
 	// Counted from the index rather than from sync status, which is empty
 	// until a sweep has run and would report zero for a catalog full of
 	// entities loaded another way.
-	scopes, err := s.catalog.Scopes(r.Context())
+	scopes, err := s.catalog.ScopeCounts(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
