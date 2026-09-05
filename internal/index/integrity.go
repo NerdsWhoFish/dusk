@@ -106,9 +106,13 @@ func (db *DB) Forget(ctx context.Context, scope string) error {
 	// Every ref, not one: an ingester's observations are stored under a ref
 	// this package does not name, and matching the wrong one deletes nothing
 	// while reporting success.
-	return db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return deleteWhere(tx, "repository = ?", scope)
+	err := db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return evictWhere(tx, "repository = ?", scope)
 	})
+	if err == nil {
+		db.signalEmbeddings()
+	}
+	return err
 }
 
 type duplicateRow struct {

@@ -471,6 +471,10 @@ var deliveryBackoff = []time.Duration{2 * time.Second, 8 * time.Second}
 // reconcileWithRetry is the delivery path. A sweep does not use it, because a
 // sweep retries by running again.
 func (c *Controller) reconcileWithRetry(ctx context.Context, install *githubapp.Install, slug, gitRef string) error {
+	return c.reconcileWithRetryAt(ctx, install, slug, gitRef, gitRef)
+}
+
+func (c *Controller) reconcileWithRetryAt(ctx context.Context, install *githubapp.Install, slug, gitRef, sourceRef string) error {
 	var err error
 	for attempt := range deliveryAttempts {
 		if attempt > 0 {
@@ -483,7 +487,7 @@ func (c *Controller) reconcileWithRetry(ctx context.Context, install *githubapp.
 				"repository", slug, "ref", gitRef, "attempt", attempt+1)
 		}
 
-		err = c.reconcile(ctx, install, slug, gitRef)
+		err = c.reconcileAt(ctx, install, slug, gitRef, sourceRef)
 		if err == nil || !retryable(err) {
 			return err
 		}
@@ -493,18 +497,17 @@ func (c *Controller) reconcileWithRetry(ctx context.Context, install *githubapp.
 	return err
 }
 
-// retryable reports whether trying again could plausibly succeed. A file that
-// does not parse will not parse on the second attempt, and retrying it only
-// delays the error reaching whoever wrote it.
-// retryable reports whether trying again soon could plausibly work. Both cases
-// it excludes fail identically however many times they are attempted, and the
-// budget one would spend requests it does not have to make things worse.
+// retryable excludes permanent parse failures and exhausted upstream quotas.
 func retryable(err error) bool {
 	var parse duskmd.Errors
 	return !errors.As(err, &parse) && !errors.Is(err, githubapp.ErrRateLimited)
 }
 
 func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, slug, gitRef string) error {
+	return c.reconcileAt(ctx, install, slug, gitRef, gitRef)
+}
+
+func (c *Controller) reconcileAt(ctx context.Context, install *githubapp.Install, slug, gitRef, sourceRef string) error {
 	owner, name, ok := strings.Cut(slug, "/")
 	if !ok {
 		return fmt.Errorf("controller: %q is not an owner/name repository", slug)
@@ -517,7 +520,7 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 	defer leave()
 
 	source := &reconcile.Tarball{Repo: install.Repository(owner, name)}
-	commit, err := source.Resolve(ctx, gitRef)
+	commit, err := source.Resolve(ctx, sourceRef)
 	if err != nil {
 		return c.failed(scope, err)
 	}
@@ -533,7 +536,7 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 	// Recording the commit stops it being probed again until it changes.
 	if _, err := source.Tree(ctx, commit); err != nil {
 		if errors.Is(err, reconcile.ErrNotParticipating) {
-			if err := c.opts.Index.DropRepository(ctx, slug, gitRef); err != nil {
+			if err := c.opts.Index.PutCatalog(ctx, slug, gitRef, nil, nil, nil, nil, nil); err != nil {
 				return c.failed(scope, err)
 			}
 			c.finish(scope, commit)
@@ -543,7 +546,7 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 		return c.failed(scope, err)
 	}
 
-	graph, err := reconcile.New(source, c.opts.Index).Reconcile(ctx, slug, gitRef, c.opts.Now())
+	graph, err := reconcile.New(source, c.opts.Index).ReconcileAt(ctx, slug, gitRef, sourceRef, c.opts.Now())
 	if err != nil {
 		return c.failed(scope, err)
 	}
@@ -576,6 +579,10 @@ func (c *Controller) prune(ctx context.Context, seen map[index.Scope]bool) error
 	if err != nil {
 		return err
 	}
+	reachable := make(map[string]bool, len(seen))
+	for scope := range seen {
+		reachable[scope.Repository] = true
+	}
 
 	for _, scope := range scopes {
 		if seen[scope] {
@@ -587,15 +594,14 @@ func (c *Controller) prune(ctx context.Context, seen map[index.Scope]bool) error
 		if index.IsObserved(scope.Repository) {
 			continue
 		}
-		// A pull request preview is keyed by ref and torn down when the pull
-		// request closes, not by a sweep that has never heard of it.
-		if strings.HasPrefix(scope.GitRef, "refs/pull/") {
+		// Open previews survive sweeps only while their repository remains accessible.
+		if strings.HasPrefix(scope.GitRef, "refs/pull/") && reachable[scope.Repository] {
 			continue
 		}
 		if err := c.opts.Index.DropRepository(ctx, scope.Repository, scope.GitRef); err != nil {
 			return err
 		}
-		c.forget(scope)
+		c.evict(scope)
 		c.opts.Logger.Info("dropped: no longer reachable",
 			"repository", scope.Repository, "ref", scope.GitRef)
 	}
@@ -712,4 +718,11 @@ func (c *Controller) forget(scope index.Scope) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.status, scope)
+}
+
+func (c *Controller) evict(scope index.Scope) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.status, scope)
+	delete(c.reconciled, scope)
 }

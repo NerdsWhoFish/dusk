@@ -347,7 +347,7 @@ func (s *Server) apiRoutes() http.Handler {
 	api.HandleFunc("GET /plugins/{id}/handles/{handle}", s.handleAPIActionStatus)
 	api.HandleFunc("GET /events", s.handleAPIEvents)
 	api.HandleFunc("POST /notes/status", s.handleAPINoteStatus)
-	return api
+	return s.previewReads(api)
 }
 
 type setupPage struct {
