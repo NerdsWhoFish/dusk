@@ -9,7 +9,7 @@ const meta = {
   page: { url: `https://dusk.example/api/entities/${privateValue}?secret=${privateValue}` },
   user: { email: privateValue },
   browser: { userAgent: privateValue },
-  session: { id: "random-session", attributes: { name: privateValue } },
+  session: { id: "random-session", attributes: { name: privateValue, isSampled: "true" } },
 };
 
 test("route templates discard query strings, fragments and arbitrary identifiers", () => {
@@ -37,6 +37,7 @@ test("all browser signal types strip private data before transport", () => {
     assert.ok(!JSON.stringify(result).includes(privateValue), item.type);
     assert.equal(result.meta.page.url, "/api/entities/{id}");
     assert.equal(result.meta.session.overrides.geoLocationTrackingEnabled, false);
+    assert.deepEqual(result.meta.session.attributes, { isSampled: "true" });
   }
   const span = redactTelemetry({ ...items[3], meta }).payload.resourceSpans[0].scopeSpans[0].spans[0];
   assert.equal(span.name, "GET /api/search");
