@@ -457,6 +457,9 @@ func (m *Manager) Uninstall(id string) error {
 	m.ops.Lock()
 	defer m.ops.Unlock()
 
+	if _, err := m.Store.Read(id); err != nil {
+		return err
+	}
 	m.stop(id)
 	m.forget(id)
 	return m.Store.Remove(id)

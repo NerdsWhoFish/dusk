@@ -50,6 +50,9 @@ func (s *Store) secrets(id string) string { return filepath.Join(s.dir(id), Secr
 // ReadSecrets opens a plugin's sealed configuration. A plugin with none is not
 // an error: it is one that has never been given a credential.
 func (s *Store) ReadSecrets(id string) (*Secrets, error) {
+	if err := validateID(id); err != nil {
+		return nil, err
+	}
 	if len(s.Master) != vault.KeySize {
 		return nil, fmt.Errorf("plugin: reading %s needs the master key, which is %d bytes", id, vault.KeySize)
 	}
@@ -78,6 +81,9 @@ func (s *Store) ReadSecrets(id string) (*Secrets, error) {
 // torn write reads as corruption, and retyping every credential is the only
 // recovery from that.
 func (s *Store) WriteSecrets(id string, secrets *Secrets) error {
+	if err := validateID(id); err != nil {
+		return err
+	}
 	if len(s.Master) != vault.KeySize {
 		return fmt.Errorf("plugin: sealing %s needs the master key, which is %d bytes", id, vault.KeySize)
 	}
