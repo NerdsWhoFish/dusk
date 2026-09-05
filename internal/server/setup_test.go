@@ -106,6 +106,10 @@ func (f *fakeController) Sync(context.Context) error {
 func (*fakeController) SyncPush(context.Context, controller.Push) error       { return nil }
 func (*fakeController) SyncPreview(context.Context, controller.Preview) error { return nil }
 
+func (*fakeController) SharesRepository(context.Context, []string) (bool, error) {
+	return false, nil
+}
+
 func newServer(t *testing.T, cs *fakeStore, gh *fakeGitHub) http.Handler {
 	t.Helper()
 	return build(t, setup{store: cs, github: gh})
