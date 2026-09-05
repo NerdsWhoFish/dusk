@@ -76,12 +76,24 @@ Recording it would turn a mistake here into permanent silent staleness, which is
 ## Failure never looks like deletion
 
 A sweep removes contents belonging to repositories it can no longer see, which is how an uninstall leaves the catalog.
+It also evicts their successful-commit cache, so restoring access repopulates the catalog even when the commit has not changed.
 
 That pruning happens **only after a complete sweep**.
 If listing an installation failed, the sweep is incomplete and nothing is pruned, because "I could not look" must never be mistaken for "it is not there" ([ADR-0011](../adr/0011-ingester-scheduling.md)).
 
 One repository failing does not stop the others, and does not remove what that repository already contributed.
 The previous graph stays served while the error is reported.
+
+## Pull request previews
+
+A preview reads the pull request's immutable head commit and stores it under `refs/pull/<owner>/<repository>/<number>/head`.
+The preview replaces that repository's default view while retaining the other repositories' default views.
+Closing a pull request removes only its own snapshot; identical PR numbers in other repositories remain available.
+An empty snapshot is retained when the pull request removes the root `dusk.md`, so the preview can show the resulting deletion.
+
+Preview links carry this qualified ref in the `ref` query parameter.
+Older `refs/pull/<number>/head` links resolve only when exactly one current preview matches; ambiguous links return 409 and unavailable previews return 404.
+Preview pages are read-only: their reads issue no mutation proofs, and requests carrying a preview ref cannot edit the live catalog or manage plugins.
 
 ## Status
 
@@ -103,3 +115,7 @@ The App registered at `/setup` is itself an OAuth provider, its manifest already
 So there is nothing to configure: the "Sign in with GitHub" button appears once an App is registered, on the pod that registered it, without a restart.
 
 `DUSK_GITHUB_CLIENT_ID` and `DUSK_GITHUB_CLIENT_SECRET` override it, and exist only to point a deployment at an app it did not register itself.
+
+Both providers use the same admission check: the user's readable repositories must overlap the current grants of a permitted GitHub App installation.
+An unrelated repository cannot admit the account, and an incomplete or failed grant lookup creates no session.
+The check queries GitHub at sign-in rather than relying on the catalog's last sweep.
