@@ -3,17 +3,16 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
-// PreviewRef is the ref a pull request's catalog is indexed under. It is not
-// a real git ref: the head commit is, and this keys the preview so it cannot
-// collide with a branch of the same name.
-func PreviewRef(number int) string {
-	return fmt.Sprintf("refs/pull/%d/head", number)
+// PreviewRef keeps repository-local PR numbers in separate catalog scopes.
+func PreviewRef(repository string, number int) string {
+	return index.PreviewRef(repository, number)
 }
 
 // Preview is one pull request to render the catalog at.
@@ -40,17 +39,9 @@ func (p Preview) slug() string { return p.Owner + "/" + p.Name }
 // index has been keyed by git ref since ADR-0008 so several versions can be
 // live at once, and this is the feature that needed it.
 func (c *Controller) SyncPreview(ctx context.Context, preview Preview) error {
-	ref := PreviewRef(preview.Number)
-
-	if preview.Closed {
-		// A merged or abandoned pull request's preview is garbage, and one
-		// delete scoped to its ref is the whole cleanup (ADR-0008).
-		if err := c.opts.Index.DropGitRef(ctx, ref); err != nil {
-			return err
-		}
-		c.forget(index.Scope{Repository: preview.slug(), GitRef: ref})
-		c.opts.Logger.Info("preview removed", "repository", preview.slug(), "pull_request", preview.Number)
-		return nil
+	ref := PreviewRef(preview.slug(), preview.Number)
+	if _, _, ok := index.ParsePreviewRef(ref); !ok {
+		return fmt.Errorf("controller: invalid pull request preview %q", ref)
 	}
 
 	tokens, appOwner, err := c.auth(ctx)
@@ -63,9 +54,13 @@ func (c *Controller) SyncPreview(ctx context.Context, preview Preview) error {
 			"account", preview.Account, "repository", preview.slug())
 		return nil
 	}
+	if preview.Closed {
+		return c.closePreview(ctx, preview, ref)
+	}
 
 	install := &githubapp.Install{Client: c.opts.Client, Tokens: tokens, ID: preview.InstallationID}
-	if err := c.reconcileWithRetry(ctx, install, preview.slug(), refOrCommit(ref, preview.Head)); err != nil {
+	sourceRef := refOrCommit(fmt.Sprintf("refs/pull/%d/head", preview.Number), preview.Head)
+	if err := c.reconcileWithRetryAt(ctx, install, preview.slug(), ref, sourceRef); err != nil {
 		return err
 	}
 
@@ -75,18 +70,26 @@ func (c *Controller) SyncPreview(ctx context.Context, preview Preview) error {
 	return c.commentOnPreview(ctx, install, preview)
 }
 
+func (c *Controller) closePreview(ctx context.Context, preview Preview, ref string) error {
+	scope := index.Scope{Repository: preview.slug(), GitRef: ref}
+	leave, err := c.enterReconcile(ctx, scope)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	if err := c.opts.Index.DropRepository(ctx, scope.Repository, scope.GitRef); err != nil {
+		return err
+	}
+	c.evict(scope)
+	c.opts.Logger.Info("preview removed", "repository", preview.slug(), "pull_request", preview.Number)
+	return nil
+}
+
 // commentOnPreview posts the semantic diff back to the pull request. A failure
 // is logged and swallowed: the preview is already built, and a comment that
 // would not post is not worth failing a delivery GitHub never redelivers.
 func (c *Controller) commentOnPreview(ctx context.Context, install *githubapp.Install, preview Preview) error {
-	base, err := c.defaultRefOf(ctx, install, preview)
-	if err != nil {
-		c.opts.Logger.Warn("could not find the base to compare against, skipping the comment",
-			"repository", preview.slug(), "pull_request", preview.Number, "error", err)
-		return nil
-	}
-
-	changes, err := c.Compare(ctx, base, preview.Number)
+	changes, err := c.Compare(ctx, preview.slug(), preview.Number)
 	if err != nil {
 		return err
 	}
@@ -99,26 +102,22 @@ func (c *Controller) commentOnPreview(ctx context.Context, install *githubapp.In
 	return nil
 }
 
-func (c *Controller) defaultRefOf(ctx context.Context, install *githubapp.Install, preview Preview) (string, error) {
-	branch, err := install.Repository(preview.Owner, preview.Name).DefaultBranch(ctx)
-	if err != nil {
-		return "", err
-	}
-	return "refs/heads/" + branch, nil
-}
-
 // previewURL links to the catalog as it would be after merge. Empty when the
 // deployment has no host to link to, rather than a link that goes nowhere.
 func (c *Controller) previewURL(preview Preview) string {
 	if c.opts.PrivateHost == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/?ref=%s", c.opts.PrivateHost, PreviewRef(preview.Number))
+	return c.opts.PrivateHost + "/?" + url.Values{"ref": {PreviewRef(preview.slug(), preview.Number)}}.Encode()
 }
 
 // Compare reports what merging a pull request would do to the catalog.
-func (c *Controller) Compare(ctx context.Context, base string, number int) ([]index.Change, error) {
-	return c.opts.Index.Diff(ctx, base, PreviewRef(number))
+func (c *Controller) Compare(ctx context.Context, repository string, number int) ([]index.Change, error) {
+	ref, err := c.opts.Index.ResolvePreview(ctx, PreviewRef(repository, number))
+	if err != nil {
+		return nil, err
+	}
+	return c.opts.Index.Diff(ctx, "", ref)
 }
 
 // refOrCommit prefers the commit, because a ref moves under a force push and

@@ -24,9 +24,13 @@ func (s *Server) handleAPINotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := queryInt(r, "limit", 100, 200)
+	entityRef := r.URL.Query().Get("entity_ref")
+	if entityRef == "" && refOf(r) == "" {
+		entityRef = r.URL.Query().Get("ref")
+	}
 	filter := index.NoteFilter{
 		Kind: r.URL.Query().Get("kind"), Status: r.URL.Query().Get("status"),
-		Ref: r.URL.Query().Get("ref"), AboutRepository: r.URL.Query().Get("repository"), Limit: limit,
+		Ref: entityRef, AboutRepository: r.URL.Query().Get("repository"), Limit: limit,
 		Offset: queryInt(r, "offset", 0, 100000),
 	}
 	if raw := r.URL.Query().Get("pinned"); raw != "" {
@@ -50,7 +54,7 @@ func (s *Server) handleAPINotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	answer := map[string]any{"notes": asNotes(notes), "total": total, "offset": filter.Offset}
-	if s.tokens != nil {
+	if s.tokens != nil && refOf(r) == "" {
 		seen := make(map[string]string, len(notes))
 		for _, note := range notes {
 			seen[note.GetId()] = note.GetContentHash()

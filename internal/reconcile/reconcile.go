@@ -339,18 +339,17 @@ func New(source Source, idx *index.DB) *Reconciler {
 // holds for it. A repository with no root dusk.md is not an error: it has not
 // opted in, and the previous contents at that ref are cleared.
 func (r *Reconciler) Reconcile(ctx context.Context, repository, gitRef string, observedAt time.Time) (*Graph, error) {
-	graph, err := r.loader.Load(ctx, gitRef, observedAt)
+	return r.ReconcileAt(ctx, repository, gitRef, gitRef, observedAt)
+}
+
+// ReconcileAt stores an immutable source under a stable catalog scope.
+func (r *Reconciler) ReconcileAt(ctx context.Context, repository, gitRef, sourceRef string, observedAt time.Time) (*Graph, error) {
+	graph, err := r.loader.Load(ctx, sourceRef, observedAt)
 	if err != nil {
 		return nil, err
 	}
 	graph.Repository = repository
-
-	if !graph.Participating {
-		if err := r.index.DropRepository(ctx, repository, gitRef); err != nil {
-			return nil, err
-		}
-		return graph, nil
-	}
+	graph.GitRef = gitRef
 	if err := r.index.PutCatalog(ctx, repository, gitRef, graph.declarations(), graph.Relations, graph.Notes, graph.Kinds, graph.Context); err != nil {
 		return nil, err
 	}

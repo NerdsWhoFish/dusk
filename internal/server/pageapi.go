@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,8 +30,13 @@ type Pages interface {
 // and a second implementation of every query.
 func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 	declared, prose, problem := s.homePage(r.Context())
+	if refOf(r) != "" {
+		declared.Blocks = slices.DeleteFunc(declared.Blocks, func(block page.Block) bool {
+			return block.Type == page.TypeAnalytics || block.Type == page.TypeReads || block.Type == page.TypeView
+		})
+	}
 
-	blocks := page.Resolve(r.Context(), s.catalog, declared, s.visibilityFor(r))
+	blocks := page.ResolveAt(r.Context(), s.catalog, declared, s.visibilityFor(r), refOf(r))
 	s.mountViews(blocks)
 	s.mountAnalytics(r.Context(), blocks)
 
@@ -54,13 +60,13 @@ func (s *Server) handleAPIHome(w http.ResponseWriter, r *http.Request) {
 	}
 	// Repository status names every installed repository and belongs to the
 	// complete operator view.
-	if s.syncs != nil && !s.visibilityFor(r).Restricted() {
+	if s.syncs != nil && !s.visibilityFor(r).Restricted() && refOf(r) == "" {
 		answer["repositories"] = s.syncs.Status()
 	}
 
 	// The notes the page showed go in a token, so closing one is proof of the
 	// read that surfaced it rather than a write from nowhere (ADR-0009).
-	if s.tokens != nil {
+	if s.tokens != nil && refOf(r) == "" {
 		seen := map[string]string{}
 		for _, block := range blocks {
 			for _, note := range block.Notes {

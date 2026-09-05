@@ -46,6 +46,7 @@ type Catalog interface {
 	Drift(ctx context.Context, gitRef string, filter index.DriftFilter, v index.Visibility) ([]index.Drift, error)
 	VisibleTo(ctx context.Context, gitRef string, v index.Visibility) ([]string, error)
 	Diff(ctx context.Context, base, head string) ([]index.Change, error)
+	ResolvePreview(ctx context.Context, ref string) (string, error)
 	Orphans(ctx context.Context, live []string, v index.Visibility) ([]index.Problem, error)
 	Forget(ctx context.Context, scope string) error
 }
@@ -195,7 +196,7 @@ func (s *Server) handleAPINote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	answer := map[string]any{"note": asNotes(notes)[0]}
-	if s.tokens != nil {
+	if s.tokens != nil && refOf(r) == "" {
 		answer["proof"] = s.tokens.Issue(proof.FromGet, map[string]string{
 			id: notes[0].GetContentHash(),
 		}).ID
@@ -237,8 +238,10 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 	// What matched, not what survived the limit, so a caller can tell a short
 	// answer from a complete one (ADR-0059).
 	answer := map[string]any{"results": out, "query": query, "total": total}
-	if token := s.searched(out); token != "" {
-		answer["proof"] = token
+	if refOf(r) == "" {
+		if token := s.searched(out); token != "" {
+			answer["proof"] = token
+		}
 	}
 	writeJSON(w, http.StatusOK, answer)
 }
@@ -316,12 +319,7 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 
 	// Views and actions ride along with the entity rather than costing a second
 	// request, for the same reason `get` is fat: this is one question.
-	var views []plugin.View
-	var actions []plugin.Action
-	if s.plugins != nil {
-		views = s.plugins.Views(entity.GetKind())
-		actions = s.plugins.Actions(entity.GetKind())
-	}
+	views, actions := s.entityContributions(r, entity.GetKind())
 
 	answer := map[string]any{
 		"entity":      asEntity(entity),
@@ -338,9 +336,8 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 	// The browser meets the same read-before-write contract an agent does, so
 	// an entity that changed while the page was open refuses the action rather
 	// than acting on what is no longer true (ADR-0009).
-	if s.tokens != nil {
-		// The notes go in the token too, so closing one needs proof of the read
-		// that surfaced it, exactly as changing the entity does.
+	if s.tokens != nil && refOf(r) == "" {
+		// The same read authorizes edits to both the entity and its shown notes.
 		seen := map[string]string{ref: entity.GetProvenance().GetVersion()}
 		for _, note := range notes {
 			seen[note.GetId()] = note.GetContentHash()
@@ -348,6 +345,13 @@ func (s *Server) handleAPIEntity(w http.ResponseWriter, r *http.Request) {
 		answer["proof"] = s.tokens.Issue(proof.FromGet, seen).ID
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+func (s *Server) entityContributions(r *http.Request, kind string) ([]plugin.View, []plugin.Action) {
+	if s.plugins == nil || refOf(r) != "" {
+		return nil, nil
+	}
+	return s.plugins.Views(kind), s.plugins.Actions(kind)
 }
 
 func (s *Server) entityDeclaration(ctx context.Context, gitRef, ref, repository string) (*duskv1alpha1.Entity, []string, error) {
@@ -440,7 +444,7 @@ func (s *Server) handleAPIEntities(w http.ResponseWriter, r *http.Request) {
 // reader wander into whatever happened to be indexed.
 func refOf(r *http.Request) string {
 	ref := r.URL.Query().Get("ref")
-	if strings.HasPrefix(ref, "refs/pull/") && strings.HasSuffix(ref, "/head") {
+	if index.IsPreviewRef(ref) {
 		return ref
 	}
 	return ""
@@ -471,12 +475,12 @@ func (s *Server) visible(r *http.Request) (func(ref string) bool, error) {
 // before anybody searches. One call rather than three, because a waterfall on
 // the first page loaded is the slowest the product ever feels.
 func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
-	kinds, err := s.catalog.Kinds(r.Context(), "", s.visibilityFor(r))
+	kinds, err := s.catalog.Kinds(r.Context(), refOf(r), s.visibilityFor(r))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	notes, err := s.catalog.RecentNotes(r.Context(), "", 6)
+	notes, err := s.catalog.RecentNotes(r.Context(), refOf(r), 6)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -514,13 +518,12 @@ func (s *Server) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAPIDiff answers GET /api/diff?ref=refs/pull/N/head: what merging that
-// pull request would do to the catalog.
+// handleAPIDiff compares a repository's preview with the complete default view.
 func (s *Server) handleAPIDiff(w http.ResponseWriter, r *http.Request) {
 	ref := refOf(r)
 	if ref == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "pass ref=refs/pull/<number>/head to compare a pull request",
+			"error": "pass ref=refs/pull/<owner>/<repository>/<number>/head to compare a pull request",
 		})
 		return
 	}
@@ -560,7 +563,7 @@ func (s *Server) handleAPIViewer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIIntegrity(w http.ResponseWriter, r *http.Request) {
 	visibility := s.visibilityFor(r)
 
-	problems, err := s.catalog.Integrity(r.Context(), "", visibility)
+	problems, err := s.catalog.Integrity(r.Context(), refOf(r), visibility)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -607,7 +610,7 @@ func (s *Server) handleAPIForget(w http.ResponseWriter, r *http.Request) {
 // does not support. `?undeclared=true` adds the other direction.
 func (s *Server) handleAPIDrift(w http.ResponseWriter, r *http.Request) {
 	filter := index.DriftFilter{Undeclared: r.URL.Query().Get("undeclared") == "true"}
-	drifts, err := s.catalog.Drift(r.Context(), "", filter, s.visibilityFor(r))
+	drifts, err := s.catalog.Drift(r.Context(), refOf(r), filter, s.visibilityFor(r))
 	if err != nil {
 		writeError(w, err)
 		return

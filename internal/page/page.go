@@ -171,14 +171,19 @@ func Default() Page {
 // Resolve runs every block's query as v may see it. A failing block carries
 // its reason and renders empty; it never takes the page with it.
 func Resolve(ctx context.Context, catalog Catalog, p Page, v index.Visibility) []Resolved {
+	return ResolveAt(ctx, catalog, p, v, "")
+}
+
+// ResolveAt runs every catalog query against the same default or preview view.
+func ResolveAt(ctx context.Context, catalog Catalog, p Page, v index.Visibility, gitRef string) []Resolved {
 	resolved := make([]Resolved, 0, len(p.Blocks))
 	for _, block := range p.Blocks {
-		resolved = append(resolved, resolveOne(ctx, catalog, block, v))
+		resolved = append(resolved, resolveOne(ctx, catalog, block, v, gitRef))
 	}
 	return resolved
 }
 
-func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visibility) Resolved {
+func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visibility, gitRef string) Resolved {
 	out := Resolved{Block: block}
 	if out.Title == "" {
 		out.Title = defaultTitle(block.Type)
@@ -187,22 +192,22 @@ func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visib
 	var err error
 	switch block.Type {
 	case TypeEntities:
-		out.Entities, out.Truncated, err = entitiesFor(ctx, catalog, block)
+		out.Entities, out.Truncated, err = entitiesFor(ctx, catalog, block, gitRef)
 	case TypeNotes:
-		out.Notes, err = catalog.Notes(ctx, "", notesFilter(block))
+		out.Notes, err = catalog.Notes(ctx, gitRef, notesFilter(block))
 	case TypeDrift:
-		out.Drift, out.Truncated, err = driftFor(ctx, catalog, block, v)
+		out.Drift, out.Truncated, err = driftFor(ctx, catalog, block, v, gitRef)
 	case TypeIntegrity:
-		out.Problems, err = catalog.Integrity(ctx, "", v)
+		out.Problems, err = catalog.Integrity(ctx, gitRef, v)
 	case TypeKinds:
-		out.Kinds, err = catalog.Kinds(ctx, "", v)
+		out.Kinds, err = catalog.Kinds(ctx, gitRef, v)
 	case TypeReads:
 		out.Reads, err = readsFor(ctx, catalog)
 	case TypeAnalytics, TypeGraph:
 		// The server joins analytics to action history, while the browser loads
 		// the graph from its dedicated endpoint after the page has painted.
 	case TypeView:
-		out.Entities, out.Truncated, err = viewFor(ctx, catalog, block)
+		out.Entities, out.Truncated, err = viewFor(ctx, catalog, block, gitRef)
 	default:
 		err = fmt.Errorf("no such block type %q, expected one of %s", block.Type, joinTypes())
 	}
@@ -217,27 +222,27 @@ func resolveOne(ctx context.Context, catalog Catalog, block Block, v index.Visib
 // result set rather than one ref, so the page asks the question and the plugin
 // decides only how the answer looks. The element itself is filled in by
 // whatever knows which plugins are running.
-func viewFor(ctx context.Context, catalog Catalog, block Block) ([]*duskv1alpha1.Entity, bool, error) {
+func viewFor(ctx context.Context, catalog Catalog, block Block, gitRef string) ([]*duskv1alpha1.Entity, bool, error) {
 	if block.Plugin == "" {
 		return nil, false, fmt.Errorf("a view block has to name a plugin")
 	}
 	if block.Query == "" {
 		return nil, false, nil
 	}
-	return entitiesFor(ctx, catalog, block)
+	return entitiesFor(ctx, catalog, block, gitRef)
 }
 
-func entitiesFor(ctx context.Context, catalog Catalog, block Block) ([]*duskv1alpha1.Entity, bool, error) {
+func entitiesFor(ctx context.Context, catalog Catalog, block Block, gitRef string) ([]*duskv1alpha1.Entity, bool, error) {
 	parsed := splitQuery(block.Query)
 	limit := limitOr(block.Limit, 0)
 
-	entities, err := candidates(ctx, catalog, parsed, block.Limit)
+	entities, err := candidates(ctx, catalog, parsed, block.Limit, gitRef)
 	if err != nil {
 		return nil, false, err
 	}
 
 	if parsed.related != "" {
-		entities, err = onlyRelated(ctx, catalog, entities, parsed.related)
+		entities, err = onlyRelated(ctx, catalog, entities, parsed.related, gitRef)
 		if err != nil {
 			return nil, false, err
 		}
@@ -250,14 +255,14 @@ func entitiesFor(ctx context.Context, catalog Catalog, block Block) ([]*duskv1al
 }
 
 // candidates is everything the query matches before relations narrow it.
-func candidates(ctx context.Context, catalog Catalog, parsed filter, limit int) ([]*duskv1alpha1.Entity, error) {
+func candidates(ctx context.Context, catalog Catalog, parsed filter, limit int, gitRef string) ([]*duskv1alpha1.Entity, error) {
 	// A bare or kind-only query lists, which is ordered and complete. Words go
 	// through search, which is ranked.
 	if parsed.words == "" {
-		return catalog.List(ctx, "", parsed.kind)
+		return catalog.List(ctx, gitRef, parsed.kind)
 	}
 
-	results, _, err := catalog.Search(ctx, "", index.SearchFilter{
+	results, _, err := catalog.Search(ctx, gitRef, index.SearchFilter{
 		Query: parsed.words, Kind: parsed.kind, Limit: limitOr(limit, 50),
 	})
 	if err != nil {
@@ -269,7 +274,7 @@ func candidates(ctx context.Context, catalog Catalog, parsed filter, limit int) 
 		if result.Type != "entity" {
 			continue
 		}
-		entity, err := catalog.Get(ctx, "", result.Ref)
+		entity, err := catalog.Get(ctx, gitRef, result.Ref)
 		if err != nil {
 			continue
 		}
@@ -282,8 +287,8 @@ func candidates(ctx context.Context, catalog Catalog, parsed filter, limit int) 
 // Direction is ignored on purpose: asking what you have flown through an
 // airport should not mean writing one block for departures and one for
 // arrivals.
-func onlyRelated(ctx context.Context, catalog Catalog, entities []*duskv1alpha1.Entity, ref string) ([]*duskv1alpha1.Entity, error) {
-	relations, err := catalog.Neighbors(ctx, "", ref)
+func onlyRelated(ctx context.Context, catalog Catalog, entities []*duskv1alpha1.Entity, ref, gitRef string) ([]*duskv1alpha1.Entity, error) {
+	relations, err := catalog.Neighbors(ctx, gitRef, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -305,9 +310,9 @@ func onlyRelated(ctx context.Context, catalog Catalog, entities []*duskv1alpha1.
 
 // driftFor reads `undeclared` out of the block query rather than taking a
 // field of its own, because a block is a query (ADR-0013).
-func driftFor(ctx context.Context, catalog Catalog, block Block, v index.Visibility) ([]index.Drift, bool, error) {
+func driftFor(ctx context.Context, catalog Catalog, block Block, v index.Visibility, gitRef string) ([]index.Drift, bool, error) {
 	filter := index.DriftFilter{Undeclared: strings.Contains(block.Query, "undeclared")}
-	drifts, err := catalog.Drift(ctx, "", filter, v)
+	drifts, err := catalog.Drift(ctx, gitRef, filter, v)
 	if err != nil {
 		return nil, false, err
 	}

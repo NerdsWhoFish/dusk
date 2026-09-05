@@ -166,7 +166,7 @@ func (db *DB) migrate() error {
 	if err := db.gorm.Exec(`PRAGMA foreign_keys=ON`).Error; err != nil {
 		return fmt.Errorf("index: enable foreign keys: %w", err)
 	}
-	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &contextRow{}, &defaultView{}, &repositoryIdentity{}, &repositoryAlias{}, &embeddingRow{}); err != nil {
+	if err := db.gorm.AutoMigrate(&entityRow{}, &relationRow{}, &noteRow{}, &noteRefRow{}, &aliasRow{}, &kindRow{}, &contextRow{}, &defaultView{}, &repositoryIdentity{}, &repositoryAlias{}, &embeddingRow{}, &previewRow{}); err != nil {
 		return fmt.Errorf("index: migrate: %w", err)
 	}
 	for _, stmt := range ftsSchema {
@@ -311,6 +311,9 @@ func (db *DB) put(ctx context.Context, repository, gitRef string, declarations [
 		if err := deleteScope(tx, repository, gitRef); err != nil {
 			return err
 		}
+		if err := putPreview(tx, repository, gitRef); err != nil {
+			return err
+		}
 		for _, batch := range []struct {
 			what string
 			rows any
@@ -330,12 +333,7 @@ func (db *DB) put(ctx context.Context, repository, gitRef string, declarations [
 				return fmt.Errorf("index: put %s: %w", batch.what, err)
 			}
 		}
-		if len(contextProfile) > 0 {
-			if err := tx.Create(&contextRow{Repository: repository, GitRef: gitRef, Body: contextProfile}).Error; err != nil {
-				return fmt.Errorf("index: put context: %w", err)
-			}
-		}
-		return nil
+		return putContext(tx, repository, gitRef, contextProfile)
 	})
 	if err == nil {
 		db.signalEmbeddings()
@@ -373,7 +371,7 @@ const batchSize = 200
 // closed pull request's preview is garbage collected.
 func (db *DB) DropGitRef(ctx context.Context, gitRef string) error {
 	err := db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return deleteWhere(tx, "git_ref = ?", gitRef)
+		return evictWhere(tx, "git_ref = ?", gitRef)
 	})
 	if err == nil {
 		db.signalEmbeddings()
@@ -385,7 +383,7 @@ func (db *DB) DropGitRef(ctx context.Context, gitRef string) error {
 // uninstall or a repository leaving the catalog needs.
 func (db *DB) DropRepository(ctx context.Context, repository, gitRef string) error {
 	err := db.gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return deleteScope(tx, repository, gitRef)
+		return evictWhere(tx, "repository = ? AND git_ref = ?", repository, gitRef)
 	})
 	if err == nil {
 		db.signalEmbeddings()
@@ -395,6 +393,13 @@ func (db *DB) DropRepository(ctx context.Context, repository, gitRef string) err
 
 func deleteScope(tx *gorm.DB, repository, gitRef string) error {
 	return deleteWhere(tx, "repository = ? AND git_ref = ?", repository, gitRef)
+}
+
+func evictWhere(tx *gorm.DB, query string, args ...any) error {
+	if err := deleteWhere(tx, query, args...); err != nil {
+		return err
+	}
+	return tx.Where(query, args...).Delete(&defaultView{}).Error
 }
 
 // deleteWhere clears every kind of row a scope holds, so that deleting a file
@@ -412,6 +417,7 @@ func deleteWhere(tx *gorm.DB, query string, args ...any) error {
 		{"context", &contextRow{}},
 		{"entities", &entityRow{}},
 		{"embeddings", &embeddingRow{}},
+		{"previews", &previewRow{}},
 	} {
 		if err := tx.Where(query, args...).Delete(target.row).Error; err != nil {
 			return fmt.Errorf("index: drop %s: %w", target.what, err)
@@ -427,6 +433,16 @@ type contextRow struct {
 }
 
 func (contextRow) TableName() string { return "context_profiles" }
+
+func putContext(tx *gorm.DB, repository, gitRef string, body []byte) error {
+	if len(body) == 0 {
+		return nil
+	}
+	if err := tx.Create(&contextRow{Repository: repository, GitRef: gitRef, Body: body}).Error; err != nil {
+		return fmt.Errorf("index: put context: %w", err)
+	}
+	return nil
+}
 
 // Context returns the profile contributed by one exact repository.
 func (db *DB) Context(ctx context.Context, gitRef, repository string) ([]byte, error) {
@@ -492,9 +508,14 @@ func (db *DB) TrackRepository(ctx context.Context, id int64, slug string) (strin
 		if err := tx.Save(&repositoryAlias{Alias: previous, RepositoryID: id}).Error; err != nil {
 			return err
 		}
-		for _, table := range []string{"relations", "note_refs", "notes", "entity_aliases", "kinds", "context_profiles", "entities", "embedding_rows", "default_views"} {
+		for _, table := range []string{"relations", "note_refs", "notes", "entity_aliases", "kinds", "context_profiles", "entities", "embedding_rows", "default_views", "preview_scopes"} {
 			if err := tx.Table(table).Where("repository = ?", previous).Update("repository", slug).Error; err != nil {
 				return fmt.Errorf("move %s: %w", table, err)
+			}
+			oldPrefix, newPrefix := "refs/pull/"+previous+"/", "refs/pull/"+slug+"/"
+			if err := tx.Table(table).Where("repository = ? AND git_ref LIKE ?", slug, oldPrefix+"%").
+				Update("git_ref", gorm.Expr("replace(git_ref, ?, ?)", oldPrefix, newPrefix)).Error; err != nil {
+				return fmt.Errorf("move preview in %s: %w", table, err)
 			}
 		}
 		identity.Slug = slug
@@ -556,6 +577,9 @@ func scopeClause(alias, gitRef string) (string, []any) {
 	if alias != "" {
 		prefix = alias + "."
 	}
+	if repository, _, preview := ParsePreviewRef(gitRef); preview {
+		return "((" + prefix + "repository = ? AND " + prefix + "git_ref = ?) OR (" + prefix + "repository <> ? AND (" + prefix + "repository, " + prefix + "git_ref) IN (SELECT repository, git_ref FROM default_views)))", []any{repository, gitRef, repository}
+	}
 	if gitRef != "" {
 		return prefix + "git_ref = ?", []any{gitRef}
 	}
@@ -593,10 +617,16 @@ func IsObserved(repository string) bool {
 // finds contents belonging to a repository it can no longer see.
 func (db *DB) Scopes(ctx context.Context) ([]Scope, error) {
 	var scopes []Scope
-	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
-		Distinct("repository", "git_ref").
-		Order("repository, git_ref").
-		Find(&scopes).Error
+	err := db.gorm.WithContext(ctx).Raw(`
+		SELECT repository, git_ref FROM default_views
+		UNION SELECT repository, git_ref FROM entities
+		UNION SELECT repository, git_ref FROM relations
+		UNION SELECT repository, git_ref FROM notes
+		UNION SELECT repository, git_ref FROM kinds
+		UNION SELECT repository, git_ref FROM context_profiles
+		UNION SELECT repository, git_ref FROM preview_scopes
+		ORDER BY repository, git_ref
+	`).Scan(&scopes).Error
 	if err != nil {
 		return nil, fmt.Errorf("index: list scopes: %w", err)
 	}
