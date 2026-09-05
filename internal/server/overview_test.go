@@ -18,12 +18,15 @@ func TestOverviewCountsOnlySourcesContributingEntities(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	const mainRef = "refs/heads/main"
 	observed := index.ObservedScope("example")
-	for _, repository := range []string{"example/catalog", observed} {
-		entity := &duskv1alpha1.Entity{Ref: "service:home/" + repository, Kind: "service", Namespace: "home", Name: repository}
-		if err := db.Put(t.Context(), repository, mainRef, []index.Declaration{{Path: "dusk.md", Entity: entity}}, nil, nil); err != nil {
+	for _, source := range []struct{ repository, name string }{
+		{"example/catalog", "declared"},
+		{observed, "observed"},
+	} {
+		entity := &duskv1alpha1.Entity{Ref: "service:home/" + source.name, Kind: "service", Namespace: "home", Name: source.name}
+		if err := db.Put(t.Context(), source.repository, mainRef, []index.Declaration{{Path: "dusk.md", Entity: entity}}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.SetDefaultView(t.Context(), repository, mainRef); err != nil {
+		if err := db.SetDefaultView(t.Context(), source.repository, mainRef); err != nil {
 			t.Fatal(err)
 		}
 	}
