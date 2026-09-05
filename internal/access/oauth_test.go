@@ -2,6 +2,7 @@ package access_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -33,6 +34,15 @@ func (f *fakeGitHub) Readable(context.Context, secret.String) ([]string, error) 
 
 func source(id, clientSecret string) access.CredentialSource {
 	return func() (string, secret.String) { return id, secret.New(clientSecret) }
+}
+
+func admitAcme(_ context.Context, readable []string) (bool, error) {
+	for _, repository := range readable {
+		if strings.EqualFold(repository, "acme/infra") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func TestOAuthConfigured(t *testing.T) {
@@ -136,6 +146,7 @@ func TestOAuthBeginAddressesGitHub(t *testing.T) {
 // a proxy log signs its holder in again whenever they replay it.
 func TestOAuthRefusesAReplayedState(t *testing.T) {
 	auth := &access.OAuth{
+		Admit:       admitAcme,
 		Credentials: source("id", "shh"),
 		GitHub:      &fakeGitHub{login: "joey", readable: []string{"acme/infra"}},
 	}
@@ -175,6 +186,7 @@ func TestOAuthRefusesAStateItNeverIssued(t *testing.T) {
 func TestASignedInPersonIsLetPastTheGate(t *testing.T) {
 	policy := access.New(secret.New("shared"), false, false)
 	auth := &access.OAuth{
+		Admit:       admitAcme,
 		Credentials: source("id", "shh"),
 		Policy:      policy,
 		GitHub:      &fakeGitHub{login: "joey", readable: []string{"acme/infra"}},
@@ -222,6 +234,7 @@ func TestASignedInPersonIsLetPastTheGate(t *testing.T) {
 
 func TestOAuthCompleteAdmitsAViewerKnownToTheInstallation(t *testing.T) {
 	auth := &access.OAuth{
+		Admit:       admitAcme,
 		Credentials: source("id", "shh"),
 		GitHub: &fakeGitHub{
 			login:    "joey",
@@ -258,8 +271,9 @@ func TestOAuthCompleteAdmitsAViewerKnownToTheInstallation(t *testing.T) {
 
 func TestOAuthRefusesAViewerOutsideTheInstallation(t *testing.T) {
 	auth := &access.OAuth{
+		Admit:       admitAcme,
 		Credentials: source("id", "shh"),
-		GitHub:      &fakeGitHub{login: "stranger"},
+		GitHub:      &fakeGitHub{login: "stranger", readable: []string{"stranger/unrelated"}},
 	}
 
 	target, err := auth.Begin()
@@ -278,6 +292,7 @@ func TestOAuthRefusesAViewerOutsideTheInstallation(t *testing.T) {
 
 func TestClearIdentityEndsTheGitHubSession(t *testing.T) {
 	auth := &access.OAuth{
+		Admit:       admitAcme,
 		Credentials: source("id", "shh"),
 		GitHub:      &fakeGitHub{login: "joey", readable: []string{"acme/infra"}},
 	}
@@ -308,5 +323,34 @@ func TestClearIdentityEndsTheGitHubSession(t *testing.T) {
 	cleared := signedOut.Result().Cookies()[0]
 	if cleared.Name != access.IdentityCookie || cleared.MaxAge >= 0 {
 		t.Fatalf("cleared cookie = %+v", cleared)
+	}
+}
+
+func TestOAuthAdmissionFailsClosed(t *testing.T) {
+	for name, admit := range map[string]func(context.Context, []string) (bool, error){
+		"missing": nil,
+		"failed": func(context.Context, []string) (bool, error) {
+			return false, errors.New("GitHub unavailable")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			auth := &access.OAuth{
+				Credentials: source("oauth-override", "shh"),
+				GitHub:      &fakeGitHub{login: "joey", readable: []string{"acme/infra"}},
+				Admit:       admit,
+			}
+			target, err := auth.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, _, err := auth.Complete(t.Context(), "code", parsed.Query().Get("state"))
+			if err == nil || id != "" {
+				t.Fatalf("unverified installation granted a session: %q, %v", id, err)
+			}
+		})
 	}
 }

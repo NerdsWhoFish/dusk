@@ -1,11 +1,19 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/NerdsWhoFish/dusk/internal/access"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 )
+
+func (s *Server) admitGitHub(ctx context.Context, readable []string) (bool, error) {
+	if s.controller == nil {
+		return false, nil
+	}
+	return s.controller.SharesRepository(ctx, readable)
+}
 
 // handleSignIn sends the browser to GitHub.
 func (s *Server) handleSignIn(w http.ResponseWriter, r *http.Request) {
@@ -33,14 +41,13 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	id, identity, err := s.oauth.Complete(r.Context(),
 		r.URL.Query().Get("code"), r.URL.Query().Get("state"))
 	if err != nil {
-		s.log.Warn("a sign-in failed", "error", err, "remote", r.RemoteAddr)
+		s.log.WarnContext(r.Context(), "a sign-in failed", "error", err)
 		s.renderLogin(w, r, http.StatusUnauthorized, "That sign-in did not complete. Try again.")
 		return
 	}
 
 	s.oauth.SetIdentity(w, id)
-	s.log.Info("signed in with github",
-		"login", identity.Login, "readable_repositories", len(identity.Readable))
+	s.log.InfoContext(r.Context(), "signed in with github", "readable_repositories", len(identity.Readable))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

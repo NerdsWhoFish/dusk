@@ -38,9 +38,7 @@ type GitHub interface {
 type Identity struct {
 	Login string
 
-	// Readable is the set of repositories GitHub says they can read, which is
-	// the whole permission model: ADR-0012 derives authorization rather than
-	// configuring it, so there is nothing here to administer or to drift.
+	// Readable records GitHub's answer used for installation admission.
 	Readable []string
 
 	Expires time.Time
@@ -61,9 +59,9 @@ type OAuth struct {
 	Credentials CredentialSource
 	Callback    string
 	GitHub      GitHub
+	Admit       func(context.Context, []string) (bool, error)
 
-	// Policy signs the identity cookie, reusing the session signing key so
-	// there is one secret to rotate rather than two.
+	// Policy supplies the session lifetime clock and cookie transport policy.
 	Policy *Policy
 
 	mu       sync.Mutex
@@ -127,7 +125,14 @@ func (o *OAuth) Complete(ctx context.Context, code, state string) (string, Ident
 	if err != nil {
 		return "", Identity{}, err
 	}
-	if len(readable) == 0 {
+	if len(readable) == 0 || o.Admit == nil {
+		return "", Identity{}, fmt.Errorf("access: this GitHub account does not share a repository with the installed App")
+	}
+	admitted, err := o.Admit(ctx, readable)
+	if err != nil {
+		return "", Identity{}, fmt.Errorf("access: verify installation access: %w", err)
+	}
+	if !admitted {
 		return "", Identity{}, fmt.Errorf("access: this GitHub account does not share a repository with the installed App")
 	}
 

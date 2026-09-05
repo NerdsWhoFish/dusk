@@ -35,6 +35,7 @@ type catalogController interface {
 	SyncPush(ctx context.Context, push controller.Push) error
 	SyncPreview(ctx context.Context, preview controller.Preview) error
 	Sync(ctx context.Context) error
+	SharesRepository(ctx context.Context, readable []string) (bool, error)
 }
 
 // appClient exchanges manifest codes. Narrow enough to fake in tests.
@@ -203,6 +204,7 @@ func New(opts Options) (*Server, error) {
 		Callback:    s.cfg.SignInURL(),
 		Policy:      s.access,
 		GitHub:      &access.Client{Credentials: s.signInCredentials},
+		Admit:       s.admitGitHub,
 	}
 
 	// Without this a completed sign-in sets an identity no gate consults, and

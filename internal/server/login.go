@@ -52,7 +52,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !s.access.LogIn(w, r.PostFormValue("token")) {
 		// Deliberately vague and deliberately not logged with the value: the
 		// only person who should learn anything here is one who has the token.
-		s.log.Warn("rejected a sign-in", "remote", r.RemoteAddr)
+		s.log.WarnContext(r.Context(), "rejected a sign-in")
 		s.renderLogin(w, r, http.StatusUnauthorized, "That is not the token.")
 		return
 	}
