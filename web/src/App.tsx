@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, Unauthorized } from "./api";
+import { api, catalogURL, previewRef, Unauthorized } from "./api";
 import type { Viewer } from "./api";
 import { Context } from "./Context";
 import { EntityView } from "./EntityView";
@@ -24,11 +24,14 @@ export function App() {
   const [ref, setRef] = useState(() => refFromPath(location.pathname));
   const [note, setNote] = useState(() => noteFromPath(location.pathname));
   const [path, setPath] = useState(() => location.pathname);
+  const [navigation, setNavigation] = useState(0);
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [viewerReady, setViewerReady] = useState(false);
+  const preview = previewRef();
 
   useEffect(() => {
     const onPop = () => {
+      setNavigation((current) => current + 1);
       setRef(refFromPath(location.pathname));
       setNote(noteFromPath(location.pathname));
       setPath(location.pathname);
@@ -46,8 +49,9 @@ export function App() {
   }, []);
 
   const open = useCallback((next: string | null) => {
+    setNavigation((current) => current + 1);
     const target = next ? `/entity/${encodeURIComponent(next)}` : "/";
-    history.pushState(null, "", target);
+    history.pushState(null, "", catalogURL(target));
     setRef(next);
     setNote(null);
     setPath(target);
@@ -55,8 +59,9 @@ export function App() {
   }, []);
 
   const openNote = useCallback((next: string) => {
+    setNavigation((current) => current + 1);
     const target = `/note/${encodeURIComponent(next)}`;
-    history.pushState(null, "", target);
+    history.pushState(null, "", catalogURL(target));
     setRef(null);
     setNote(next);
     setPath(target);
@@ -64,7 +69,8 @@ export function App() {
   }, []);
 
   const go = useCallback((target: string) => {
-    history.pushState(null, "", target);
+    setNavigation((current) => current + 1);
+    history.pushState(null, "", catalogURL(target));
     setRef(null);
     setNote(null);
     setPath(target);
@@ -76,7 +82,7 @@ export function App() {
       <header className="top">
         <a
           className="brand"
-          href="/"
+          href={catalogURL("/")}
           onClick={(e) => {
             e.preventDefault();
             open(null);
@@ -89,21 +95,36 @@ export function App() {
         </div>
       </header>
 
-      {!viewerReady ? null : path === "/plugins" ? (
-        <Plugins />
-      ) : path === "/context" ? (
-        <Context />
-      ) : ref ? (
-        <EntityView entityRef={ref} onOpen={open} />
-      ) : note ? (
-        <NoteView noteId={note} onBack={() => open(null)} />
-      ) : (
-        <Landing
-          cacheScope={viewer?.cache_scope ?? ""}
-          onOpen={open}
-          onOpenNote={openNote}
-        />
-      )}
+      <main>
+        {preview && (
+          <aside className="preview-banner" aria-label="Catalog preview">
+            <strong>Read-only preview</strong>
+            <code>{preview}</code>
+            <a href={path}>Return to the live catalog</a>
+          </aside>
+        )}
+        {!viewerReady ? null : preview && (path === "/plugins" || path === "/context") ? (
+          <section>
+            <h1>Preview browsing</h1>
+            <p>Plugin management and agent context configuration are available in the live catalog.</p>
+          </section>
+        ) : path === "/plugins" ? (
+          <Plugins />
+        ) : path === "/context" ? (
+          <Context />
+        ) : ref ? (
+          <EntityView key={`${preview}:${ref}`} entityRef={ref} onOpen={open} />
+        ) : note ? (
+          <NoteView key={`${preview}:${note}`} noteId={note} onBack={() => open(null)} />
+        ) : (
+          <Landing
+            key={navigation}
+            cacheScope={`${viewer?.cache_scope ?? ""}:${preview}`}
+            onOpen={open}
+            onOpenNote={openNote}
+          />
+        )}
+      </main>
     </div>
   );
 }

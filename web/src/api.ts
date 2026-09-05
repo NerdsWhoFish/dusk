@@ -296,7 +296,27 @@ async function json<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function previewRef(): string {
+  const ref = new URLSearchParams(location.search).get("ref") ?? "";
+  return /^refs\/pull\/(?:[^/]+\/[^/]+\/)?[1-9]\d*\/head$/.test(ref) ? ref : "";
+}
+
+export function catalogURL(path: string): string {
+  const ref = previewRef();
+  if (!ref) return path;
+  const url = new URL(path, location.origin);
+  url.searchParams.set("ref", ref);
+  return url.pathname + url.search;
+}
+
+function catalogPath(path: string): string {
+  return /^\/(home|graph|kinds|entities|notes|search|overview|drift|integrity|diff)(?:[/?]|$)/.test(path)
+    ? catalogURL(path)
+    : path;
+}
+
 async function get<T>(path: string): Promise<T> {
+  path = catalogPath(path);
   const response = await fetch(`/api${path}`, {
     headers: { Accept: "application/json" },
   });
@@ -325,6 +345,7 @@ let cacheScope: string | undefined;
 // data into a silent success: a changed answer replaces what is on screen, and
 // a failed refresh reaches the caller's ordinary error state.
 function cachedGet<T>(path: string, refresh: Refresh<T> = {}): Promise<T> {
+  path = catalogPath(path);
   const cached = cachedResponse<T>(path);
   const fresh = refreshResponse<T>(path);
 
@@ -339,6 +360,7 @@ function cachedGet<T>(path: string, refresh: Refresh<T> = {}): Promise<T> {
 }
 
 function refreshResponse<T>(path: string): Promise<T> {
+  path = catalogPath(path);
   const underway = refreshing.get(path) as Promise<T> | undefined;
   if (underway) {
     return underway;
@@ -603,6 +625,9 @@ export type PluginOffer = {
 };
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
+  if (previewRef()) {
+    throw new Error("This catalog preview is read-only. Return to the live catalog to make changes.");
+  }
   const response = await fetch(`/api${path}`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },

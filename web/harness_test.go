@@ -58,8 +58,9 @@ type measurement struct {
 
 	// Counted is how many controls were measured. Zero means the selector
 	// matched nothing, which passes every assertion while testing none.
-	Counted int      `json:"counted"`
-	Small   []target `json:"small"`
+	Counted       int      `json:"counted"`
+	Small         []target `json:"small"`
+	Accessibility []string `json:"accessibility"`
 
 	Problem string `json:"problem,omitempty"`
 }
@@ -92,7 +93,7 @@ const harnessHTML = `<!doctype html>
 
   // Anything reachable by tap, click or keyboard. ADR-0025 asks 44 by 44 of
   // these on a touch viewport.
-  var CONTROLS = 'a[href], button, input, select, textarea, [role="button"], [role="menuitem"]';
+  var CONTROLS = 'a[href], button, input, select, textarea, summary, [role="button"], [role="menuitem"]';
 
   // A link inside a sentence cannot be 44 pixels wide without breaking the
   // sentence, which is why WCAG 2.5.8 exempts inline targets. Height still
@@ -145,6 +146,54 @@ const harnessHTML = `<!doctype html>
     var win = frame.contentWindow;
     var doc = win.document;
     var viewport = doc.documentElement.clientWidth;
+    var accessibility = [];
+    if (doc.querySelectorAll('main').length !== 1 || doc.querySelector('main main')) {
+      accessibility.push('page must contain one main landmark');
+    }
+    if (name === 'landing') {
+      var level = 0;
+      doc.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(function (heading) {
+        var next = Number(heading.tagName.slice(1));
+        if (next > level + 1) accessibility.push('heading jumps to ' + heading.tagName + ': ' + heading.textContent);
+        level = next;
+      });
+      var graph = doc.querySelector('.graph-canvas');
+      if (graph && (graph.getAttribute('role') !== 'img' || !graph.getAttribute('aria-label'))) {
+        accessibility.push('graph requires an accessible image role and name');
+      }
+    }
+    var probe = doc.createElement('span');
+    probe.style.color = 'var(--muted)';
+    doc.body.appendChild(probe);
+    var muted = win.getComputedStyle(probe).color;
+    probe.remove();
+    function rgb(color) { return (color.match(/[\d.]+/g) || []).map(Number); }
+    function mix(front, back, alpha) { return front.slice(0, 3).map(function (v, i) { return v * alpha + back[i] * (1 - alpha); }); }
+    function luminance(color) {
+      var linear = color.map(function (value) {
+        value /= 255;
+        return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+      });
+      return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    }
+    doc.querySelectorAll('main *').forEach(function (element) {
+      var style = win.getComputedStyle(element);
+      if (style.color !== muted || !element.getBoundingClientRect().height) return;
+      if (!Array.from(element.childNodes).some(function (node) { return node.nodeType === 3 && node.textContent.trim(); })) return;
+      var ancestors = [];
+      var opacity = 1;
+      for (var at = element; at; at = at.parentElement) {
+        var current = win.getComputedStyle(at);
+        opacity *= Number(current.opacity);
+        ancestors.unshift(rgb(current.backgroundColor));
+      }
+      var background = [34, 33, 44];
+      ancestors.forEach(function (color) { background = mix(color, background, color.length === 4 ? color[3] : 1); });
+      var foreground = mix(rgb(style.color), background, opacity);
+      var front = luminance(foreground), back = luminance(background);
+      var ratio = (Math.max(front, back) + 0.05) / (Math.min(front, back) + 0.05);
+      if (ratio < 4.5) accessibility.push(describe(element) + ' muted contrast ' + ratio.toFixed(2));
+    });
 
     var overflowing = [];
     var all = doc.querySelectorAll('body *');
@@ -198,7 +247,8 @@ const harnessHTML = `<!doctype html>
       overflowing: overflowing,
 	  containedOverflow: containedOverflow,
       counted: counted,
-      small: small
+      small: small,
+      accessibility: accessibility
     };
   }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Actions } from "./Actions";
-import { api } from "./api";
+import { api, catalogURL, previewRef } from "./api";
 import type { EntityDetail, EntitySource, Event } from "./api";
 import { handle } from "./App";
 import { Events } from "./Events";
@@ -50,7 +50,7 @@ export function EntityView({
   const back = (
     <a
       className="back"
-      href="/"
+      href={catalogURL("/")}
       onClick={(e) => {
         e.preventDefault();
         onOpen(null);
@@ -100,7 +100,7 @@ export function EntityView({
               <span className="tag reference">reference</span>
             )}
           </div>
-          {declared.length > 0 && (
+          {declared.length > 0 && !previewRef() && (
             <button type="button" className="btn secondary entity-edit" onClick={() => setEditing(true)}>
               Edit entity
             </button>
@@ -120,7 +120,7 @@ export function EntityView({
 
       {/* Before the notes: a plugin's own view of a thing is usually the most
           specific thing on the page. */}
-      {(detail.views ?? []).map((view) => (
+      {(previewRef() ? [] : detail.views ?? []).map((view) => (
         <PluginBlock
           key={view.source ?? `${view.plugin}-${view.title}`}
           view={view}
@@ -132,7 +132,7 @@ export function EntityView({
       ))}
 
       <Actions
-        actions={detail.actions ?? []}
+        actions={previewRef() ? [] : detail.actions ?? []}
         entityRef={entity.ref}
         proof={detail.proof}
         onRan={load}

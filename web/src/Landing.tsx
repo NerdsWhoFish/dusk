@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { api, previewRef } from "./api";
 import type { AIAnswer, AIConfig, Entity, Home, SearchResult } from "./api";
 import { handle } from "./App";
 import { CatalogCheckpoint } from "./CatalogCheckpoint";
@@ -15,6 +15,7 @@ type LandingHistory = {
   scope: string;
   mode: SearchMode;
   query: string;
+  kind: string | null;
   model: string;
   answer: AIAnswer | null;
 };
@@ -30,7 +31,7 @@ export function Landing({
 }) {
   const [restored] = useState(() => restoredLanding(cacheScope));
   const [query, setQuery] = useState(restored?.query ?? "");
-  const [kind, setKind] = useState<string | null>(null);
+  const [kind, setKind] = useState<string | null>(restored?.kind ?? null);
   const [home, setHome] = useState<Home | null>(null);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [entities, setEntities] = useState<Entity[] | null>(null);
@@ -61,7 +62,8 @@ export function Landing({
       .ai()
       .then((config) => {
         setAI(config);
-        if (!config.enabled) {
+        if (!config.enabled || previewRef()) {
+          setAI({ ...config, enabled: false });
           setMode("search");
           setAnswer(null);
           return;
@@ -155,28 +157,19 @@ export function Landing({
     setDefaultModel(model);
   };
 
-  const preserveAnswer = () => {
+  useLayoutEffect(() => {
     const current = typeof history.state === "object" && history.state !== null
       ? history.state
       : {};
     history.replaceState({
       ...current,
-      duskLanding: { scope: cacheScope, mode, query, model, answer } satisfies LandingHistory,
+      duskLanding: { scope: cacheScope, mode, query, kind, model, answer } satisfies LandingHistory,
     }, "", location.href);
-  };
-
-  const openAnswerEntity = (ref: string) => {
-    preserveAnswer();
-    onOpen(ref);
-  };
-
-  const openAnswerNote = (id: string) => {
-    preserveAnswer();
-    onOpenNote(id);
-  };
+  }, [cacheScope, mode, query, kind, model, answer]);
 
   return (
     <>
+      <h1 className="visually-hidden">{home?.title || "The catalog"}</h1>
       {searchable && (
         <div className="hero">
           {ai?.enabled && (
@@ -283,8 +276,8 @@ export function Landing({
           answer={answer}
           asking={asking}
           problem={aiProblem}
-          onOpen={openAnswerEntity}
-          onOpenNote={openAnswerNote}
+          onOpen={onOpen}
+          onOpenNote={onOpenNote}
         />
       ) : searching ? (
         <Rows

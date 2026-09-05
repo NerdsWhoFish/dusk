@@ -146,13 +146,17 @@ export function EstateGraph({
         {problem ? (
           <p className="problem">The estate map could not load: {problem}</p>
         ) : !graph ? (
-          <div className="graph-skeleton skeleton" aria-label="Loading the estate map" />
+          <div className="graph-skeleton skeleton" role="status" aria-label="Loading the estate map" />
         ) : graph.nodes.length === 0 ? (
           <p className="quiet">Nothing is in the estate yet.</p>
         ) : (
           <>
             <GraphCanvas view={view} query={query} selected={selected} onSelect={setSelected} />
             <GraphList view={view} onSelect={setSelected} />
+            <details className="graph-alternative">
+              <summary>Browse entities as a list</summary>
+              <GraphList view={view} onSelect={setSelected} />
+            </details>
             <p className="graph-help">
               Drag nodes to untangle a cluster. Scroll to zoom. Search reaches the whole estate,
               including entities outside the current wave.
@@ -391,7 +395,7 @@ function GraphCanvas({
     instance.current.animate({ center: { eles: node }, duration: 220 });
   }, [selected]);
 
-  return <div className="graph-canvas" ref={container} aria-label="Interactive estate graph" />;
+  return <div className="graph-canvas" ref={container} role="img" aria-label="Estate graph. Expand Browse entities as a list below to select nodes with a keyboard." />;
 }
 
 function GraphList({ view, onSelect }: { view: GraphView; onSelect: (ref: string) => void }) {
