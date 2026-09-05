@@ -47,7 +47,7 @@ W3C context links same-origin API calls to server traces and their completion lo
 Every browser payload passes through an allowlist before transport.
 URLs become route templates, error messages and function names are removed, and span attributes retain only methods, route templates, and status codes.
 Console logs, DOM interactions, form values, request bodies, user identity, session replay, and geolocation are not collected.
-Session IDs are random and remain in memory instead of persistent browser storage.
+Session IDs are random and use tab-scoped session storage, so reloads remain correlated without persistent local storage or cookies.
 
 Run `npm run check` in `web/` for the payload privacy regression checks.
 After deployment, exercise an API call in the browser, confirm Faro accepts its payload, and find its trace ID in both the trace backend and request completion logs.
