@@ -4,7 +4,8 @@ import { redactTelemetry, telemetryRoute } from "./src/telemetry.ts";
 
 const privateValue = "customer@example.com";
 const meta = {
-  app: { name: "dusk-web" },
+  app: { name: "dusk-web", installationId: privateValue },
+  sdk: { name: "faro-web-sdk", integrations: [{ name: privateValue }] },
   page: { url: `https://dusk.example/api/entities/${privateValue}?secret=${privateValue}` },
   user: { email: privateValue },
   browser: { userAgent: privateValue },

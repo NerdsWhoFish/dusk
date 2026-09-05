@@ -5,6 +5,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type privateExporter struct {
@@ -21,6 +22,14 @@ func (e privateExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadO
 
 type privateSpan struct {
 	sdktrace.ReadOnlySpan
+}
+
+func (s privateSpan) SpanContext() trace.SpanContext {
+	return s.ReadOnlySpan.SpanContext().WithTraceState(trace.TraceState{})
+}
+
+func (s privateSpan) Parent() trace.SpanContext {
+	return s.ReadOnlySpan.Parent().WithTraceState(trace.TraceState{})
 }
 
 // HTTP defaults include private URLs and caller-controlled headers.
