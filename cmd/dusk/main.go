@@ -238,7 +238,7 @@ func run(parent context.Context, log *slog.Logger) error {
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           telemetry.HTTPHandler(srv.Handler()),
+		Handler:           telemetry.HTTPHandler(srv.Handler(), log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -251,9 +251,7 @@ func run(parent context.Context, log *slog.Logger) error {
 	plugins.Restore(ctx)
 	defer plugins.Stop()
 
-	if observers.Any() {
-		go observers.Start(ctx)
-	}
+	go observers.Start(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

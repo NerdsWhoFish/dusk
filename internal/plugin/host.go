@@ -59,6 +59,8 @@ const stopGrace = 5 * time.Second
 // own. Hourly matches what the in-tree Kubernetes ingester chose.
 const defaultInterval = time.Hour
 
+const observationTimeout = 5 * time.Minute
+
 // Exec is everything one plugin process needs to be started.
 type Exec struct {
 	ID     string
@@ -521,6 +523,9 @@ func (r *Running) Observe(ctx context.Context) (*ingest.Observation, error) {
 }
 
 func (r *Running) observe(ctx context.Context, config *structpb.Struct, name string) (*ingest.Observation, error) {
+	ctx, cancel := context.WithTimeout(ctx, observationTimeout)
+	defer cancel()
+
 	// An observation is complete by contract, so anything it leaves out is
 	// deleted. A dead or restarting process must fail, never answer empty
 	// (ADR-0011, ADR-0054).
