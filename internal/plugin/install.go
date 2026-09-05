@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -21,6 +22,18 @@ import (
 // maxAsset bounds a download. A plugin binary is tens of megabytes at worst,
 // and without a ceiling a wrong URL fills the volume the index lives on.
 const maxAsset = 256 << 20
+
+// ErrInvalidID identifies an ID that cannot safely name one plugin directory.
+var ErrInvalidID = errors.New("plugin: invalid plugin ID")
+
+var pluginID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func validateID(id string) error {
+	if !pluginID.MatchString(id) {
+		return fmt.Errorf("%w: %q", ErrInvalidID, id)
+	}
+	return nil
+}
 
 // Installed is the record of a plugin on disk, written beside its binary so
 // what is running is answerable without inspecting the binary (ADR-0042).
@@ -110,6 +123,9 @@ func (s *Store) List() ([]Installed, error) {
 
 // Read returns one plugin's record.
 func (s *Store) Read(id string) (*Installed, error) {
+	if err := validateID(id); err != nil {
+		return nil, err
+	}
 	body, err := os.ReadFile(s.record(id))
 	if err != nil {
 		return nil, err
@@ -119,11 +135,17 @@ func (s *Store) Read(id string) (*Installed, error) {
 	if err := json.Unmarshal(body, &record); err != nil {
 		return nil, fmt.Errorf("plugin: read the record for %s: %w", id, err)
 	}
+	if record.ID != id {
+		return nil, fmt.Errorf("plugin: record ID %q does not match directory %q", record.ID, id)
+	}
 	return &record, nil
 }
 
 // Write records an installed plugin.
 func (s *Store) Write(record Installed) error {
+	if err := validateID(record.ID); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(s.dir(record.ID), 0o700); err != nil {
 		return fmt.Errorf("plugin: make the directory for %s: %w", record.ID, err)
 	}
@@ -136,6 +158,9 @@ func (s *Store) Write(record Installed) error {
 }
 
 func (s *Store) stageBinary(id, digest string, binary []byte) error {
+	if err := validateID(id); err != nil {
+		return err
+	}
 	versioned := s.versionBinary(id, digest)
 	versionDir := filepath.Dir(versioned)
 	if err := os.MkdirAll(versionDir, 0o700); err != nil {
@@ -159,6 +184,9 @@ func (s *Store) stageBinary(id, digest string, binary []byte) error {
 
 // Remove deletes an installed plugin from disk.
 func (s *Store) Remove(id string) error {
+	if err := validateID(id); err != nil {
+		return err
+	}
 	if err := os.RemoveAll(s.dir(id)); err != nil {
 		return fmt.Errorf("plugin: remove %s: %w", id, err)
 	}
@@ -168,6 +196,9 @@ func (s *Store) Remove(id string) error {
 // Stage downloads and verifies a release, then writes its binary under an
 // immutable digest path without changing which version is active.
 func (m *Market) Stage(ctx context.Context, store *Store, listing Listing) (*Installed, error) {
+	if err := validateID(listing.ID); err != nil {
+		return nil, err
+	}
 	release, err := m.latest(ctx, listing.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("plugin: find a release for %s: %w", listing.Repository, err)

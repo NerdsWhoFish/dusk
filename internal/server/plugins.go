@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -153,6 +154,10 @@ func (s *Server) handleAPIUninstall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.plugins.Uninstall(r.PathValue("id")); err != nil {
+		if errors.Is(err, plugin.ErrInvalidID) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
 		writeError(w, err)
 		return
 	}
