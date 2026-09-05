@@ -32,6 +32,7 @@ type Scheduler struct {
 	states  map[string]*state
 	results map[string]Result
 	sources map[string]*source
+	wake    chan struct{}
 }
 
 type state struct {
@@ -60,15 +61,7 @@ func NewScheduler(store Store, log *slog.Logger, now func() time.Time, ingesters
 	for _, ingester := range ingesters {
 		states[ingester.Name()] = &state{ingester: ingester}
 	}
-	return &Scheduler{store: store, log: log, now: now, states: states, results: map[string]Result{}}
-}
-
-// Any reports whether there is anything to run, so a deployment with no
-// ingesters configured does not start a loop that never does anything.
-func (s *Scheduler) Any() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.states) > 0
+	return &Scheduler{store: store, log: log, now: now, states: states, results: map[string]Result{}, wake: make(chan struct{}, 1)}
 }
 
 // Add puts an ingester into the rotation, due immediately. Installing a plugin
@@ -77,6 +70,7 @@ func (s *Scheduler) Add(ingester Ingester) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.states[ingester.Name()] = &state{ingester: ingester}
+	s.notify()
 }
 
 // Remove takes an ingester out. Its observations stay in the index, so
@@ -96,6 +90,14 @@ func (s *Scheduler) Due(name string) {
 
 	if state, ok := s.states[name]; ok {
 		state.next = time.Time{}
+		s.notify()
+	}
+}
+
+func (s *Scheduler) notify() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -143,6 +145,8 @@ func (s *Scheduler) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.RunDue(ctx)
+		case <-s.wake:
 			s.RunDue(ctx)
 		}
 	}

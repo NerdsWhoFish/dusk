@@ -56,12 +56,14 @@ Where a ref exists in both halves, **the declared one wins a read**: a person wr
 
 Each ingester declares its own interval.
 A central scheduler runs what is due, at most `Concurrency` at a time so a restart does not stampede every source at once.
+The scheduler stays active when no plugins are installed and wakes when a plugin joins, so the first installation needs no server restart.
+Each plugin observation has a five-minute deadline. A timed-out stream fails the run and preserves its previous observations, allowing the rest of the rotation to continue.
 
 Failure backs off exponentially from the ingester's own interval, capped at 30 minutes, and after 8 consecutive failures it stays there.
 One broken source cannot spend the budget the others need.
 
-Not built: the shared per-source API budget from [ADR-0011](../adr/0011-ingester-scheduling.md).
-Each ingester is bounded only by its own interval, so two GitHub ingesters would each assume they had the whole quota.
+Plugins may declare shared source keys, a concurrency budget, and minimum spacing between runs against that source ([ADR-0011](../adr/0011-ingester-scheduling.md)).
+The host limits runs; each plugin remains responsible for individual upstream request limits.
 
 ## Where the ingesters went
 
