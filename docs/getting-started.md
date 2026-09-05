@@ -143,7 +143,9 @@ The chart intentionally keeps one replica and uses `Recreate` because SQLite and
 | `DUSK_EMBEDDINGS_API_KEY` | unset | Optional bearer token; local endpoints may be keyless |
 | `DUSK_EMBEDDINGS_MODEL` | unset | Embedding model name; required with the embeddings base URL |
 | `DUSK_EMBEDDINGS_REPAIR_INTERVAL` | `1h` | Full repair sweep; catalog writes also refresh changed documents |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP collector endpoint; leaving it unset disables telemetry |
+| `DUSK_FARO_URL` | unset | HTTPS public Faro collector URL; leaving it unset disables browser RUM |
+| `DUSK_ENVIRONMENT` | `production` | Browser telemetry deployment environment |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP collector endpoint; leaving it unset disables server telemetry |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP transport protocol when telemetry is enabled |
 | `OTEL_RESOURCE_ATTRIBUTES` | unset | Comma-separated OpenTelemetry resource attributes such as the deployment environment |
 

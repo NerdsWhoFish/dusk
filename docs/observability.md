@@ -28,6 +28,31 @@ Dusk's GitHub and plugin marketplace HTTP clients record outbound calls and inje
 
 Context-aware structured log records include `trace_id` and `span_id`.
 Ordinary records without a span remain unchanged.
+Completed requests log their route template, status, and duration; health probes are omitted.
+Server exports keep HTTP methods, route templates, statuses, body sizes, and protocol versions.
+Raw URLs, query strings, headers, network addresses, span events, and error descriptions are discarded before export.
+
+## Browser telemetry
+
+Set `DUSK_FARO_URL` to an HTTPS Faro collector URL to enable browser RUM.
+`DUSK_ENVIRONMENT` identifies the deployment and defaults to `production`.
+The UI reads these public settings from `/telemetry/config` at runtime, so the same image works across deployments.
+An unset collector disables RUM; a failed configuration request never blocks the UI.
+
+Restrict the collector to the deployment's browser origin.
+Use only Faro's public collector identifier, never an OTLP ingestion or Grafana API credential.
+The browser SDK records Web Vitals, sanitized browser errors, session lifecycle events, and fetch/XHR traces.
+W3C context links same-origin API calls to server traces and their completion logs.
+
+Every browser payload passes through an allowlist before transport.
+URLs become route templates, error messages and function names are removed, and span attributes retain only methods, route templates, and status codes.
+Console logs, DOM interactions, form values, request bodies, user identity, session replay, and geolocation are not collected.
+Session IDs are random and remain in memory instead of persistent browser storage.
+
+Run `npm run check` in `web/` for the payload privacy regression checks.
+After deployment, exercise an API call in the browser, confirm Faro accepts its payload, and find its trace ID in both the trace backend and request completion logs.
+
+## Internal tracing
 
 Internal reconcile, index, and plugin phases do not yet create manual spans.
 HTTP traces therefore show the service boundary and upstream latency, not every internal operation.

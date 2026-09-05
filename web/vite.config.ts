@@ -18,6 +18,7 @@ export default defineConfig({
     // on with hot reload against a real catalog.
     proxy: {
       "/api": "http://localhost:8080",
+      "/telemetry": "http://localhost:8080",
       "/login": "http://localhost:8080",
       "/logout": "http://localhost:8080",
     },

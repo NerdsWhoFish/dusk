@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/felixge/httpsnoop"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -47,7 +48,7 @@ func Start(ctx context.Context, serviceName, serviceVersion string, log *slog.Lo
 	}
 
 	provider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(privateExporter{SpanExporter: exporter}),
 		sdktrace.WithResource(res),
 	)
 	otel.SetTracerProvider(provider)
@@ -63,8 +64,28 @@ func Start(ctx context.Context, serviceName, serviceVersion string, log *slog.Lo
 }
 
 // HTTPHandler records server spans and extracts W3C trace context.
-func HTTPHandler(next http.Handler) http.Handler {
-	return otelhttp.NewHandler(next, "dusk.http")
+func HTTPHandler(next http.Handler, loggers ...*slog.Logger) http.Handler {
+	log := slog.Default()
+	if len(loggers) > 0 && loggers[0] != nil {
+		log = loggers[0]
+	}
+	return otelhttp.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metrics := httpsnoop.CaptureMetrics(next, w, r)
+		route := r.Pattern
+		if route == "" {
+			route = "unmatched"
+		}
+		trace.SpanFromContext(r.Context()).SetAttributes(attribute.String("http.route", route))
+		if route == "GET /healthz" || route == "GET /readyz" {
+			return
+		}
+		level := slog.LevelInfo
+		if metrics.Code >= 500 {
+			level = slog.LevelError
+		}
+		log.Log(r.Context(), level, "http request completed",
+			"http_route", route, "http_status", metrics.Code, "duration_ms", metrics.Duration.Milliseconds())
+	}), "dusk.http")
 }
 
 // HTTPClient returns a client that records spans and injects W3C trace context.
