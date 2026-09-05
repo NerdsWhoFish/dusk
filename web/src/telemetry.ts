@@ -28,8 +28,8 @@ export function telemetryRoute(raw: string): string {
 // Rebuild payloads from allowed fields so SDK upgrades cannot add private data.
 export function redactTelemetry(item: TransportItem): TransportItem | null {
   const meta = {
-    app: item.meta.app,
-    sdk: item.meta.sdk,
+    app: { name: item.meta.app?.name, environment: item.meta.app?.environment, version: item.meta.app?.version },
+    sdk: { name: item.meta.sdk?.name, version: item.meta.sdk?.version },
     session: { id: item.meta.session?.id, overrides: { geoLocationTrackingEnabled: false } },
     page: { url: telemetryRoute(item.meta.page?.url ?? "/") },
   };

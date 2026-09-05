@@ -43,6 +43,7 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 	req.Header.Set("User-Agent", private)
 	req.Header.Set("Authorization", private)
 	req.Header.Set("traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
+	req.Header.Set("tracestate", "tenant="+private)
 	HTTPHandler(mux, log).ServeHTTP(httptest.NewRecorder(), req)
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
@@ -59,6 +60,9 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 	}
 	if len(span.Events) > 0 || span.Status.Description != "" {
 		t.Fatal("private events or error message exported")
+	}
+	if span.SpanContext.TraceState().Len() != 0 || span.Parent.TraceState().Len() != 0 {
+		t.Fatal("caller trace state exported")
 	}
 	if strings.Contains(output.String(), private) {
 		t.Fatal("private request information logged")
