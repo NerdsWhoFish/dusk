@@ -26,8 +26,10 @@ const (
 
 // Config is the validated boot configuration.
 type Config struct {
-	Addr    string
-	DataDir string
+	Addr        string
+	DataDir     string
+	FaroURL     string
+	Environment string
 
 	// PrivateHost is where people reach Dusk: the UI, the API, and the setup
 	// callback. It does not need to be reachable from the internet.
@@ -147,6 +149,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		DataDir:     orDefault(getenv("DUSK_DATA_DIR"), DefaultDataDir),
 		PrivateHost: normalizeHost(getenv("DUSK_PRIVATE_HOST")),
 		PublicHost:  normalizeHost(getenv("DUSK_PUBLIC_HOST")),
+		FaroURL:     strings.TrimSpace(getenv("DUSK_FARO_URL")),
+		Environment: orDefault(strings.TrimSpace(getenv("DUSK_ENVIRONMENT")), "production"),
 
 		AllowedAccounts:  splitAccounts(getenv("DUSK_ALLOWED_ACCOUNTS")),
 		TrustedNetwork:   strings.EqualFold(strings.TrimSpace(getenv("DUSK_TRUSTED_NETWORK")), "true"),
@@ -189,6 +193,13 @@ func Load(getenv func(string) string) (*Config, error) {
 	problems = append(problems, c.readOAuth()...)
 	problems = append(problems, c.readAI()...)
 	problems = append(problems, c.readEmbeddings()...)
+	if c.FaroURL != "" {
+		if err := validateBaseURL("DUSK_FARO_URL", c.FaroURL); err != nil {
+			problems = append(problems, err)
+		} else if !strings.HasPrefix(c.FaroURL, "https://") {
+			problems = append(problems, errors.New("DUSK_FARO_URL must use https"))
+		}
+	}
 	if c.ProofTTL <= 0 {
 		problems = append(problems, errors.New("DUSK_PROOF_TTL must be a positive Go duration such as 15m or 2h"))
 	}
