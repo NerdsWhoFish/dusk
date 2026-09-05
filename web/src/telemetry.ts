@@ -30,7 +30,12 @@ export function redactTelemetry(item: TransportItem): TransportItem | null {
   const meta = {
     app: { name: item.meta.app?.name, environment: item.meta.app?.environment, version: item.meta.app?.version },
     sdk: { name: item.meta.sdk?.name, version: item.meta.sdk?.version },
-    session: { id: item.meta.session?.id, overrides: { geoLocationTrackingEnabled: false } },
+    session: {
+      id: item.meta.session?.id,
+      // Faro's later sampling hook needs this flag and removes it before export.
+      attributes: { isSampled: item.meta.session?.attributes?.isSampled === "true" ? "true" : "false" },
+      overrides: { geoLocationTrackingEnabled: false },
+    },
     page: { url: telemetryRoute(item.meta.page?.url ?? "/") },
   };
   switch (item.type) {
