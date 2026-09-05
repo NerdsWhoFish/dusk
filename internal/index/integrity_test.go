@@ -123,6 +123,25 @@ func TestOrphansLeavesLiveIngestersAlone(t *testing.T) {
 	}
 }
 
+func TestOrphansIgnoresAnIngesterWhoseLastObservationWasEmpty(t *testing.T) {
+	db := newDB(t)
+	observe(t, db, "emptied", entity("host:prod/removed", "removed", ""))
+	observe(t, db, "abandoned", entity("host:prod/retained", "retained", ""))
+	if err := db.Put(t.Context(), index.ObservedScope("emptied"), mainRef, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	problems, err := db.Orphans(t.Context(), nil, index.Unrestricted())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) != 1 || problems[0].Ref != index.ObservedScope("abandoned") {
+		t.Errorf("orphaned observations = %+v, want only the populated abandoned scope", problems)
+	}
+	if scopes, err := db.Scopes(t.Context()); err != nil || len(scopes) != 2 {
+		t.Errorf("empty scope disappeared from lifecycle enumeration: %+v, error %v", scopes, err)
+	}
+}
+
 // Forget has to actually delete. It reported success while matching no rows,
 // because an observation's ref is not the one the delete was written against.
 func TestForgetRemovesTheObservations(t *testing.T) {

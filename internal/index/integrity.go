@@ -70,7 +70,7 @@ func (db *DB) Orphans(ctx context.Context, live []string, v Visibility) ([]Probl
 		return []Problem{}, nil
 	}
 
-	scopes, err := db.Scopes(ctx)
+	scopes, err := db.ScopeCounts(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -670,8 +670,7 @@ func (db *DB) RepositoryCounts(ctx context.Context, gitRef string) ([]Repository
 	return counts, nil
 }
 
-// ScopeCounts answers the portal's source summary in one aggregate read.
-// Scopes remains the identity-only set the controller uses as map keys.
+// ScopeCounts excludes empty lifecycle scopes from entity-source summaries.
 func (db *DB) ScopeCounts(ctx context.Context) ([]ScopeCount, error) {
 	var counts []ScopeCount
 	err := db.gorm.WithContext(ctx).Model(&entityRow{}).
