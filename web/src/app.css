@@ -3,7 +3,7 @@
 :root {
   --bg: #22212c;
   --fg: #f8f8f2;
-  --muted: #7970a9;
+  --muted: #ada4cd;
   --line: #3b3549;
   --card: #2a2735;
   --purple: #bd93f9;
@@ -69,6 +69,29 @@ select,
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+}
+
+.preview-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--card);
+  border: 1px solid var(--purple);
+  border-radius: 0.5rem;
+}
+
+.preview-banner code {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.preview-banner a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 
 /* The bottom inset keeps the last row clear of a phone browser's toolbar,
@@ -627,7 +650,6 @@ select,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.75;
   font-size: 0.75rem;
   font-style: italic;
 }
@@ -1111,6 +1133,17 @@ select,
   border-bottom: 0;
 }
 
+.graph-alternative {
+  display: none;
+}
+
+.graph-alternative summary {
+  min-height: 44px;
+  padding-block: 0.625rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
 .graph-help {
   margin: 0.625rem 0 0;
   color: var(--muted);
@@ -1167,6 +1200,11 @@ select,
 
   .graph-list {
     display: none;
+  }
+
+  .graph-alternative,
+  .graph-alternative .graph-list {
+    display: block;
   }
 
   .graph-detail-head {
@@ -1308,7 +1346,7 @@ select,
 
 .where {
   margin: 0.375rem 0 0;
-  opacity: 0.75;
+  color: var(--muted);
 }
 
 .more {
@@ -1860,7 +1898,8 @@ select,
 /* A closed note stays visible and reads as settled. Hiding it would lose the
    most useful answer there is: somebody already had that idea and dropped it. */
 .note.closed {
-  opacity: 0.6;
+  border-inline-start: 2px solid var(--muted);
+  padding-inline-start: 0.75rem;
 }
 
 .note-close {

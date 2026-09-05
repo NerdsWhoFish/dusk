@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api } from "./api";
+import { api, catalogURL, previewRef } from "./api";
 import type { Closed, Note } from "./api";
 import { Markdown } from "./Markdown";
 
@@ -69,7 +69,7 @@ function Written({
   const [proposed, setProposed] = useState<Closed>();
 
   const closed = note.status === "done" || note.status === "dropped";
-  const closable = working.has(note.kind) && !closed && Boolean(proof) && Boolean(onChanged);
+  const closable = working.has(note.kind) && !closed && Boolean(proof) && Boolean(onChanged) && !previewRef();
   const prefetch = () => void api.prefetchNote(note.id).catch(() => undefined);
 
   const close = async (status: "done" | "dropped") => {
@@ -102,7 +102,7 @@ function Written({
         {compact && onOpenNote && (
           <a
             className="note-open"
-            href={`/note/${encodeURIComponent(note.id)}`}
+            href={catalogURL(`/note/${encodeURIComponent(note.id)}`)}
             onMouseEnter={prefetch}
             onFocus={prefetch}
             onTouchStart={prefetch}
@@ -116,7 +116,7 @@ function Written({
         )}
       </div>
 
-      <Markdown>{compact ? opening(note.body) : note.body}</Markdown>
+      <Markdown excerpt={compact}>{compact ? opening(note.body) : note.body}</Markdown>
 
       {problem && (
         <p className="hint err" role="alert">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { handle } from "./App";
-import { api, type NoteDetail } from "./api";
+import { api, catalogURL, type NoteDetail } from "./api";
 import { Notes } from "./Notes";
 
 export function NoteView({
@@ -37,7 +37,7 @@ export function NoteView({
   const back = (
     <a
       className="back"
-      href="/"
+      href={catalogURL("/")}
       onClick={(event) => {
         event.preventDefault();
         onBack();

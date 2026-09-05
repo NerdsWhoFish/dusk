@@ -33,7 +33,7 @@ func fixtureHome() string {
 		fence + "bash",
 		"dusk validate --repository example/platform --ref refs/heads/main --verbose",
 		fence,
-	}, `\n`)
+	}, "\n")
 
 	return fmt.Sprintf(`{
   "title": "The catalog",
@@ -122,7 +122,7 @@ func fixtureEntity() string {
 		"| --- | --- | --- |",
 		"| eu-west | 4 | gateway.eu-west.example.com |",
 		"| us-east | 6 | gateway.us-east.example.com |",
-	}, `\n`)
+	}, "\n")
 
 	return fmt.Sprintf(`{
   "entity": {
@@ -228,8 +228,9 @@ Read the pinned gotchas before changing production.
 // that never settles rather than as a layout nobody is measuring any more.
 func stubAPI() map[string]string {
 	return map[string]string{
-		"/api/viewer": `{"signed_in":true,"login":"octocat","restricted":false,"github":true,"cache_scope":"operator"}`,
-		"/api/ai":     `{"enabled":true,"models":["qwen3.8-max","deepseek-v4-flash"],"default_model":"qwen3.8-max","provider":"opencode.ai"}`,
+		"/telemetry/config": `{}`,
+		"/api/viewer":       `{"signed_in":true,"login":"octocat","restricted":false,"github":true,"cache_scope":"operator"}`,
+		"/api/ai":           `{"enabled":true,"models":["qwen3.8-max","deepseek-v4-flash"],"default_model":"qwen3.8-max","provider":"opencode.ai"}`,
 
 		"/api/kinds": fmt.Sprintf(`{
   "roles": ["infrastructure", "reference"],
@@ -243,7 +244,12 @@ func stubAPI() map[string]string {
   ]
 }`, fixtureKind),
 
-		"/api/home":                   fixtureHome(),
+		"/api/home": fixtureHome(),
+		"/api/search": fmt.Sprintf(`{"results":[
+  {"Type":"entity","Ref":%q,"Kind":"service","Title":"Checkout API gateway","Snippet":"Checkout service"},
+  {"Type":"note","Ref":"note/9f2c1b","Kind":"gotcha","Title":"Replication alarm","Snippet":"Checkout replication"}
+],"total":2}`, fixtureRef),
+		"/api/entities":               fmt.Sprintf(`{"entities":[{"ref":%q,"kind":"service","namespace":"platform","name":"checkout-api-gateway-replication-eu-west","title":"Checkout API gateway"}]}`, fixtureRef),
 		"/api/graph":                  fixtureGraph(),
 		"/api/context":                fixtureContext(),
 		"/api/entities/" + fixtureRef: fixtureEntity(),
@@ -286,6 +292,10 @@ func fixtureHandler(shell []byte, files http.Handler, root http.FileSystem) http
 			return
 		}
 		if body, ok := api[r.URL.Path]; ok {
+			if ref := r.URL.Query().Get("ref"); strings.HasPrefix(ref, "refs/pull/") {
+				body = strings.ReplaceAll(body, "The catalog", "Preview catalog")
+				body = strings.ReplaceAll(body, "Checkout API gateway", "Preview checkout API gateway")
+			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			_, _ = io.WriteString(w, body)
 			return

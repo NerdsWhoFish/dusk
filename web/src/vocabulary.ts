@@ -5,10 +5,6 @@ import type { KindCount, KindInfo, Vocabulary } from "./api";
 
 const nothing: Vocabulary = { roles: [], kinds: [] };
 
-// Read once per session rather than per page. ADR-0048 makes the vocabulary
-// rare by construction: one that changes constantly is not a vocabulary.
-let reading: Promise<Vocabulary> | null = null;
-
 export function useVocabulary(): Vocabulary {
   const [vocabulary, setVocabulary] = useState<Vocabulary>(nothing);
 
@@ -16,8 +12,7 @@ export function useVocabulary(): Vocabulary {
     let live = true;
     // A vocabulary that cannot be read costs the roles, never the page: the
     // kinds are still counted and still filter.
-    reading ??= api.kinds().catch(() => nothing);
-    void reading.then((answer) => {
+    void api.kinds({ onFresh: (answer) => live && setVocabulary(answer) }).catch(() => nothing).then((answer) => {
       if (live) {
         setVocabulary(answer);
       }

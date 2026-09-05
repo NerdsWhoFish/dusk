@@ -328,7 +328,7 @@ export function Context() {
   const ratio = preview ? Math.min(100, (preview.bytes / preview.budget) * 100) : 0;
 
   return (
-    <main className="context-page">
+    <div className="context-page">
       <header className="context-hero">
         <div>
           <p className="eyebrow">Agent lens</p>
@@ -413,7 +413,7 @@ export function Context() {
                   {repositoryBusy ? "Opening..." : preview?.repository ? "Edit dusk.md" : "Add dusk.md"}
                 </button>
               )}
-              <div className="context-tabs" aria-label="Preview format">
+              <div className="context-tabs" role="group" aria-label="Preview format">
                 <button type="button" className={!raw ? "on" : ""} onClick={() => setRaw(false)}>
                   Rendered
                 </button>
@@ -586,7 +586,7 @@ export function Context() {
           onSave={() => void saveRepository()}
         />
       )}
-    </main>
+    </div>
   );
 }
 

@@ -42,6 +42,8 @@ var matrix = []struct {
 func routes() []route {
 	return []route{
 		{Name: "landing", Path: "/", Rendered: ".kinds .chip"},
+		{Name: "preview landing", Path: "/?ref=refs/pull/example/platform/7/head", Rendered: ".preview-banner"},
+		{Name: "preview entity", Path: "/entity/" + url.PathEscape(fixtureRef) + "?ref=refs/pull/example/platform/7/head", Rendered: ".identity"},
 		{Name: "landing, note open", Path: "/", Rendered: ".note-open", Click: ".note-open", Clicked: ".note-identity"},
 		{Name: "landing, menu open", Path: "/", Rendered: ".kinds .chip", Click: ".menu-button"},
 		{Name: "landing, Ask AI", Path: "/", Rendered: ".kinds .chip", Click: ".search-modes button:nth-child(2)", Clicked: ".ai-controls select"},
@@ -137,6 +139,10 @@ func render(t *testing.T, width, height int, touch bool) []measurement {
 }
 
 func drive(t *testing.T, width, height int, touch bool) []measurement {
+	return driveHarness(t, width, height, touch, harness(width, height, touch, routes()))
+}
+
+func driveHarness(t *testing.T, width, height int, touch bool, document []byte) []measurement {
 	t.Helper()
 
 	chrome := browser(t)
@@ -154,7 +160,7 @@ func drive(t *testing.T, width, height int, touch bool) []measurement {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+harnessPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(harness(width, height, touch, routes()))
+		_, _ = w.Write(document)
 	})
 	mux.HandleFunc("POST "+reportPath, func(w http.ResponseWriter, r *http.Request) {
 		var body []measurement

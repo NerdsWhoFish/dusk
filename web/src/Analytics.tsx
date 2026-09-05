@@ -88,7 +88,7 @@ export function Analytics({
                     {note.pinned && <span className="analytics-pinned">in context</span>}
                     <span>{note.links} {note.links === 1 ? "connection" : "connections"}</span>
                   </div>
-                  <div className="analytics-note-copy"><Markdown>{opening(note.body, 160)}</Markdown></div>
+                  <div className="analytics-note-copy"><Markdown excerpt>{opening(note.body, 160)}</Markdown></div>
                   <button type="button" onClick={() => onOpenNote(note.id)}>Open note</button>
                 </article>
               ))}
