@@ -29,6 +29,20 @@ export function telemetryRoute(raw: string): string {
   }
 }
 
+export function telemetryScript(raw: string): string {
+  if (typeof document === "undefined") return "/assets/{bundle}";
+  try {
+    const url = new URL(raw, window.location.origin);
+    const scripts = Array.from(document.querySelectorAll('script[type="module"][src], link[rel="modulepreload"][href]'));
+    if (url.origin === window.location.origin && url.pathname.startsWith("/assets/") &&
+      scripts.some(script => {
+        const source = new URL(script.getAttribute("src") ?? script.getAttribute("href") ?? "", window.location.origin);
+        return source.origin === url.origin && source.pathname === url.pathname;
+      })) return url.pathname;
+  } catch { /* Unknown frames have no public bundle identity. */ }
+  return "/assets/{bundle}";
+}
+
 // Rebuild payloads from allowed fields so SDK upgrades cannot add private data.
 export function redactTelemetry(item: TransportItem): TransportItem | null {
   const meta = {
@@ -59,9 +73,12 @@ export function redactTelemetry(item: TransportItem): TransportItem | null {
       const type = errors.has(p.type) ? p.type : "Error";
       return {
         type: item.type, meta,
-        payload: { type, value: type, timestamp: p.timestamp, stacktrace: {
+        payload: { type, value: type, timestamp: p.timestamp,
+          trace: p.trace && /^[0-9a-f]{32}$/i.test(p.trace.trace_id) && /^[0-9a-f]{16}$/i.test(p.trace.span_id)
+            ? { trace_id: p.trace.trace_id, span_id: p.trace.span_id } : undefined,
+          stacktrace: {
           frames: (p.stacktrace?.frames ?? []).map((frame) => ({
-            filename: "/assets/{bundle}", function: "{function}", lineno: frame.lineno, colno: frame.colno,
+            filename: telemetryScript(frame.filename), function: "{function}", lineno: frame.lineno, colno: frame.colno,
           })),
         } },
       };
@@ -72,7 +89,10 @@ export function redactTelemetry(item: TransportItem): TransportItem | null {
         type: item.type, meta,
         payload: {
           resourceSpans: p.resourceSpans?.map((resource) => ({
-            resource: { attributes: [{ key: "service.name", value: { stringValue: "dusk-web" } }], droppedAttributesCount: 0 },
+            resource: { attributes: [
+              { key: "service.name", value: { stringValue: "dusk-web" } },
+              { key: "service.version", value: { stringValue: meta.app.version ?? "unknown" } },
+            ], droppedAttributesCount: 0 },
             scopeSpans: resource.scopeSpans.map((scope) => ({
               scope: { name: "dusk.browser" },
               spans: scope.spans?.map((span) => {

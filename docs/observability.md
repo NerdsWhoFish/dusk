@@ -54,8 +54,10 @@ After deployment, exercise an API call in the browser, confirm Faro accepts its 
 
 ## Internal tracing
 
-Internal reconcile, index, and plugin phases do not yet create manual spans.
-HTTP traces therefore show the service boundary and upstream latency, not every internal operation.
+Controller sweeps and individual repository reconciliations create stable operation spans.
+An incomplete sweep is marked as failed even when it returns normally to preserve the existing catalog.
+Failure logs carry the operation's trace and span IDs plus a safe error type; raw error messages are not exported.
+Index and plugin phases do not yet create their own spans.
 
 ## Lifecycle
 

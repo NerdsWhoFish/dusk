@@ -1,9 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { redactTelemetry, telemetryRoute } from "./src/telemetry.ts";
+import { redactTelemetry, telemetryRoute, telemetryScript } from "./src/telemetry.ts";
 import { createErrorReporter } from "./src/error-reporting.ts";
 
 const privateValue = "customer@example.com";
+
+test("stack frames retain only the loaded public bundle identity", () => {
+  globalThis.window = { location: { origin: "https://dusk.example" } };
+  globalThis.document = { querySelectorAll: () => [{ getAttribute: () => "https://dusk.example/assets/index-Public01.js" }] };
+  try {
+    assert.equal(telemetryScript("https://dusk.example/assets/index-Public01.js?secret=value#private"), "/assets/index-Public01.js");
+    assert.equal(telemetryScript("/assets/customer@example.test.js"), "/assets/{bundle}");
+    assert.equal(telemetryScript("https://external.invalid/assets/index-Public01.js"), "/assets/{bundle}");
+  } finally {
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+});
 
 test("early and handled failures are bounded and delivered once after SDK startup", () => {
   const reporter = createErrorReporter(2);
