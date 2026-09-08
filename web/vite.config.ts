@@ -7,6 +7,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   build: {
+    sourcemap: true,
     outDir: "dist",
     // Emptying the directory would delete the committed placeholder that keeps
     // go:embed compiling on an unbuilt checkout. `make web` clears the build
