@@ -8,6 +8,7 @@ export function initializeTelemetry({ url, app, routes, assets, operations, loca
   const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);
   const report = { captureError() {}, dispose() {} };
   if (typeof window === 'undefined') return report;
+  if (!url && !transports) return report;
   if (loopback.has(window.location.hostname) && !local) return report;
   if (loopback.has(window.location.hostname) && url && !loopback.has(new URL(url).hostname)) return report;
   const seen = new WeakSet();

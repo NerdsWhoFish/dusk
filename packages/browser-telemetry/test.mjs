@@ -48,6 +48,8 @@ test('real Faro transport receives sanitized handled errors and unhandled reject
   let telemetry;
   try {
     const { initializeTelemetry } = await import('./index.js');
+    const disabled = initializeTelemetry({ app: { name: 'disabled' }, local: true });
+    assert.doesNotThrow(() => disabled.captureError(new Error('disabled')));
     telemetry = initializeTelemetry({
       app: { name: 'test-site', version: 'abc123', environment: 'test' },
       routes: ['/api/checkout'], operations: ['checkout'], local: true,
