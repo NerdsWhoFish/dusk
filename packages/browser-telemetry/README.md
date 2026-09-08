@@ -28,3 +28,5 @@ Routes, script paths and operation names are explicit allowlists. Payloads omit 
 Localhost telemetry is disabled unless local=true, and even then a remote collector is rejected. Tests can inject a capture transport. Browser delivery still depends on the browser and network; this package does not promise delivery after a crash or closed tab.
 
 Run npm ci and npm test here. npm pack produces the independently installable release artifact. See the repository ADR for why the package shares this repository and how consumers remain independent of Dusk releases at runtime.
+
+The build helper accepts revision or APP_VERSION for container builds without a Git checkout. Otherwise it reads git HEAD. All paths require a full 40-character commit hash.

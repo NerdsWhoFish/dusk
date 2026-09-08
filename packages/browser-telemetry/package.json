@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "Privacy-filtered Faro capture for browser applications",
   "type": "module",
-  "exports": { ".": "./index.js", "./privacy": "./privacy.js", "./build": "./build.js" },
-  "files": ["index.js", "privacy.js", "build.js", "README.md", "LICENSE"],
+  "exports": { ".": { "types": "./index.d.ts", "default": "./index.js" }, "./privacy": "./privacy.js", "./build": "./build.js" },
+  "files": ["index.js", "index.d.ts", "privacy.js", "build.js", "README.md", "LICENSE"],
   "license": "Apache-2.0",
   "scripts": { "test": "node --test test.mjs" },
   "dependencies": {
