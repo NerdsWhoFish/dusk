@@ -212,6 +212,7 @@ func run(parent context.Context, log *slog.Logger) error {
 	agentSurface, agentMode := guard(agents.Handler(), cfg)
 
 	srv, err := server.New(server.Options{
+		Version:      version,
 		Config:       cfg,
 		Credentials:  credentials,
 		Controller:   catalog,

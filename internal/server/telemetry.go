@@ -7,5 +7,6 @@ func (s *Server) handleTelemetryConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"url":         s.cfg.FaroURL,
 		"environment": s.cfg.Environment,
+		"version":     s.version,
 	})
 }
