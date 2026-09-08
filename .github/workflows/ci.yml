@@ -30,6 +30,8 @@ jobs:
       # and a UI that does not compile should fail here rather than at release
       # time where the image build is the first thing to try it.
       - run: make web
+      - run: npm ci && npm test
+        working-directory: packages/browser-telemetry
 
       # ADR-0065's viewport matrix renders the UI in this. Named here so a
       # runner image that drops Chrome fails on a missing dependency rather

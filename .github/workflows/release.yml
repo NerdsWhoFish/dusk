@@ -63,6 +63,14 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Verify browser telemetry package
+        working-directory: packages/browser-telemetry
+        run: npm ci && npm test && npm pack
+
       # One architecture, because buildx can only `--load` one and the smoke
       # test runs on an amd64 runner. It populates the cache quill's own build
       # reads, so proving the image costs a cache write rather than a build.
@@ -88,7 +96,14 @@ jobs:
         run: scripts/onboarding-smoke.sh dusk:smoke
 
       - uses: TheOutdoorProgrammer/quill@v1
+        id: release
         with:
           bump: ${{ inputs.bump }}
           scope: ${{ inputs.scope }}
           publish: docker
+
+      - name: Attach browser telemetry package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: gh release upload "$RELEASE_VERSION" packages/browser-telemetry/nerdswhofish-browser-telemetry-*.tgz

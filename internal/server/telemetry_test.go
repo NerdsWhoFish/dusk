@@ -10,7 +10,7 @@ import (
 )
 
 func TestTelemetryConfigExposesOnlyPublicSettings(t *testing.T) {
-	s := &Server{cfg: &config.Config{
+	s := &Server{version: "v1.2.3", cfg: &config.Config{
 		FaroURL: "https://collector.example/collect/public-id", Environment: "production",
 		MCPToken: secret.New("private-token"), EncryptionKey: secret.New("private-key"),
 	}}
@@ -20,7 +20,7 @@ func TestTelemetryConfigExposesOnlyPublicSettings(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload) != 2 || payload["url"] != s.cfg.FaroURL || payload["environment"] != s.cfg.Environment {
+	if len(payload) != 3 || payload["url"] != s.cfg.FaroURL || payload["environment"] != s.cfg.Environment || payload["version"] != "v1.2.3" {
 		t.Fatalf("unexpected public config: %v", payload)
 	}
 	if w.Header().Get("Cache-Control") != "no-store" {

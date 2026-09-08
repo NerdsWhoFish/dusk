@@ -1,3 +1,5 @@
+import { captureError } from "./telemetry";
+
 export type Entity = {
   ref: string;
   kind: string;
@@ -316,19 +318,28 @@ function catalogPath(path: string): string {
 }
 
 async function get<T>(path: string): Promise<T> {
-  path = catalogPath(path);
-  const response = await fetch(`/api${path}`, {
-    headers: { Accept: "application/json" },
-  });
+  return request<T>(catalogPath(path));
+}
 
-  if (response.status === 401) {
-    throw new Unauthorized("session expired");
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  try {
+    const response = await fetch(`/api${path}`, {
+      ...init,
+      headers: { Accept: "application/json", ...init.headers },
+    });
+    if (response.status === 401) throw new Unauthorized("session expired");
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const message = body.error ?? `the catalog returned ${response.status}`;
+      throw init.method === "POST" && response.status === 409
+        ? new NeedsApproval(message)
+        : new Error(message);
+    }
+    return await json<T>(response);
+  } catch (error) {
+    if (!(error instanceof Unauthorized) && !(error instanceof NeedsApproval)) captureError(error);
+    throw error;
   }
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `the catalog returned ${response.status}`);
-  }
-  return json<T>(response);
 }
 
 type Refresh<T> = {
@@ -628,23 +639,12 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   if (previewRef()) {
     throw new Error("This catalog preview is read-only. Return to the live catalog to make changes.");
   }
-  const response = await fetch(`/api${path}`, {
+  return request<T>(path, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-  if (response.status === 401) {
-    throw new Unauthorized("session expired");
-  }
-  if (!response.ok) {
-    const failure = await response.json().catch(() => ({}));
-    const message = failure.error ?? `the catalog returned ${response.status}`;
-    throw response.status === 409
-      ? new NeedsApproval(message)
-      : new Error(message);
-  }
-  return json<T>(response);
 }
 
 export const api = {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { captureError } from "./telemetry";
 import { api, catalogURL, previewRef, Unauthorized } from "./api";
 import type { Viewer } from "./api";
 import { Context } from "./Context";
@@ -143,6 +144,7 @@ export function handle(setProblem: (message: string) => void) {
       location.href = "/login";
       return;
     }
+    captureError(error);
     setProblem(error instanceof Error ? error.message : String(error));
   };
 }

@@ -81,6 +81,12 @@ That account list is the code trust boundary, but a plugin does not inherit Dusk
 - [docs/philosophy.md](docs/philosophy.md) is the posture behind the design.
 - [docs/status.md](docs/status.md) tracks what is built and what is not.
 
+## Browser telemetry
+
+The browser buffers up to 20 early failures while runtime telemetry configuration loads. The shared API client reports handled failures once; authentication redirects and approval responses retain their normal behavior. Exception messages, URL parameters and catalog values are removed before export.
+
+The independently buildable [browser telemetry package](packages/browser-telemetry/README.md) provides privacy-filtered Faro capture for other applications. Each consumer bundles a pinned release tarball into its own assets.
+
 ## License
 
 Apache 2.0. Contributions are accepted under the DCO. See [ADR-0003](adr/0003-license.md).
