@@ -87,6 +87,10 @@ The browser buffers up to 20 early failures while runtime telemetry configuratio
 
 The independently buildable [browser telemetry package](packages/browser-telemetry/README.md) provides privacy-filtered Faro capture for other applications. Each consumer bundles a pinned release tarball into its own assets.
 
+## Releases
+
+The release workflow accepts `main` or an immutable `symphony-deploy/<incident-UUID>` tag. A tagged dispatch must provide `expected-source-sha` matching its checkout and belonging to main's history. Release runs share one concurrency group so two source tags cannot allocate the same version. Stable releases publish a `sha-<full-source-SHA>` image alias after the existing image and browser telemetry package succeed. The alias identifies the built revision; deployment and readiness checks remain separate.
+
 ## License
 
 Apache 2.0. Contributions are accepted under the DCO. See [ADR-0003](adr/0003-license.md).
