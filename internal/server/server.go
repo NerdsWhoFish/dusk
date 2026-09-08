@@ -45,6 +45,7 @@ type appClient interface {
 
 // Server routes HTTP for Dusk.
 type Server struct {
+	version      string
 	cfg          *config.Config
 	credentials  credentialStore
 	github       appClient
@@ -86,6 +87,7 @@ type Insights interface {
 
 // Options are the server's dependencies. Zero values get sane defaults.
 type Options struct {
+	Version     string
 	Config      *config.Config
 	Credentials credentialStore
 	GitHub      appClient
@@ -160,6 +162,7 @@ func New(opts Options) (*Server, error) {
 	}
 
 	s := &Server{
+		version:      opts.Version,
 		cfg:          opts.Config,
 		credentials:  opts.Credentials,
 		github:       opts.GitHub,
