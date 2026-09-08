@@ -22,6 +22,8 @@ import (
 	"github.com/NerdsWhoFish/dusk/pkg/catalogfs"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // DefaultInterval is the poll floor, deliberately slow. Webhooks carry the
@@ -275,7 +277,15 @@ func (c *Controller) Permitted(account, owner string) bool {
 // Sync reconciles every permitted installation's repositories and drops what it
 // can no longer see. One repository failing neither stops the sweep nor removes
 // what that repository already contributed.
-func (c *Controller) Sync(ctx context.Context) error {
+func (c *Controller) Sync(ctx context.Context) (syncErr error) {
+	ctx, span := otel.Tracer("dusk/controller").Start(ctx, "dusk.controller.sync")
+	defer func() {
+		if syncErr != nil {
+			span.SetStatus(codes.Error, "")
+			c.opts.Logger.ErrorContext(ctx, "sweep failed", "error_type", fmt.Sprintf("%T", syncErr))
+		}
+		span.End()
+	}()
 	tokens, owner, err := c.auth(ctx)
 	if err != nil {
 		c.opts.Logger.Info("sweep skipped: not onboarded yet", "reason", err)
@@ -307,7 +317,8 @@ func (c *Controller) Sync(ctx context.Context) error {
 	// Pruning only after a clean sweep is the same rule as ADR-0011: "I could
 	// not look" must never be mistaken for "it is not there".
 	if !complete {
-		c.opts.Logger.Warn("skipping prune: this sweep was incomplete")
+		span.SetStatus(codes.Error, "")
+		c.opts.Logger.WarnContext(ctx, "skipping prune: this sweep was incomplete")
 		return nil
 	}
 	return c.prune(ctx, seen)
@@ -336,8 +347,8 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 
 	repositories, err := install.Repositories(ctx)
 	if err != nil {
-		c.opts.Logger.Error("could not list repositories",
-			"account", installation.Account.Login, "installation", installation.ID, "error", err)
+		c.opts.Logger.ErrorContext(ctx, "could not list repositories",
+			"account", installation.Account.Login, "installation", installation.ID, "error_type", fmt.Sprintf("%T", err))
 		return false
 	}
 
@@ -346,7 +357,7 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 		gitRef := "refs/heads/" + repository.DefaultBranch
 		if repository.ID != 0 {
 			if previous, err := c.opts.Index.TrackRepository(ctx, repository.ID, repository.Slug()); err != nil {
-				c.opts.Logger.Error("could not record repository identity", "repository", repository.Slug(), "error", err)
+				c.opts.Logger.ErrorContext(ctx, "could not record repository identity", "repository", repository.Slug(), "error_type", fmt.Sprintf("%T", err))
 				complete = false
 				continue
 			} else if previous != "" {
@@ -359,8 +370,8 @@ func (c *Controller) syncInstallation(ctx context.Context, tokens *githubapp.Tok
 		// Repositories disagree about what the default branch is called, so a
 		// catalog-wide query needs to be told which ref each one contributes.
 		if err := c.opts.Index.SetDefaultView(ctx, repository.Slug(), gitRef); err != nil {
-			c.opts.Logger.Error("could not record the default view",
-				"repository", repository.Slug(), "ref", gitRef, "error", err)
+			c.opts.Logger.ErrorContext(ctx, "could not record the default view",
+				"repository", repository.Slug(), "ref", gitRef, "error_type", fmt.Sprintf("%T", err))
 			complete = false
 			continue
 		}
@@ -492,8 +503,8 @@ func (c *Controller) reconcileWithRetryAt(ctx context.Context, install *githubap
 			return err
 		}
 	}
-	c.opts.Logger.Error("giving up on a delivery; the next sweep will retry",
-		"repository", slug, "ref", gitRef, "error", err)
+	c.opts.Logger.ErrorContext(ctx, "giving up on a delivery; the next sweep will retry",
+		"repository", slug, "ref", gitRef, "error_type", fmt.Sprintf("%T", err))
 	return err
 }
 
@@ -507,7 +518,15 @@ func (c *Controller) reconcile(ctx context.Context, install *githubapp.Install, 
 	return c.reconcileAt(ctx, install, slug, gitRef, gitRef)
 }
 
-func (c *Controller) reconcileAt(ctx context.Context, install *githubapp.Install, slug, gitRef, sourceRef string) error {
+func (c *Controller) reconcileAt(ctx context.Context, install *githubapp.Install, slug, gitRef, sourceRef string) (reconcileErr error) {
+	ctx, span := otel.Tracer("dusk/controller").Start(ctx, "dusk.controller.reconcile")
+	defer func() {
+		if reconcileErr != nil {
+			span.SetStatus(codes.Error, "")
+			c.opts.Logger.ErrorContext(ctx, "reconcile failed", "error_type", fmt.Sprintf("%T", reconcileErr))
+		}
+		span.End()
+	}()
 	owner, name, ok := strings.Cut(slug, "/")
 	if !ok {
 		return fmt.Errorf("controller: %q is not an owner/name repository", slug)
@@ -565,7 +584,7 @@ func (c *Controller) reconcileAt(ctx context.Context, install *githubapp.Install
 			Attempted:     now,
 		}
 	})
-	c.opts.Logger.Info("reconciled",
+	c.opts.Logger.InfoContext(ctx, "reconciled",
 		"repository", slug, "ref", gitRef, "commit", graph.Commit,
 		"entities", len(graph.Entities), "relations", len(graph.Relations),
 		"participating", graph.Participating)
@@ -619,9 +638,7 @@ func (c *Controller) Run(ctx context.Context) {
 		// rather than that plus however long a sweep takes.
 		c.schedule(c.opts.Now().Add(c.opts.Interval))
 
-		if err := c.Sync(ctx); err != nil && ctx.Err() == nil {
-			c.opts.Logger.Error("sweep failed", "error", err)
-		}
+		_ = c.Sync(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -699,8 +716,6 @@ func (c *Controller) failed(scope index.Scope, err error) error {
 		s.Attempted = c.opts.Now()
 		s.Error = err.Error()
 	})
-	c.opts.Logger.Error("reconcile failed",
-		"repository", scope.Repository, "ref", scope.GitRef, "error", err)
 	return err
 }
 
