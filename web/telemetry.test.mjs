@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { redactTelemetry, telemetryRoute } from "./src/telemetry.ts";
+import { createErrorReporter } from "./src/error-reporting.ts";
 
 const privateValue = "customer@example.com";
+
+test("early and handled failures are bounded and delivered once after SDK startup", () => {
+  const reporter = createErrorReporter(2);
+  const received = [];
+  const first = new TypeError(privateValue);
+  reporter.capture(first);
+  reporter.capture(first);
+  reporter.capture(new DOMException("cancelled", "AbortError"));
+  reporter.capture(new Error("second"));
+  reporter.capture(new Error("overflow"));
+  reporter.connect(error => received.push(error));
+  reporter.capture(first);
+  reporter.capture(new Error("after startup"));
+  assert.deepEqual(received.map(error => error.message), [privateValue, "second", "after startup"]);
+});
 const meta = {
   app: { name: "dusk-web", installationId: privateValue },
   sdk: { name: "faro-web-sdk", integrations: [{ name: privateValue }] },

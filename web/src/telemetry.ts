@@ -1,4 +1,8 @@
 import type { EventEvent, ExceptionEvent, MeasurementEvent, TraceEvent, TransportItem } from "@grafana/faro-web-sdk";
+import { createErrorReporter } from "./error-reporting.ts";
+
+const reporter = createErrorReporter();
+export const captureError = reporter.capture;
 
 const routes = new Set([
   "/", "/search", "/graph", "/notes", "/context", "/plugins", "/events",
@@ -99,17 +103,21 @@ export function redactTelemetry(item: TransportItem): TransportItem | null {
 }
 
 export async function initializeTelemetry(): Promise<void> {
+  const onError = (event: ErrorEvent) => captureError(event.error ?? new Error("Browser error"));
+  const onRejection = (event: PromiseRejectionEvent) => captureError(event.reason);
+  window.addEventListener("error", onError);
+  window.addEventListener("unhandledrejection", onRejection);
   try {
     const response = await fetch("/telemetry/config", { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return;
-    const config: { url?: string; environment?: string } = await response.json();
+    const config: { url?: string; environment?: string; version?: string } = await response.json();
     if (!config.url) return;
     const [{ initializeFaro, SessionInstrumentation, ErrorsInstrumentation, WebVitalsInstrumentation }, { TracingInstrumentation }] = await Promise.all([
       import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"),
     ]);
     const faro = initializeFaro({
       url: config.url,
-      app: { name: "dusk-web", environment: config.environment },
+      app: { name: "dusk-web", environment: config.environment, version: config.version },
       metas: [() => ({ page: { url: telemetryRoute(window.location.href) } })],
       beforeSend: redactTelemetry,
       sessionTracking: { persistent: false },
@@ -118,6 +126,9 @@ export async function initializeTelemetry(): Promise<void> {
         new TracingInstrumentation({ instrumentationOptions: { propagateTraceHeaderCorsUrls: [window.location.origin] } }),
       ],
     });
+    reporter.connect((error) => faro.api.pushError(error));
+    window.removeEventListener("error", onError);
+    window.removeEventListener("unhandledrejection", onRejection);
     faro.api.pushEvent("page_load");
   } catch {
     // A collector outage must not prevent the catalog from loading.
