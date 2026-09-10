@@ -30,6 +30,10 @@ Full reasoning in [ADR-0030](../adr/0030-account-allowlist.md).
 **Webhooks** carry the timely case.
 A `push` reconciles that one repository at that one ref; an `installation` or `installation_repositories` event triggers a full sweep, since what Dusk may read has changed.
 
+A push with `deleted: true` is accepted without reconciliation: a deleted branch or tag has no commit to read, and retrying its resolution cannot succeed.
+Deletion deliveries leave the stored catalog alone. The next complete sweep prunes non-default refs, and pull request closure removes its own preview.
+An empty commit list on a push without the deletion flag still triggers a read.
+
 Deliveries are answered immediately and the work runs behind the response, so GitHub is never waiting on a reconcile.
 
 That speed has a cost: GitHub is told the delivery succeeded before the work is attempted, so it never redelivers.

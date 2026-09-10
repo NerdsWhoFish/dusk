@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -84,6 +85,7 @@ type setup struct {
 	plugins      server.Plugins
 	answers      *answer.Service
 	control      *fakeController
+	logger       *slog.Logger
 	syncs        server.Syncs
 	insights     server.Insights
 	notes        server.Notes
@@ -96,6 +98,7 @@ type setup struct {
 
 type fakeController struct {
 	synced chan struct{}
+	push   func(context.Context, controller.Push) error
 }
 
 func (f *fakeController) Sync(context.Context) error {
@@ -103,7 +106,13 @@ func (f *fakeController) Sync(context.Context) error {
 	return nil
 }
 
-func (*fakeController) SyncPush(context.Context, controller.Push) error       { return nil }
+func (f *fakeController) SyncPush(ctx context.Context, push controller.Push) error {
+	if f.push != nil {
+		return f.push(ctx, push)
+	}
+	return nil
+}
+
 func (*fakeController) SyncPreview(context.Context, controller.Preview) error { return nil }
 
 func (*fakeController) SharesRepository(context.Context, []string) (bool, error) {
@@ -158,6 +167,7 @@ func build(t *testing.T, s setup) http.Handler {
 		Plugins:      s.plugins,
 		Answers:      s.answers,
 		Controller:   s.control,
+		Logger:       s.logger,
 		Syncs:        s.syncs,
 		Insights:     s.insights,
 		Notes:        s.notes,

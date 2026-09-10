@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -217,6 +218,10 @@ func (s *Server) reconcileRepository(ctx context.Context, delivery string, paylo
 		s.log.Error("push delivery is missing what a reconcile needs", "delivery", delivery)
 		return
 	}
+	if payload.Deleted {
+		s.log.InfoContext(ctx, "push ignored: ref was deleted", "delivery", delivery)
+		return
+	}
 
 	// The account is taken from the installation rather than the repository, so
 	// the allowlist is checked against who Dusk trusts rather than who pushed.
@@ -239,7 +244,7 @@ func (s *Server) reconcileRepository(ctx context.Context, delivery string, paylo
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reconcileTimeout)
 		defer cancel()
 		if err := s.controller.SyncPush(ctx, work); err != nil {
-			s.log.Error("reconcile from delivery failed", "delivery", delivery, "error", err)
+			s.log.ErrorContext(ctx, "reconcile from delivery failed", "delivery", delivery, "error_type", fmt.Sprintf("%T", err))
 		}
 	}()
 }
