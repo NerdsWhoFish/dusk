@@ -1,13 +1,23 @@
 package server_test
 
 import (
+	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
+
+	"github.com/NerdsWhoFish/dusk/internal/controller"
+	"github.com/NerdsWhoFish/dusk/internal/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const webhookSecret = "hook-secret"
@@ -87,6 +97,85 @@ func TestWebhookRejectsReplays(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "duplicate") {
 		t.Errorf("replay body = %q, want it to say duplicate", rec.Body.String())
 	}
+}
+
+func TestPushDeletionDoesNotReconcile(t *testing.T) {
+	for _, ref := range []string{"refs/heads/fix/catalog", "refs/tags/v1.0.0"} {
+		for _, deleted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/deleted=%t", ref, deleted), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					var pushes []controller.Push
+					control := &fakeController{push: func(_ context.Context, push controller.Push) error {
+						pushes = append(pushes, push)
+						return nil
+					}}
+					var logs bytes.Buffer
+					h := build(t, setup{store: &fakeStore{creds: sampleCreds()}, control: control,
+						logger: slog.New(slog.NewJSONHandler(&logs, nil))})
+					body := fmt.Sprintf(`{"ref":%q,"deleted":%t,"commits":[],"repository":{"id":1,"name":"catalog","owner":{"login":"owner"}},"installation":{"id":2}}`, ref, deleted)
+					headers := map[string]string{
+						"X-GitHub-Event": "push", "X-GitHub-Delivery": "push-delivery",
+						"X-Hub-Signature-256": sign(t, body, webhookSecret),
+					}
+					if rec := post(t, h, body, headers); rec.Code != http.StatusAccepted {
+						t.Fatalf("status = %d, want 202", rec.Code)
+					}
+					synctest.Wait()
+					want := 1
+					if deleted {
+						want = 0
+						if !strings.Contains(logs.String(), "push ignored: ref was deleted") {
+							t.Errorf("missing deletion outcome: %s", &logs)
+						}
+					}
+					if len(pushes) != want {
+						t.Fatalf("reconciled %d pushes, want %d", len(pushes), want)
+					}
+					if want == 1 && (pushes[0].GitRef != ref || pushes[0].Files != nil) {
+						t.Errorf("empty non-deletion push must still reconcile its ref: %+v", pushes[0])
+					}
+					if strings.Contains(logs.String(), `"level":"ERROR"`) {
+						t.Errorf("unexpected error: %s", &logs)
+					}
+					if rec := post(t, h, body, headers); rec.Code != http.StatusOK {
+						t.Fatalf("duplicate status = %d, want 200", rec.Code)
+					}
+					synctest.Wait()
+					if len(pushes) != want {
+						t.Error("duplicate delivery scheduled work")
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestPushFailureLogsTypeAndTraceWithoutProviderBody(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var logs bytes.Buffer
+		control := &fakeController{push: func(context.Context, controller.Push) error {
+			return errors.New("provider response containing private content")
+		}}
+		h := build(t, setup{store: &fakeStore{creds: sampleCreds()}, control: control,
+			logger: slog.New(telemetry.LogHandler(slog.NewJSONHandler(&logs, nil)))})
+		const body = `{"ref":"refs/heads/main","repository":{"name":"catalog","owner":{"login":"owner"}},"installation":{"id":2}}`
+		req := httptest.NewRequest(http.MethodPost, "/webhooks", strings.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "push")
+		req.Header.Set("X-GitHub-Delivery", "failed-delivery")
+		req.Header.Set("X-Hub-Signature-256", sign(t, body, webhookSecret))
+		span := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}})
+		req = req.WithContext(trace.ContextWithSpanContext(req.Context(), span))
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		synctest.Wait()
+		for _, want := range []string{`"msg":"reconcile from delivery failed"`, `"level":"ERROR"`, `"error_type":"*errors.errorString"`, `"trace_id":"` + span.TraceID().String() + `"`, `"span_id":"` + span.SpanID().String() + `"`} {
+			if !strings.Contains(logs.String(), want) {
+				t.Errorf("missing %s in %s", want, &logs)
+			}
+		}
+		if strings.Contains(logs.String(), "private content") || strings.Contains(logs.String(), `"error":`) {
+			t.Errorf("provider error body leaked: %s", &logs)
+		}
+	})
 }
 
 func TestWebhookHandling(t *testing.T) {
