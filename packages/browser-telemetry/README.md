@@ -23,6 +23,8 @@ try {
 
 Initialize synchronously before application code. A parser-blocking first-party bundle in the document head also observes failures in later scripts. React applications should supply captureError to their root error callbacks. Caught exceptions require explicit reporting; cancellations are ignored and repeated reports of the same Error object are deduplicated.
 
+Web Vitals starts after error capture and HTTP tracing. If its initialization fails, those features and the handled-error API remain available. The failure is reported through the same privacy filter with the fixed operation `telemetry.web_vitals.initialize`; it is not suppressed or retried. Metrics may be incomplete or unavailable for that page. The SDK does not provide teardown for Web Vitals, so callbacks installed before a failure may remain until navigation.
+
 Routes, script paths and operation names are explicit allowlists. Payloads omit user data, arbitrary URLs, queries, fragments, cookies, headers, bodies, console messages and exception messages. Only configured public script paths and numeric stack locations survive for release-specific diagnosis. Sessions are tab-scoped, sampled at 100%, with geographic enrichment disabled. Replay and console capture are not installed. Each application must supply its actual build revision, never a fixed placeholder version.
 
 Localhost telemetry is disabled unless local=true, and even then a remote collector is rejected. Tests can inject a capture transport. Browser delivery still depends on the browser and network; this package does not promise delivery after a crash or closed tab.

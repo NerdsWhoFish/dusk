@@ -17,10 +17,10 @@ export function initializeTelemetry({ url, app, routes, assets, operations, loca
     app,
     transports,
     batching: { enabled: true, sendTimeout: 250, itemLimit: 50 },
-    beforeSend: privacyFilter({ app, origin: window.location.origin, routes, assets, operations }),
+    beforeSend: privacyFilter({ app, origin: window.location.origin, routes, assets, operations: [...(operations ?? []), 'telemetry.web_vitals.initialize'] }),
     sessionTracking: { persistent: false, samplingRate: 1 },
     instrumentations: [
-      new SessionInstrumentation(), new ErrorsInstrumentation(), new WebVitalsInstrumentation(),
+      new SessionInstrumentation(), new ErrorsInstrumentation(),
       new TracingInstrumentation({ instrumentationOptions: { propagateTraceHeaderCorsUrls: [window.location.origin] } }),
     ],
   });
@@ -34,6 +34,13 @@ export function initializeTelemetry({ url, app, routes, assets, operations, loca
     faro.instrumentations.remove(...faro.instrumentations.instrumentations);
     faro.pause();
   };
+  const webVitals = new WebVitalsInstrumentation();
+  try {
+    faro.instrumentations.add(webVitals);
+  } catch (error) {
+    faro.instrumentations.remove(webVitals);
+    report.captureError(error, 'telemetry.web_vitals.initialize');
+  }
   faro.api.pushEvent('page_load');
   return report;
 }

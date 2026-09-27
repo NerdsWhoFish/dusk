@@ -1,12 +1,12 @@
 {
   "name": "@nerdswhofish/browser-telemetry",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Privacy-filtered Faro capture for browser applications",
   "type": "module",
   "exports": { ".": { "types": "./index.d.ts", "default": "./index.js" }, "./privacy": "./privacy.js", "./build": "./build.js" },
   "files": ["index.js", "index.d.ts", "privacy.js", "build.js", "README.md", "LICENSE"],
   "license": "Apache-2.0",
-  "scripts": { "test": "node --test test.mjs" },
+  "scripts": { "test": "node --test test.mjs failure.test.mjs" },
   "dependencies": {
     "@grafana/faro-web-sdk": "2.11.0",
     "@grafana/faro-web-tracing": "2.11.0",
