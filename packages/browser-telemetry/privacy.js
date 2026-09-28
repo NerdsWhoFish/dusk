@@ -2,6 +2,14 @@ const methods = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIO
 const errors = new Set(['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'URIError', 'EvalError', 'UnhandledRejection']);
 const vitals = new Set(['cls', 'fcp', 'fid', 'inp', 'lcp', 'ttfb']);
 const lifecycle = new Set(['session_start', 'session_resume', 'session_extend', 'page_load']);
+const browsers = new Set(['Chrome', 'Chrome Headless', 'Chromium', 'Edge', 'Firefox', 'Mobile Chrome', 'Mobile Firefox', 'Mobile Safari', 'Safari', 'WebKit', 'Samsung Internet', 'Opera', 'Opera Mobile']);
+const errorReasons = new Map([
+  ['Illegal invocation', 'invalid_receiver'],
+  ["Failed to execute 'addEventListener' on 'EventTarget': Illegal invocation", 'invalid_receiver'],
+  ['Can only call EventTarget.addEventListener on instances of EventTarget', 'invalid_receiver'],
+  ["Failed to execute 'addEventListener' on 'EventTarget': parameter 2 is not of type 'Object'.", 'invalid_event_listener'],
+  ["Argument 2 ('listener') to EventTarget.addEventListener must be an object", 'invalid_event_listener'],
+]);
 const traceID = /^[0-9a-f]{32}$/i;
 const spanID = /^[0-9a-f]{16}$/i;
 
@@ -27,6 +35,10 @@ export function privacyFilter({ app, origin, routes = [], assets = [], operation
     const meta = {
       app: { name: app.name, version: app.version, environment: app.environment },
       sdk: { name: item.meta.sdk?.name, version: item.meta.sdk?.version },
+      browser: {
+        name: browsers.has(item.meta.browser?.name) ? item.meta.browser.name : 'Other',
+        ...(typeof item.meta.browser?.mobile === 'boolean' ? { mobile: item.meta.browser.mobile } : {}),
+      },
       session: {
         id: item.meta.session?.id,
         // Faro consumes this control attribute after beforeSend, then removes it.
@@ -39,9 +51,10 @@ export function privacyFilter({ app, origin, routes = [], assets = [], operation
     if (item.type === 'exception') {
       const type = errors.has(p.type) ? p.type : 'Error';
       const operation = allowedOperations.has(p.context?.operation) ? p.context.operation : undefined;
+      const errorReason = p.type === 'TypeError' ? errorReasons.get(p.value) ?? 'other' : 'other';
       return { type: item.type, meta, payload: {
         type, value: type, timestamp: p.timestamp, fatal: p.fatal, trace: trace(p.trace),
-        context: operation ? { operation } : undefined,
+        context: { ...(operation ? { operation } : {}), error_reason: errorReason },
         stacktrace: { frames: (p.stacktrace?.frames ?? []).map(frame => ({
           filename: stackFile(frame.filename), function: '{function}', lineno: frame.lineno, colno: frame.colno,
         })) },
