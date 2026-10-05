@@ -4,7 +4,9 @@ Date: 2026-08-15
 
 ## Status
 
-Accepted. Extends [ADR-0010](0010-mcp-surface.md) and applies [ADR-0050](0050-what-the-context-budget-buys-first.md)'s rule to the rest of the surface.
+Accepted. The default expansion of note bodies is superseded by [ADR-0091](0091-agent-reads-expand-knowledge-deliberately.md).
+
+Counts, discoverability and explicit continuation remain mandatory.
 
 ## Context and Problem Statement
 

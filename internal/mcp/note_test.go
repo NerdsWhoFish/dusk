@@ -124,8 +124,8 @@ func TestReadsMentionNoteWhenItIsAvailable(t *testing.T) {
 	t.Run("without one", func(t *testing.T) {
 		session, _ := notingSession(t, "")
 		body := call(t, session, "get", map[string]any{"ref": "service:home/jellyfin"})
-		if strings.Contains(body, "`note`") {
-			t.Errorf("a read offers note in a deployment that cannot write one:\n%s", body)
+		if strings.Contains(body, "It also writes one of its notes") {
+			t.Errorf("a read offers note writes in a deployment that cannot write one:\n%s", body)
 		}
 	})
 }

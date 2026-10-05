@@ -447,10 +447,12 @@ func (s *Server) manual(vocabulary []vocab.Kind) string {
 		"Refs are `kind:namespace/name` and feed straight back into `get`, which also takes `plugin:<name>`. " +
 		"A note's id is its path, `.dusk/<kind>-<hash>.md`. " +
 		"A note listed above as a single line was named rather than printed: pass its id to `note` as `id` to read it whole. " +
+		"Read the operator instructions and bodies shown here; expand relevant warnings before acting, not every indexed note. " +
+		"Keep one response representation: `content` for Markdown or selected `structuredContent` fields, never both. " +
 		"Every read of something writable returns a `proof` token, and the write that follows requires it.\n\n" +
 		"| Call | For |\n| --- | --- |\n" +
 		"| `search` | Find anything by name or any word in it. Start here, and before concluding something is absent |\n" +
-		"| `get` | One entity whole: description, attributes, relations, attached notes, and the actions it offers |\n" +
+		"| `get` | Entity, relations, actions and attached note summaries; `note(id)` reads a relevant note whole |\n" +
 		"| `neighbors` | What points at a thing, and so what breaks if it goes away |\n" +
 		"| `note` | Read or write knowledge. Filters on `kind`, `status`, `ref` and `pinned`; pages with `limit` and `offset` |\n" +
 		"| `changes` | What Dusk last read from each repository, for telling a stale answer from a missing one |\n" +
