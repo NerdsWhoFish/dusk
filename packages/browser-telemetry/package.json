@@ -1,6 +1,6 @@
 {
   "name": "@nerdswhofish/browser-telemetry",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Privacy-filtered Faro capture for browser applications",
   "type": "module",
   "exports": { ".": { "types": "./index.d.ts", "default": "./index.js" }, "./privacy": "./privacy.js", "./build": "./build.js" },

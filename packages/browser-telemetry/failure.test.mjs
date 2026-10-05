@@ -18,7 +18,7 @@ test('a rejected Web Vitals listener preserves tracing, lifecycle and error capt
   globalThis.addEventListener = (type, ...args) => {
     if (type === 'visibilitychange') {
       rejectedListeners++;
-      throw new TypeError('private listener failure customer@example.test');
+      throw new TypeError('Can only call EventTarget.addEventListener on instances of EventTarget');
     }
     return addEventListener(type, ...args);
   };
@@ -49,11 +49,14 @@ test('a rejected Web Vitals listener preserves tracing, lifecycle and error capt
     assert.equal(exceptions.length, 3);
     assert.equal(exceptions[0].payload.type, 'TypeError');
     assert.equal(exceptions[0].payload.context.operation, 'telemetry.web_vitals.initialize');
+    assert.equal(exceptions[0].payload.context.error_reason, 'invalid_receiver');
+    assert.equal(exceptions[0].payload.value, 'TypeError');
     assert.equal(exceptions[1].payload.context.operation, 'checkout');
     assert.ok(items.some(item => item.type === 'event' && item.payload.name === 'page_load'));
     assert.ok(!globalThis.faro.instrumentations.instrumentations.some(item => item instanceof sdk.WebVitalsInstrumentation));
     assert.ok(!JSON.stringify(items).includes('private'));
     assert.ok(!JSON.stringify(items).includes('customer@example.test'));
+    assert.ok(!JSON.stringify(items).includes('Can only call'));
   } finally {
     TracingInstrumentation.prototype.initialize = initializeTracing;
     globalThis.addEventListener = addEventListener;
