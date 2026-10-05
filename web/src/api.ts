@@ -64,7 +64,10 @@ export type WriteResult = {
   body?: string;
 };
 
+export type ContextMode = "startup" | "repository";
+
 export type ContextPreview = {
+  mode: ContextMode;
   context: string;
   repository?: string;
   declared: string[];
@@ -697,8 +700,8 @@ export const api = {
       ["/home", "/graph"],
     ),
   home: (refresh?: Refresh<Home>) => cachedGet<Home>("/home", refresh),
-  context: (root = "") =>
-    get<ContextPreview>(`/context${root ? `?root=${encodeURIComponent(root)}` : ""}`),
+  context: (root = "", mode: ContextMode = "startup") =>
+    get<ContextPreview>(`/context?${new URLSearchParams({ mode, ...(root ? { root } : {}) })}`),
   setContext: (body: string, proof?: string, fullNoteKinds?: string[]) =>
     invalidating(
       post<WriteResult>("/context", { body, proof, full_note_kinds: fullNoteKinds }),

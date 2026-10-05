@@ -1997,12 +1997,44 @@ select,
   border-radius: 0.75rem;
 }
 
-.context-scope > label {
+.context-scope > label,
+.context-mode legend {
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.context-mode {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.context-mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.context-mode button[aria-pressed="true"] {
+  background: var(--purple);
+  color: var(--bg);
+}
+
+.context-scope #context-mode-help {
+  margin-bottom: 0.75rem;
+}
+
+.context-call {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .context-scope > div {

@@ -149,7 +149,7 @@ type Options struct {
 // instructions is the portable half of ADR-0014's context injection: an
 // interaction manual, not a knowledge dump, because it is spent on every
 // session before any work happens.
-const instructions = `Dusk is the operator's catalog and shared memory. Start with dusk_context(root: "owner/repo"). Use search to find kind:namespace/name refs for get; note(id) reads indexed knowledge. Read relevant warnings before acting. Writes need the returned proof. Render content or structuredContent once, never both. Absence means undocumented, not nonexistent.`
+const instructions = `Dusk is the operator's catalog and shared memory. Load dusk_context(root: "owner/repo") once per conversation unless a hook already supplied the full startup payload. When switching repositories, use mode: "repository" and retain the global requirements already loaded. Reload startup only when those requirements are missing or need updating; a shared MCP connection is not proof a conversation received them. Use search to find kind:namespace/name refs for get; note(id) reads knowledge. Read relevant warnings before acting. Writes need the returned proof. Render one response representation. Absence means undocumented, not nonexistent.`
 
 // Server is the MCP surface over the catalog.
 type Server struct {
@@ -209,7 +209,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	// with "what should I go and do", which are different sessions.
 	sdk.AddTool(server, resultTool("drift", "What the catalog claims and reality does not support: declared where something is watching and not observed there, or a note pointing at a ref nothing holds. This is the maintenance queue, so ask after something is decommissioned. A row is not proof a thing is gone, and the answer says what else it can mean. Pass undeclared to also list what is running and written down nowhere."), s.drift)
 
-	sdk.AddTool(server, resultTool("dusk_context", "What this operator's catalog knows, tailored to the repository you are working in: what they pinned worth knowing before you start, what the repository declares, and what else they have. Call this once at the start of a session, before assuming anything about their infrastructure."), s.duskContext)
+	sdk.AddTool(server, resultTool("dusk_context", "Load global requirements and repository context once per conversation (startup, the default). Use mode repository for later repository switches without replaying global context. Reload startup when its requirements are missing or need updating. Normal search, get and note calls do not need another startup call."), s.duskContext)
 
 	// Two tools, however many plugins are installed. A plugin's capability is
 	// an action, not a tool, so the surface does not grow with the marketplace

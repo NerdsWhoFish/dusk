@@ -19,7 +19,7 @@ import (
 
 // AgentContext is the exact renderer behind dusk_context.
 type AgentContext interface {
-	PreviewContext(ctx context.Context, root string) (mcp.ContextPreview, error)
+	PreviewContext(ctx context.Context, root string, mode mcp.ContextMode) (mcp.ContextPreview, error)
 }
 
 // ContextFile is the committed profile controlling agent orientation.
@@ -40,8 +40,12 @@ func (s *Server) handleAPIContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	preview, err := s.agentContext.PreviewContext(r.Context(), r.URL.Query().Get("root"))
+	preview, err := s.agentContext.PreviewContext(r.Context(), r.URL.Query().Get("root"), mcp.ContextMode(r.URL.Query().Get("mode")))
 	if err != nil {
+		if errors.Is(err, mcp.ErrInvalidContext) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
 		writeError(w, err)
 		return
 	}
@@ -52,10 +56,12 @@ func (s *Server) handleAPIContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	trace.SpanFromContext(r.Context()).SetAttributes(
+		attribute.String("dusk.context.mode", string(preview.Mode)),
 		attribute.Int("dusk.context.token_estimate", tokenCount),
 		attribute.String("dusk.context.token_encoding", tokens.Encoding),
 	)
 	answer := map[string]any{
+		"mode":    preview.Mode,
 		"context": preview.Context, "repository": preview.Repository,
 		"declared": preview.Declared, "entity_count": preview.EntityCount,
 		"budget": preview.Budget, "bytes": len(preview.Context),

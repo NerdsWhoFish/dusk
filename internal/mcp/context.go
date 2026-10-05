@@ -43,13 +43,53 @@ const sectionShare = 50
 const overflowNames = 12
 
 type contextInput struct {
-	Root string `json:"root,omitempty" jsonschema:"the exact owner/name repository being worked in. The dusk-context hook resolves this from the checkout. Omit for an inventory of everything"`
+	Root string      `json:"root,omitempty" jsonschema:"the exact owner/name repository being worked in. The dusk-context hook resolves this from the checkout. Omit for an inventory of everything"`
+	Mode ContextMode `json:"mode,omitempty" jsonschema:"startup (default) loads global requirements once per conversation; repository refreshes only the exact root repository, preserving previously loaded global requirements,enum=startup,enum=repository"`
+}
+
+// ContextMode lets callers refresh scope without tying model memory to an MCP session.
+type ContextMode string
+
+// Startup includes global policy; repository refresh assumes the caller retains it.
+const (
+	ContextStartup    ContextMode = "startup"
+	ContextRepository ContextMode = "repository"
+)
+
+// ErrInvalidContext maps invalid caller input to MCP errors and HTTP 400 responses.
+var ErrInvalidContext = errors.New("invalid context request")
+
+func contextMode(mode ContextMode, root string) (ContextMode, error) {
+	if mode == "" {
+		mode = ContextStartup
+	}
+	if mode != ContextStartup && mode != ContextRepository {
+		return "", fmt.Errorf("%w: mode must be startup or repository", ErrInvalidContext)
+	}
+	if mode == ContextRepository && !validContextRoot(root) {
+		return "", fmt.Errorf("%w: repository mode requires an exact owner/name root", ErrInvalidContext)
+	}
+	return mode, nil
+}
+
+func validContextRoot(root string) bool {
+	parts := strings.Split(strings.TrimSpace(root), "/")
+	if len(parts) != 2 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "\\ \t\r\n:#?") {
+			return false
+		}
+	}
+	return true
 }
 
 // ContextPreview is the complete answer dusk_context gives an agent. The web
 // UI consumes this same value, so its preview cannot drift into a second
 // implementation of the session orientation policy.
 type ContextPreview struct {
+	Mode          ContextMode
 	Repository    string
 	Declared      []string
 	EntityCount   int
@@ -75,7 +115,7 @@ func previewError(code, operation string, err error) error {
 // ADR-0014 makes it a tool rather than only an instructions block, so every
 // client can reach it and a hook is an accelerator rather than a requirement.
 func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in contextInput) (*sdk.CallToolResult, any, error) {
-	preview, err := s.PreviewContext(ctx, in.Root)
+	preview, err := s.PreviewContext(ctx, in.Root, in.Mode)
 	if err != nil {
 		var previewFailure *contextPreviewError
 		if errors.As(err, &previewFailure) {
@@ -88,6 +128,7 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 	// structured half. Elsewhere the data carries the answer; here the prose
 	// is it, so dropping the content block loses everything and still says ok.
 	return success(preview.Context, map[string]any{
+		"mode":       preview.Mode,
 		"repository": preview.Repository, "declared": preview.Declared,
 		"entity_count": preview.EntityCount, "context": preview.Context,
 	}), nil, nil
@@ -95,7 +136,11 @@ func (s *Server) duskContext(ctx context.Context, _ *sdk.CallToolRequest, in con
 
 // PreviewContext assembles the exact dusk_context payload without involving
 // the MCP transport. It is the single read used by agents and by the browser.
-func (s *Server) PreviewContext(ctx context.Context, root string) (ContextPreview, error) {
+func (s *Server) PreviewContext(ctx context.Context, root string, mode ContextMode) (ContextPreview, error) {
+	mode, err := contextMode(mode, root)
+	if err != nil {
+		return ContextPreview{}, previewError("invalid_argument", "validate context", err)
+	}
 	repository, err := s.matchRepository(ctx, root)
 	if err != nil {
 		return ContextPreview{}, previewError("context_repository_resolution_failed", "resolve repository", err)
@@ -104,6 +149,9 @@ func (s *Server) PreviewContext(ctx context.Context, root string) (ContextPrevie
 	profile, err := s.contextProfile(ctx)
 	if err != nil {
 		return ContextPreview{}, previewError("context_profile_read_failed", "read context profile", err)
+	}
+	if mode == ContextRepository {
+		return s.repositoryContext(ctx, root, repository, profile)
 	}
 
 	entities, err := s.opts.Catalog.List(ctx, "", "")
@@ -143,9 +191,49 @@ func (s *Server) PreviewContext(ctx context.Context, root string) (ContextPrevie
 	rendered := truncate(body, profile.Budget)
 
 	return ContextPreview{
+		Mode:       mode,
 		Repository: repository, Declared: declared, EntityCount: held.total,
 		Budget: profile.Budget, Context: rendered, NoteKinds: noteKindNames(vocabulary),
 		FullNoteKinds: slices.Clone(profile.FullNoteKinds),
+	}, nil
+}
+
+func (s *Server) repositoryContext(ctx context.Context, root, repository string, profile contextconfig.Profile) (ContextPreview, error) {
+	var declared []string
+	var here []*duskv1alpha1.Note
+	if repository != "" {
+		var err error
+		declared, err = s.opts.Catalog.Declared(ctx, "", repository)
+		if err != nil {
+			return ContextPreview{}, previewError("catalog_read_failed", "read repository declarations", err)
+		}
+		here, err = s.opts.Catalog.Notes(ctx, "", index.NoteFilter{
+			Pinned: new(true), AboutRepository: repository, Limit: contextNotes,
+		})
+		if err != nil {
+			return ContextPreview{}, previewError("catalog_read_failed", "read repository notes", err)
+		}
+	}
+	vocabulary, err := s.opts.Catalog.Vocabulary(ctx, "")
+	if err != nil {
+		return ContextPreview{}, previewError("catalog_read_failed", "read vocabulary", err)
+	}
+	sections, _ := contextSections(declared, here, nil, estate{}, profile.FullNoteKinds)
+	sections[0].overflow = func(dropped []item) string {
+		return fmt.Sprintf("\n%d more pinned note(s) about this repository. Read named notes with `note(id)`; `get` the declared refs to find remaining attached notes:\n%s",
+			len(dropped), names(dropped))
+	}
+	reading, priority := profileSections(profile, sections)
+	local := func(section *section) bool { return section != sections[0] && section != sections[1] }
+	reading = slices.DeleteFunc(reading, local)
+	priority = slices.DeleteFunc(priority, local)
+	intro := header(root, repository, len(declared)) + "\nRepository refresh only. Keep the global requirements already loaded for this conversation. " +
+		"If they are missing or need updating, call `dusk_context` with `mode: \"startup\"`.\n"
+	body := assemble(profile.Budget, intro, "", reading, priority)
+	return ContextPreview{
+		Mode: ContextRepository, Repository: repository, Declared: declared, EntityCount: len(declared),
+		Budget: profile.Budget, Context: truncate(body, profile.Budget),
+		NoteKinds: noteKindNames(vocabulary), FullNoteKinds: slices.Clone(profile.FullNoteKinds),
 	}, nil
 }
 
@@ -172,7 +260,10 @@ func (s *Server) contextProfile(ctx context.Context) (contextconfig.Profile, err
 }
 
 func contextHeader(root, repository string, declared, total int, instructions string) string {
-	out := header(root, repository, declared, total)
+	out := header(root, repository, declared)
+	if total == 0 {
+		out += "\nThe catalog is empty.\n"
+	}
 	if instructions != "" {
 		out += "\n## Operator instructions\n\n" + instructions + "\n"
 	}
@@ -385,7 +476,7 @@ func contextSections(declared []string, here, elsewhere []*duskv1alpha1.Note, he
 }
 
 // header is the fixed opening, which is never spent and never cut.
-func header(root, repository string, declared, total int) string {
+func header(root, repository string, declared int) string {
 	var out strings.Builder
 
 	switch {
@@ -401,9 +492,6 @@ func header(root, repository string, declared, total int) string {
 
 	if repository != "" && declared == 0 {
 		out.WriteString("\nIt is in the catalog and declares no entities of its own.\n")
-	}
-	if total == 0 {
-		out.WriteString("\nThe catalog is empty.\n")
 	}
 	return out.String()
 }

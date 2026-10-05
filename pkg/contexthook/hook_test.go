@@ -199,6 +199,30 @@ func TestOptionsFromEnv(t *testing.T) {
 	}
 }
 
+func TestADR0092_HookDoesNotRepeatRetainedConversationContext(t *testing.T) {
+	for _, source := range []string{"startup", "clear", "resume", "compact", "fork", "", "future-source"} {
+		t.Run(source, func(t *testing.T) {
+			dusk := &stub{answer: orientation}
+			body, err := json.Marshal(map[string]string{"source": source, "cwd": t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, stderr := run(t, contexthook.Options{Endpoint: dusk.serve(t)}, string(body))
+			skip := source == "resume" || source == "compact" || source == "fork"
+			if stderr != "" {
+				t.Fatalf("unexpected diagnostic: %s", stderr)
+			}
+			if skip {
+				if stdout != "" || len(dusk.asked()) != 0 {
+					t.Fatalf("retained context was fetched or injected: requests=%d output=%q", len(dusk.asked()), stdout)
+				}
+			} else if stdout == "" || len(dusk.asked()) != 1 {
+				t.Fatalf("startup context missing: requests=%d output=%q", len(dusk.asked()), stdout)
+			}
+		})
+	}
+}
+
 func TestOptionsFromEnvWithNothingSet(t *testing.T) {
 	t.Setenv(contexthook.EndpointVar, "")
 	t.Setenv(contexthook.TokenVar, "")

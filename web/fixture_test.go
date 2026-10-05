@@ -177,7 +177,7 @@ func fixtureEntity() string {
 }`, fixtureRef, description)
 }
 
-func fixtureContext() string {
+func fixtureContext(mode string) string {
 	context := `# example/platform in the catalog
 
 ## Notes
@@ -213,12 +213,18 @@ full_note_kinds: [reference, todo, idea]
 ---
 Read the pinned gotchas before changing production.
 `
+	if mode == "repository" {
+		before, after, _ := strings.Cut(context, "## Global Notes")
+		_, scoped, _ := strings.Cut(after, "## What this repository declares")
+		context = before + "## What this repository declares" + strings.Split(scoped, "## Working with this catalog")[0]
+	}
 	tokenCount, err := tokens.Count(context)
 	if err != nil {
 		panic(err)
 	}
 	return fmt.Sprintf(`{
   "context": %q,
+  "mode": %q,
   "repository": "example/platform",
   "declared": [%q,"host:platform/build-runner-arm64-large-0007"],
   "entity_count": 1795,
@@ -227,7 +233,7 @@ Read the pinned gotchas before changing production.
   "token_estimate": %d,
   "token_encoding": %q,
   "profile": {"body":%q,"declared":true,"path":".dusk/context.md","proof":"proof-context","note_kinds":["gotcha","incident","runbook","howto","decision","reference","todo","idea","project"],"full_note_kinds":["reference","todo","idea"]}
-}`, context, fixtureRef, len(context), tokenCount, tokens.Encoding, profile)
+}`, context, mode, fixtureRef, len(context), tokenCount, tokens.Encoding, profile)
 }
 
 // stubAPI answers what the three routes read. Every payload is the wire shape
@@ -258,7 +264,7 @@ func stubAPI() map[string]string {
 ],"total":2}`, fixtureRef),
 		"/api/entities":               fmt.Sprintf(`{"entities":[{"ref":%q,"kind":"service","namespace":"platform","name":"checkout-api-gateway-replication-eu-west","title":"Checkout API gateway"}]}`, fixtureRef),
 		"/api/graph":                  fixtureGraph(),
-		"/api/context":                fixtureContext(),
+		"/api/context":                fixtureContext("startup"),
 		"/api/entities/" + fixtureRef: fixtureEntity(),
 		"/api/notes/note/9f2c1b":      `{"note":{"id":"note/9f2c1b","kind":"gotcha","body":"The replication lag alarm fires on the replica, never on the primary, so paging on the primary means nobody is paged.","pinned":true},"proof":"proof-note"}`,
 		"/api/status": `{"repositories":[
@@ -293,6 +299,23 @@ func fixtureHandler(shell []byte, files http.Handler, root http.FileSystem) http
 	api := stubAPI()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/context" {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			mode := r.URL.Query().Get("mode")
+			if mode == "" {
+				mode = "startup"
+			}
+			if (mode != "startup" && mode != "repository") || (mode == "repository" && strings.TrimSpace(r.URL.Query().Get("root")) == "") {
+				http.Error(w, `{"error":"repository refresh requires a repository and a valid mode"}`, http.StatusBadRequest)
+				return
+			}
+			if r.URL.Query().Get("root") == "fail/repository" {
+				http.Error(w, `{"error":"repository refresh unavailable"}`, http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = io.WriteString(w, fixtureContext(mode))
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/entities/"+fixtureRef {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			_, _ = io.WriteString(w, `{"ref":"`+fixtureRef+`","repository":"example/platform","path":"services/checkout/dusk.md","commit":"c0ffee","url":"https://github.com/example/platform/commit/c0ffee"}`)

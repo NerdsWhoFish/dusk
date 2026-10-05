@@ -33,11 +33,10 @@ func OptionsFromEnv() Options {
 	}
 }
 
-// payload is the hook invocation the client writes on standard input. One field
-// is read, because the rest of that schema is the moving target ADR-0014
-// accepted and nothing here needs any of it.
+// payload reads only the directory and conversation lifecycle from the client.
 type payload struct {
-	CWD string `json:"cwd"`
+	CWD    string `json:"cwd"`
+	Source string `json:"source"`
 }
 
 // injection is what the client reads back. The documented JSON form is used
@@ -56,7 +55,14 @@ type hookOutput struct {
 // is in, and writes what the client injects to out. Failures are silent and go
 // only to diag: a hook that errors where Dusk is irrelevant is worse than none.
 func Run(ctx context.Context, opts Options, in io.Reader, out, diag io.Writer) {
-	body, err := Fetch(ctx, opts, repositoryOf(ctx, rootOf(in, diag), diag))
+	invocation := invocationOf(in, diag)
+	// These events retain conversation history. The agent explicitly reloads
+	// startup if policy was lost; a transport or lifecycle event cannot tell us.
+	switch invocation.Source {
+	case "resume", "compact", "fork":
+		return
+	}
+	body, err := Fetch(ctx, opts, repositoryOf(ctx, invocation.CWD, diag))
 	if err != nil {
 		say(diag, "nothing injected: %v", err)
 		return
@@ -108,24 +114,28 @@ func PayloadFrom(stdin *os.File) io.Reader {
 	return stdin
 }
 
-// rootOf is the directory the session is in. The payload wins, because a client
+// invocationOf resolves the directory the session is in. The payload wins, because a client
 // may run a hook from somewhere other than the directory the session is about.
 // The process's own is what makes a hand run answer a session's question.
-func rootOf(in io.Reader, diag io.Writer) string {
+func invocationOf(in io.Reader, diag io.Writer) payload {
+	var decoded payload
 	if in != nil {
-		var decoded payload
 		// An absent, empty or unreadable payload is a hand run, not a failure.
-		if err := json.NewDecoder(in).Decode(&decoded); err == nil && decoded.CWD != "" {
-			return decoded.CWD
+		if err := json.NewDecoder(in).Decode(&decoded); err != nil {
+			decoded = payload{}
 		}
+	}
+	if decoded.CWD != "" {
+		return decoded
 	}
 
 	working, err := os.Getwd()
 	if err != nil {
 		say(diag, "no working directory, asking about the whole estate: %v", err)
-		return ""
+		return decoded
 	}
-	return working
+	decoded.CWD = working
+	return decoded
 }
 
 // say writes one diagnostic. It is flattened onto a single line here rather
