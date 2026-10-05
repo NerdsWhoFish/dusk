@@ -11,6 +11,7 @@ Accepted.
 Agents moving between repositories in one conversation need fresh repository warnings and declarations, but repeating operator policy, global notes, inventory, and the manual spends context without adding information.
 Mandatory startup policy, including tracing and privacy, must remain recoverable after a new conversation or loss of context.
 An MCP transport session may serve several conversations and is not evidence that a model still holds an earlier response.
+Claude replaces hook additionalContext longer than 10,000 characters with a file and a short preview, without instructing the agent to read the file. Required policy cannot depend on that implicit truncation path.
 
 ## Considered Options
 
@@ -26,6 +27,7 @@ Add dusk_context(root, mode), where mode is startup by default or repository. St
 The Agent context UI offers Full startup and Repository refresh, defaulting to startup. GET /api/context accepts the same mode and root and uses the same renderer; responses identify the selected mode. Tracing records only the validated fixed mode enum, without adding private context to telemetry.
 Clients load startup once per conversation, use repository mode for later repository changes, and request startup again when its policy was lost or intentionally needs refreshing. Compaction alone is not proof of loss. The server does not infer conversational memory or suppress explicit startup requests. This extends ADR-0091 and preserves ADR-0069 operator policy and ADR-0074 dual-representation behavior.
 A complete startup payload injected by the optional SessionStart hook satisfies the initial load; agents must not repeat the call merely because a hook delivered it. Generic AGENTS instructions or a shared MCP connection do not establish that the complete payload was loaded. The hook uses the explicit lifecycle source to skip automatic reloads for resume, compact, and fork, which carry conversation history. It loads full startup for startup, clear, absent, and unknown sources. This is a client lifecycle optimization, not server session deduplication: agents still request startup explicitly when mandatory policy is missing or stale. Compaction alone does not prove policy was lost.
+The hook injects a startup body unchanged only when it fits within 10,000 bytes, a conservative threshold under Claude's character limit. Larger responses produce a short instruction to fetch dusk_context(root, mode: startup) explicitly, identifying the instruction as not being the startup payload. This fallback never truncates mandatory policy or treats a preview as complete onboarding. The bound applies only to hook injection; an explicit MCP startup request still returns the full configured startup response.
 
 ## Consequences
 
@@ -35,6 +37,7 @@ A complete startup payload injected by the optional SessionStart hook satisfies 
 - New conversations and lost context can reliably recover mandatory tracing and privacy requirements.
 - Stateless selection works across shared MCP sessions, reconnects, and client implementations; browser previews show the same chosen response.
 - Hook-provided startup and retained conversation history avoid redundant automatic onboarding.
+- Oversized hook output has an explicit full-fetch recovery path instead of silently dropping mandatory policy.
 
 ### Bad
 
@@ -42,6 +45,7 @@ A complete startup payload injected by the optional SessionStart hook satisfies 
 - Operator policy may become stale during a long conversation until the client explicitly refreshes startup.
 - Repository refresh intentionally omits global warnings, so clients must retain startup context and read applicable full notes.
 - A resumed, compacted, or forked conversation that lost mandatory policy requires an explicit startup request; the hook cannot inspect model memory.
+- Oversized startup responses require an additional explicit fetch. A conservative byte threshold can trigger this fallback before the character limit for multibyte text.
 
 ### Rejected because
 

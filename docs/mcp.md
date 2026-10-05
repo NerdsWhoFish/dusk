@@ -322,6 +322,8 @@ On any other, what a hook prints goes to a debug log the agent never reads, so a
 
 The hook injects on fresh startup and `/clear`. It skips `resume`, `compact`, and `fork`, which carry conversation history, to avoid repeating global policy. Missing or unknown lifecycle sources still load startup for compatibility. An agent that has lost mandatory policy must explicitly request startup again; compaction by itself does not prove that policy was lost. See the [Claude Code lifecycle contract](https://code.claude.com/docs/en/hooks#sessionstart).
 
+Claude Code replaces hook strings above 10,000 characters with a file preview. The hook conservatively caps injection at 10,000 bytes; larger startup responses produce a short instruction to call `dusk_context` explicitly. It never truncates required policy or presents that recovery instruction as the complete startup payload.
+
 ### Configuring it
 
 Two environment variables, set where the client will inherit them:

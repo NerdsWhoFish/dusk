@@ -16,6 +16,10 @@ import (
 // prints goes to a debug log and the agent never sees it.
 const Event = "SessionStart"
 
+// Claude Code replaces oversized strings with a file preview. Counting bytes
+// conservatively stays below its character ceiling without truncating policy.
+const injectionLimit = 10000
+
 // Environment variables the hook is configured from. The token carries the same
 // name the server requires it under, because it is the same secret.
 const (
@@ -62,10 +66,19 @@ func Run(ctx context.Context, opts Options, in io.Reader, out, diag io.Writer) {
 	case "resume", "compact", "fork":
 		return
 	}
-	body, err := Fetch(ctx, opts, repositoryOf(ctx, invocation.CWD, diag))
+	root := repositoryOf(ctx, invocation.CWD, diag)
+	body, err := Fetch(ctx, opts, root)
 	if err != nil {
 		say(diag, "nothing injected: %v", err)
 		return
+	}
+	if len(body) > injectionLimit {
+		args, err := json.Marshal(map[string]string{"root": root, "mode": "startup"})
+		if err != nil {
+			say(diag, "nothing injected: %v", err)
+			return
+		}
+		body = "Dusk startup was not injected because it exceeds the hook output limit. Before acting, call dusk_context(" + string(args) + ") and read the complete startup policy and applicable pinned notes. This message is not the startup payload."
 	}
 
 	encoded, err := json.Marshal(injection{HookSpecificOutput: hookOutput{

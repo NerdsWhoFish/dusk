@@ -223,6 +223,30 @@ func TestADR0092_HookDoesNotRepeatRetainedConversationContext(t *testing.T) {
 	}
 }
 
+func TestADR0092_OversizedStartupRequiresExplicitReadInsteadOfPartialPolicy(t *testing.T) {
+	for _, body := range []string{strings.Repeat("x", 10000), strings.Repeat("x", 10001), strings.Repeat("界", 5000)} {
+		dusk := &stub{answer: body}
+		stdout, stderr := run(t, contexthook.Options{Endpoint: dusk.serve(t)}, `{"source":"startup","cwd":"/src/example/homelab"}`)
+		if stderr != "" {
+			t.Fatal(stderr)
+		}
+		var got injected
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatal(err)
+		}
+		injected := got.HookSpecificOutput.AdditionalContext
+		if len(body) <= 10000 {
+			if injected != body {
+				t.Fatal("an in-budget response changed")
+			}
+			continue
+		}
+		if len(injected) > 10000 || !strings.Contains(injected, `dusk_context({"mode":"startup","root":"/src/example/homelab"})`) || !strings.Contains(injected, "not the startup payload") {
+			t.Fatalf("missing bounded explicit startup recovery: %q", injected)
+		}
+	}
+}
+
 func TestOptionsFromEnvWithNothingSet(t *testing.T) {
 	t.Setenv(contexthook.EndpointVar, "")
 	t.Setenv(contexthook.TokenVar, "")
