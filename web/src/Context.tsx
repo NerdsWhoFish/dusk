@@ -429,9 +429,18 @@ export function Context() {
               <div className="context-budget">
                 <span style={{ width: `${ratio}%` }} />
               </div>
-              <p className="context-budget-copy">
-                {preview.bytes.toLocaleString()} of {preview.budget.toLocaleString()} bytes
-              </p>
+              <div className="context-output-size">
+                <p className="context-token-count">
+                  <strong>{preview.token_estimate.toLocaleString()}</strong> token estimate
+                </p>
+                <p className="context-budget-copy">
+                  {preview.bytes.toLocaleString()} of {preview.budget.toLocaleString()} bytes
+                </p>
+                <p className="context-token-help">
+                  This response only, using <code>{preview.token_encoding}</code>. Your model may
+                  count differently. Excludes inputs, tool schemas, and conversation history.
+                </p>
+              </div>
               <div className={`context-document ${raw ? "raw" : ""}`}>
                 {raw ? <pre>{preview.context}</pre> : <Markdown>{preview.context}</Markdown>}
               </div>

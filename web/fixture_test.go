@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/NerdsWhoFish/dusk/internal/tokens"
 	"github.com/NerdsWhoFish/dusk/web"
 )
 
@@ -212,6 +213,10 @@ full_note_kinds: [reference, todo, idea]
 ---
 Read the pinned gotchas before changing production.
 `
+	tokenCount, err := tokens.Count(context)
+	if err != nil {
+		panic(err)
+	}
 	return fmt.Sprintf(`{
   "context": %q,
   "repository": "example/platform",
@@ -219,8 +224,10 @@ Read the pinned gotchas before changing production.
   "entity_count": 1795,
   "budget": 8000,
   "bytes": %d,
+  "token_estimate": %d,
+  "token_encoding": %q,
   "profile": {"body":%q,"declared":true,"path":".dusk/context.md","proof":"proof-context","note_kinds":["gotcha","incident","runbook","howto","decision","reference","todo","idea","project"],"full_note_kinds":["reference","todo","idea"]}
-}`, context, fixtureRef, len(context), profile)
+}`, context, fixtureRef, len(context), tokenCount, tokens.Encoding, profile)
 }
 
 // stubAPI answers what the three routes read. Every payload is the wire shape

@@ -2203,12 +2203,38 @@ select,
   background: linear-gradient(90deg, var(--green), var(--yellow), var(--purple));
 }
 
+.context-output-size {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem 0;
+}
+
+.context-token-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.context-token-count strong {
+  color: var(--fg);
+  font: 600 1.25rem var(--mono);
+}
+
 .context-budget-copy {
   margin: 0;
-  padding: 0.5rem 1rem 0;
   color: var(--muted);
   font: 0.6875rem var(--mono);
-  text-align: right;
+}
+
+.context-token-help {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 .context-document {

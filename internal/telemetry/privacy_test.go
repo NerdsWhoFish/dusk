@@ -35,6 +35,10 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 	mux.HandleFunc("GET /entities/{id}", func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
 		span.SetAttributes(attribute.String("private", private))
+		span.SetAttributes(
+			attribute.Int("dusk.context.token_estimate", 123),
+			attribute.String("dusk.context.token_encoding", "o200k_base"),
+		)
 		span.AddEvent(private)
 		span.SetStatus(codes.Error, private)
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -53,10 +57,20 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 	if span.SpanContext.TraceID().String() != "0123456789abcdef0123456789abcdef" || span.Parent.SpanID().String() != "0123456789abcdef" {
 		t.Fatal("browser trace context was lost")
 	}
+	var tokenEstimate, tokenEncoding bool
 	for _, attr := range span.Attributes {
 		if strings.Contains(attr.Value.String(), private) {
 			t.Fatalf("private attribute exported: %s", attr.Key)
 		}
+		switch attr.Key {
+		case "dusk.context.token_estimate":
+			tokenEstimate = attr.Value.AsInt64() == 123
+		case "dusk.context.token_encoding":
+			tokenEncoding = attr.Value.AsString() == "o200k_base"
+		}
+	}
+	if !tokenEstimate || !tokenEncoding {
+		t.Fatal("response token metadata was lost")
 	}
 	if len(span.Events) > 0 || span.Status.Description != "" {
 		t.Fatal("private events or error message exported")

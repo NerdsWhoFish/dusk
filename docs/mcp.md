@@ -49,7 +49,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | Tool | What it answers |
 | --- | --- |
 | `search(query, kind?, limit?, offset?)` | "Where is the thing called X", by any word in it or any part of its name |
-| `get(ref, repository?, titles?)` | Everything about one entity, including its connections and every declaration or observation contributing it. `repository` selects one side of a duplicate |
+| `get(ref, repository?, titles?, note_offset?)` | Entity, connections, actions and attached note summaries. `repository` selects one side of a duplicate; `note_offset` continues the note index |
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
@@ -60,15 +60,15 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `declare(ref, proof, …)` | Create, correct, decommission, reactivate, or remove an entity declaration |
 | `relate(from, to, type, proof, …)` | Add, correct, or withdraw one exact outbound relation |
 | `repository(repository, dusk_md?, proof?)` | Read, create, or replace a repository's root `dusk.md` |
-| `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?, limit?, offset?)` | Read or record a gotcha, a runbook, an idea, a decision |
+| `note(kind?, body?, refs?, status?, pinned?, ref?, id?, proof?, limit?, offset?, titles?)` | List knowledge summaries, read a complete note by id, or record knowledge |
 | `kinds(namespace?, mint?, role?, aliases?, proof?)` | Read the vocabulary of kinds, or extend it |
 | `page(body?, proof?)` | Read or rewrite the homepage |
 
 `get` is deliberately fat, and bounded.
 An agent asking about an entity wants the whole picture, so it gets the description, attributes, relations, provenance, the notes attached to it, **and what can be done to it**, in one call rather than five.
-Notes come back whole rather than as ids to fetch, because a gotcha an agent has to spend another call on is a gotcha it will not read.
+Attached notes default to a warning index: kind, id, opening line, pin and closed status. Read applicable warnings with `note(id)` before acting. The full entity description and action prerequisites still arrive immediately.
 
-Fat is about what arrives, not about how much of it: the notes past the byte budget arrive named rather than whole, and `titles` names all of them ([ADR-0059](../adr/0059-what-a-list-may-not-leave-unsaid.md)).
+Set `titles: false` to include complete note bodies that fit the byte budget. Markdown and structured content use the same projection, so summary responses cannot carry hidden full bodies in their structured half ([ADR-0091](../adr/0091-agent-reads-expand-knowledge-deliberately.md)).
 A relation carries the title of what it points at, so choosing which of twenty-two related things to open does not cost twenty-two calls.
 Connection and dependent sections stop at 100 rows and state how many were omitted, so a broken or generated catalog cannot create an unbounded agent response.
 
@@ -132,6 +132,8 @@ Every tool here publishes an output schema, and a client is entitled to read the
 Where `data` already holds the answer in typed form nothing is repeated, but where the prose *is* the answer it must appear in both.
 `dusk_context` is that case, and returns its rendered body as `data.context`: without it, a session gets a repository name, a count, and `status: ok`, with every pinned note silently dropped.
 
+Agents should render one representation: Markdown `content`, or the required fields from `structuredContent`. Printing the entire result object duplicates the answer. Retain proof tokens, warnings, errors and continuation fields alongside the selected facts.
+
 An expected empty result is successful and says what was searched.
 An operational failure sets MCP `isError: true` and a stable snake-case code such as `catalog_read_failed`, `action_failed` or `stale_or_invalid_proof`.
 Confirmation requests remain successful answers because the agent must put the decision to its operator.
@@ -158,10 +160,10 @@ Words shorter than three characters are left to the prefix match, since a two-le
 
 `note` does both, for the same reason `page` does: the read is what yields the proof token the write needs, so a separate read tool would look optional.
 
-Passing no body asks what is there, narrowed by `kind`, `status` and `ref`.
+Passing no body asks what is there, narrowed by `kind`, `status` and `ref`. Lists default to summaries; `titles: false` requests bounded body expansion.
 Passing a body writes one.
 
-**An `id` on its own reads that one note** and returns the token to replace it, because that is the call a refused write against a note names and an instruction that does not work is worse than none.
+**An `id` on its own reads that complete note**, even when it exceeds the list body budget, and returns the token to replace it. Structured reads retain refs, pin/status, content hash and provenance. That is the call a refused write against a note names, and an instruction that does not work is worse than none.
 An `id` with something to change is a replacement, as it always was.
 
 An **idea** is a note of kind `idea`: something worth keeping that is not a description of anything.
@@ -279,6 +281,8 @@ The file is optional; omitting it keeps the default policy described above.
 
 The trusted operator UI exposes the same renderer at **Agent context**. It can preview any `owner/name` scope, choose full-body note kinds, edit the complete profile, and manage the notes whose pins fund future sessions. Those mutations use the same Git writer and proof-token rules as MCP writes.
 
+The preview shows a token estimate beside the byte budget. It counts the exact response Markdown locally with the embedded `o200k_base` vocabulary from [tiktoken-go/tokenizer](https://github.com/tiktoken-go/tokenizer). This is a response-size comparison, not billed call usage: other model encodings can differ, and inputs, tool schemas, conversation history, and protocol overhead are excluded. The HTTP API returns `token_estimate` and `token_encoding`; request traces record those two values without recording the response text.
+
 ## Injecting it at the start of a session
 
 [ADR-0014](../adr/0014-agent-context-injection.md) delivers context three ways, each an accelerator over the one below.
@@ -375,7 +379,7 @@ A limit is the size of a page that always starts at the first row, so asking for
 `search` and `note` both take `offset`, and the last page names none, because pointing past the end is its own small lie.
 
 **And a list too large to print whole names its tail rather than cutting it.**
-Notes arrive whole while they fit a byte budget; past it they arrive as their kind, their id and their opening line, which is what to pass back as `id`:
+By default, notes arrive as their kind, id and opening line. With `titles: false`, complete bodies are included only while they fit the byte budget; larger notes remain named and retrievable by `id`:
 
 ```text
 ## Notes
@@ -386,7 +390,7 @@ and pass an `id` to `note` for one of those whole.
 
 That is the same degradation `dusk_context` uses, and it is what bounds `get`: one `get` on a heavily annotated entity was 78,720 characters before it.
 Nothing is lost to the bound, because a note an agent knows exists is one call away and a note that silently vanished is not.
-`get(ref, titles: true)` names every attached note instead of printing any of them, for an agent that wants to know what is there without reading it.
+Both `get` indexes and `note` lists return at most 100 notes per call. `get(ref, note_offset: N)` preserves entity-note priority; `note(offset: N)` preserves the note list's order. Follow the continuation supplied by the same tool, preserving filters, repository selection and detail mode. Totals and next offsets are also present in structured content. An exhausted page reports that it is empty without claiming that no notes exist.
 
 ## What `changes` is for
 

@@ -1,9 +1,12 @@
 package mcp_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	duskv1alpha1 "github.com/NerdsWhoFish/dusk-plugin-sdk/gen/dusk/v1alpha1"
 
@@ -122,7 +125,7 @@ func TestADR0059_NotesTooLargeToPrintAreNamed(t *testing.T) {
 	seed(t, idx)
 	putNotes(t, idx, runbooks(35, "service:home/jellyfin"))
 
-	body := call(t, session, "get", map[string]any{"ref": "service:home/jellyfin"})
+	body := call(t, session, "get", map[string]any{"ref": "service:home/jellyfin", "titles": false})
 
 	if len(body) > 4*mcp.NotesBudget {
 		t.Errorf("get is %d bytes, want it bounded near the %d byte note budget",
@@ -163,6 +166,123 @@ func TestADR0059_GetCanNameNotesWithoutPrintingThem(t *testing.T) {
 	}
 	if !strings.Contains(body, "note") {
 		t.Errorf("titles does not say which call returns one whole:\n%s", first(body))
+	}
+}
+
+func TestNoteIndexesDoNotLeakBodiesThroughStructuredContent(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+	notes := runbooks(3, "service:home/jellyfin")
+	putNotes(t, idx, notes)
+	for _, tc := range []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{"get default", "get", map[string]any{"ref": "service:home/jellyfin"}},
+		{"get explicit titles", "get", map[string]any{"ref": "service:home/jellyfin", "titles": true}},
+		{"note list", "note", map[string]any{"ref": "service:home/jellyfin"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := session.CallTool(t.Context(), &sdk.CallToolParams{Name: tc.tool, Arguments: tc.args})
+			if err != nil || result.IsError {
+				t.Fatalf("call: %v, result: %#v", err, result)
+			}
+			for _, half := range []any{result.Content, result.StructuredContent} {
+				encoded, err := json.Marshal(half)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(string(encoded), "Steps go here") {
+					t.Fatal("summary response leaked a full note body")
+				}
+				for _, note := range notes {
+					if !strings.Contains(string(encoded), note.Id) || !strings.Contains(string(encoded), "Runbook") {
+						t.Fatalf("summary lost discoverability for %s", note.Id)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestOversizedNoteIsIndexedUntilExplicitlyRead(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+	note := runbooks(1, "service:home/jellyfin")[0]
+	note.Body = "# Important recovery warning\n\n" + strings.Repeat("RECOVERY_DETAIL ", mcp.NotesBudget)
+	putNotes(t, idx, []*duskv1alpha1.Note{note})
+	for _, tool := range []string{"get", "note"} {
+		result, err := session.CallTool(t.Context(), &sdk.CallToolParams{
+			Name: tool, Arguments: map[string]any{"ref": "service:home/jellyfin", "titles": false},
+		})
+		if err != nil || result.IsError {
+			t.Fatalf("call %s: %v, result: %#v", tool, err, result)
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "RECOVERY_DETAIL") || !strings.Contains(string(encoded), note.Id) {
+			t.Fatalf("%s failed to index an oversized note", tool)
+		}
+	}
+	result, err := session.CallTool(t.Context(), &sdk.CallToolParams{Name: "note", Arguments: map[string]any{"id": note.Id}})
+	if err != nil || result.IsError {
+		t.Fatalf("read note: %v, result: %#v", err, result)
+	}
+	for _, half := range []any{result.Content, result.StructuredContent} {
+		encoded, err := json.Marshal(half)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(string(encoded), "RECOVERY_DETAIL") != mcp.NotesBudget {
+			t.Fatal("explicit note read lost recovery instructions")
+		}
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"content_hash"`, `"provenance"`, note.ContentHash, note.Provenance.Version} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("explicit note read lost %s", field)
+		}
+	}
+}
+
+func TestEntityNoteOverflowCanBeReadWithoutRepeatingTheFirstPage(t *testing.T) {
+	session, idx := connect(t, nil)
+	seed(t, idx)
+	putNotes(t, idx, runbooks(105, "service:home/jellyfin"))
+	firstPage := call(t, session, "get", map[string]any{"ref": "service:home/jellyfin", "repository": "example/homelab", "titles": false})
+	if !strings.Contains(firstPage, "1-100 of 105") || !strings.Contains(firstPage, "offset: 100") {
+		t.Fatalf("get lost pagination: %s", first(firstPage))
+	}
+	if !strings.Contains(firstPage, `repository: "example/homelab", titles: false`) {
+		t.Fatal("continuation lost the selected repository or rendering mode")
+	}
+	secondPage := call(t, session, "get", map[string]any{"ref": "service:home/jellyfin", "note_offset": 100})
+	if !strings.Contains(secondPage, "101-105 of 105") {
+		t.Fatalf("get did not continue its note index: %s", first(secondPage))
+	}
+	for i := range 105 {
+		id := fmt.Sprintf(".dusk/runbook-%02d.md", i)
+		if strings.Count(firstPage+secondPage, id) != 1 {
+			t.Fatalf("%s was omitted or repeated across pages", id)
+		}
+	}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"get", map[string]any{"ref": "service:home/jellyfin", "note_offset": 105}},
+		{"note", map[string]any{"ref": "service:home/jellyfin", "offset": 105}},
+	} {
+		body := call(t, session, tc.tool, tc.args)
+		if !strings.Contains(body, "No notes on this page") || !strings.Contains(body, "105 note(s) matched") {
+			t.Fatalf("%s hid notes behind an exhausted page: %s", tc.tool, body)
+		}
 	}
 }
 

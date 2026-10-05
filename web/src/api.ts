@@ -71,6 +71,8 @@ export type ContextPreview = {
   entity_count: number;
   budget: number;
   bytes: number;
+  token_estimate: number;
+  token_encoding: string;
   profile: {
     body: string;
     declared: boolean;

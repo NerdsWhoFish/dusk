@@ -149,11 +149,7 @@ type Options struct {
 // instructions is the portable half of ADR-0014's context injection: an
 // interaction manual, not a knowledge dump, because it is spent on every
 // session before any work happens.
-const instructions = `Dusk is the internal developer platform, catalog and operational memory shared by one homelabber and their agents.
-
-Call dusk_context once at the start of a session, passing the current owner/name repository when known. It carries what is pinned worth knowing, what this operator has, and the manual for every tool here, so it is the call that makes the rest usable.
-
-Until then: search finds anything by a word in it, and its kind:namespace/name refs feed get. Knowledge of every sort is a note told apart only by kind, so a decision, an incident and a runbook all go through note rather than a tool of their own. Absence means nobody declared or observed something, never that it cannot exist.`
+const instructions = `Dusk is the operator's catalog and shared memory. Start with dusk_context(root: "owner/repo"). Use search to find kind:namespace/name refs for get; note(id) reads indexed knowledge. Read relevant warnings before acting. Writes need the returned proof. Render content or structuredContent once, never both. Absence means undocumented, not nonexistent.`
 
 // Server is the MCP surface over the catalog.
 type Server struct {
@@ -199,7 +195,7 @@ func (s *Server) sdkServer() *sdk.Server {
 
 	sdk.AddTool(server, resultTool("search", "Search the catalog for entities by any word in their name, kind, title, or description. The place to start."), s.search)
 
-	sdk.AddTool(server, resultTool("get", "Everything known about one entity, including its relations and what can be done to it. Takes a ref of the form kind:namespace/name, or `plugin:name` to read a plugin and see what it can be asked to do without naming an entity."), s.get)
+	sdk.AddTool(server, resultTool("get", "Read an entity, relations, actions and an index of attached notes. Read relevant warnings with note(id) before acting. Set titles:false for bounded note bodies. Accepts kind:namespace/name or plugin:name."), s.get)
 
 	sdk.AddTool(server, resultTool("neighbors", "Walk the graph outward from an entity to find what depends on it."), s.neighbors)
 
@@ -234,7 +230,7 @@ func (s *Server) sdkServer() *sdk.Server {
 	// Registered whether or not anything can be written: reading what has been
 	// written down is a read, and a deployment with nowhere to put a new note
 	// can still answer "what ideas do I have".
-	sdk.AddTool(server, resultTool("note", "Read or record something worth keeping that is not a description of any one thing: a gotcha, a runbook, an idea, the reason something is the way it is. Pass a body to write one, attaching it to the entities it concerns, or nothing to read what is there, narrowed by kind, status and what it is about. An id on its own reads that one note and returns the token to replace it. An idea about nothing in particular needs no refs. Close one with status done or dropped."), s.note)
+	sdk.AddTool(server, resultTool("note", "List knowledge summaries, or read a complete note by id. Set titles:false for bounded list bodies. Pass body and kind to create; id and proof to update. Attach refs to the systems concerned. Close work with status done or dropped."), s.note)
 
 	if s.opts.Writer != nil && s.opts.Tokens != nil {
 		sdk.AddTool(server, resultTool("declare", "Create, correct, decommission, reactivate, or remove an entity declaration. Fields are merged unless unset names them. Removing an included declaration is destructive and needs confirm. Requires the proof token from a read; use get with repository to select one side of a duplicate."), s.declare)
@@ -411,10 +407,14 @@ func noteMark(hit index.SearchResult) string {
 type getInput struct {
 	Ref        string `json:"ref" jsonschema:"entity ref, of the form kind:namespace/name, or plugin:name to read a plugin"`
 	Repository string `json:"repository,omitempty" jsonschema:"read the declaration from this exact owner/name repository when integrity reports the ref more than once"`
-	Titles     bool   `json:"titles,omitempty" jsonschema:"list the notes attached to it by kind, id and opening line instead of printing any of them whole, for finding out what is attached without reading it"`
+	Titles     *bool  `json:"titles,omitempty" jsonschema:"default true: index attached notes by kind, id and opening line; false includes bodies within a byte budget. Read a complete note with note(id)"`
+	NoteOffset int    `json:"note_offset,omitempty" jsonschema:"skip this many attached notes to continue an entity note index; each page holds at most 100"`
 }
 
 func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (*sdk.CallToolResult, any, error) {
+	if in.NoteOffset < 0 {
+		return failure("invalid_argument", errors.New("note_offset must not be negative")), nil, nil
+	}
 	// A bare `plugin:name` cannot collide with an entity ref, which always
 	// carries a namespace. Kept beside `plugin` rather than retired: ADR-0076
 	// shipped the context pointer naming it, and both call one renderer.
@@ -442,6 +442,9 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	if err != nil {
 		return failure("catalog_read_failed", err), nil, nil
 	}
+	totalNotes := len(notes)
+	start := min(in.NoteOffset, totalNotes)
+	notes = notes[start : start+min(defaultNoteLimit, totalNotes-start)]
 
 	titles, err := s.opts.Catalog.Titles(ctx, "", relatedRefs(in.Ref, relations))
 	if err != nil {
@@ -462,12 +465,32 @@ func (s *Server) get(ctx context.Context, _ *sdk.CallToolRequest, in getInput) (
 	// What can be done to a thing is part of the picture of that thing, and get
 	// is deliberately fat for exactly this reason (ADR-0041).
 	issued := s.issue(proof.FromGet, seen, changeThis(in.Ref, len(notes) > 0 && s.noteWrites()))
+	noteText, data := in.renderNotes(notes, totalNotes)
+	data["entity"], data["relations"], data["relations_omitted"] = entity, relations, omittedRelations
+	data["sources"], data["actions"] = sources, s.entityActions(entity.GetKind())
 	return success(renderEntity(entity, relations, omittedRelations, titles, sources)+
-		renderNotes(notes, len(notes), 0, getNotesBudget(in.Titles))+s.actionsFor(entity.GetKind())+
-		issued.markdown, issued.withData(map[string]any{
-		"entity": entity, "relations": relations, "relations_omitted": omittedRelations,
-		"notes": notes, "sources": sources, "actions": s.entityActions(entity.GetKind()),
-	})), nil, nil
+		noteText+s.actionsFor(entity.GetKind())+issued.markdown, issued.withData(data)), nil, nil
+}
+
+func (in getInput) renderNotes(notes []*duskv1alpha1.Note, totalNotes int) (string, map[string]any) {
+	noteText, noteData := renderNotes(notes, totalNotes, in.NoteOffset, getNotesBudget(in.Titles), "note_offset")
+	data := map[string]any{"notes": noteData, "notes_total": totalNotes, "notes_offset": in.NoteOffset}
+	if next := in.NoteOffset + len(notes); next < totalNotes {
+		data["notes_next_offset"] = next
+		noteText += in.continueNotes(next)
+	}
+	return noteText, data
+}
+
+func (in getInput) continueNotes(offset int) string {
+	args := fmt.Sprintf("ref: %q, note_offset: %d", in.Ref, offset)
+	if in.Repository != "" {
+		args += fmt.Sprintf(", repository: %q", in.Repository)
+	}
+	if in.Titles != nil {
+		args += fmt.Sprintf(", titles: %t", *in.Titles)
+	}
+	return "Continue with `get({ " + args + " })`.\n"
 }
 
 func (s *Server) actionsFor(kind string) string {
@@ -484,10 +507,8 @@ func (s *Server) entityActions(kind string) []plugin.Action {
 	return enabled(s.opts.Plugins.Actions(kind))
 }
 
-// Attached notes are never limited, so every one of them matched. What varies
-// is how much of each arrives, and no budget names them all.
-func getNotesBudget(titlesOnly bool) int {
-	if titlesOnly {
+func getNotesBudget(titlesOnly *bool) int {
+	if titlesOnly == nil || *titlesOnly {
 		return 0
 	}
 	return notesBudget
@@ -508,38 +529,62 @@ func changeThis(ref string, withNotes bool) string {
 // cost is bytes: ten runbooks printed whole were 67,836 characters.
 const notesBudget = 12000
 
-// renderNotes lists notes under a line saying how many matched and how many
-// arrived whole, printing them whole while they fit budget and naming the rest.
-// A note an agent knows exists is one it can ask for (ADR-0059).
-func renderNotes(notes []*duskv1alpha1.Note, total, offset, budget int) string {
+type noteView struct {
+	ID          string                   `json:"id"`
+	Kind        string                   `json:"kind"`
+	Summary     string                   `json:"summary"`
+	Body        string                   `json:"body,omitempty"`
+	Refs        []string                 `json:"refs,omitempty"`
+	Pinned      bool                     `json:"pinned,omitempty"`
+	Status      string                   `json:"status,omitempty"`
+	ContentHash string                   `json:"content_hash,omitempty"`
+	Provenance  *duskv1alpha1.Provenance `json:"provenance,omitempty"`
+}
+
+// Both representations share the selection so structured data cannot bypass
+// the body budget and silently undo a summary read.
+func renderNotes(notes []*duskv1alpha1.Note, total, offset, budget int, offsetName string) (string, []noteView) {
+	data := make([]noteView, 0, len(notes))
 	if len(notes) == 0 {
-		return ""
+		if total > 0 {
+			return fmt.Sprintf("\n## Notes\n\nNo notes on this page at %s %d; %d note(s) matched.\n", offsetName, offset, total), data
+		}
+		return "", data
 	}
 
 	var body strings.Builder
 	whole := 0
 	for _, note := range notes {
-		if body.Len() < budget {
-			body.WriteString(renderNote(note))
-			whole++
-			continue
+		view := noteView{
+			ID: note.GetId(), Kind: note.GetKind(), Summary: firstLine(note.GetBody()),
+			Refs: note.GetRefs(), Pinned: note.GetPinned(), Status: note.GetStatus(),
+			ContentHash: note.GetContentHash(), Provenance: note.GetProvenance(),
 		}
-		body.WriteString(nameNote(note))
+		full := renderNote(note)
+		if budget < 0 || body.Len()+len(full) <= budget {
+			body.WriteString(full)
+			view.Body = note.GetBody()
+			whole++
+		} else {
+			body.WriteString(nameNote(note))
+		}
+		data = append(data, view)
 	}
 
-	return "\n## Notes\n\n" + notesHeading(len(notes), total, offset, whole) + body.String()
+	return "\n## Notes\n\n" + notesHeading(len(notes), total, offset, whole, offsetName) + body.String(), data
 }
 
 // notesHeading says how many matched, which of them arrived and how many of
-// those arrived whole. The paging advice is only reachable from a read that has
-// a limit: attached notes are never limited, so shown always equals total.
-func notesHeading(shown, total, offset, whole int) string {
+// those arrived whole.
+func notesHeading(shown, total, offset, whole int, offsetName string) string {
 	said := fmt.Sprintf("%d note(s).", total)
 	if shown < total {
 		// Naming the next offset rather than advising a larger limit, which
 		// re-sends this page and so cannot get past a caller's size cap.
-		said = fmt.Sprintf("%d-%d of %d note(s), newest first. Ask again with `offset` %d for the next page, or narrow by `kind`, `status`, `pinned` or `ref`.",
-			offset+1, offset+shown, total, offset+shown)
+		said = fmt.Sprintf("%d-%d of %d note(s).", offset+1, offset+shown, total)
+		if offset+shown < total {
+			said += fmt.Sprintf(" Ask again with `%s` %d for the next page.", offsetName, offset+shown)
+		}
 	}
 
 	switch {
@@ -555,14 +600,19 @@ func notesHeading(shown, total, offset, whole int) string {
 // kind, its id, and the opening line ADR-0031 leaves as the closest thing a
 // note has to a title.
 func nameNote(note *duskv1alpha1.Note) string {
-	return fmt.Sprintf("**%s** · `%s`: %s (not shown)\n\n",
-		note.GetKind(), note.GetId(), firstLine(note.GetBody()))
+	return fmt.Sprintf("**%s**%s · `%s`: %s (not shown)\n\n",
+		note.GetKind(), noteMarks(note), note.GetId(), firstLine(note.GetBody()))
 }
 
 // renderNote is one note whole. A closed one is still shown, because "I already
 // had that idea and dropped it" is the answer somebody most needs and least
 // expects.
 func renderNote(note *duskv1alpha1.Note) string {
+	return fmt.Sprintf("**%s**%s · `%s`\n\n%s\n\n",
+		note.GetKind(), noteMarks(note), note.GetId(), strings.TrimSpace(note.GetBody()))
+}
+
+func noteMarks(note *duskv1alpha1.Note) string {
 	marks := ""
 	if note.GetPinned() {
 		marks += " · pinned"
@@ -570,8 +620,7 @@ func renderNote(note *duskv1alpha1.Note) string {
 	if status := note.GetStatus(); status != "" && status != duskmd.StatusOpen {
 		marks += " · " + status
 	}
-	return fmt.Sprintf("**%s**%s · `%s`\n\n%s\n\n",
-		note.GetKind(), marks, note.GetId(), strings.TrimSpace(note.GetBody()))
+	return marks
 }
 
 type neighborsInput struct {
@@ -807,11 +856,9 @@ type noteInput struct {
 	Ref    string `json:"ref,omitempty" jsonschema:"when reading, limit to notes about this entity"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"when reading, how many to return"`
 	Offset int    `json:"offset,omitempty" jsonschema:"when reading, skip this many before the page. Use it with limit to walk a result too large to answer at once"`
+	Titles *bool  `json:"titles,omitempty" jsonschema:"lists default to summaries; false includes bodies within a byte budget. A read by id always returns the complete note"`
 }
 
-// defaultNoteLimit bounds the query above what notesBudget could ever name, so
-// the budget decides what is shown rather than a row limit nobody sees hit. The
-// same reasoning as contextNotes: a cut at ten notes read as "there are ten".
 const defaultNoteLimit = 100
 
 // readNotes answers what has been written down, narrowed by kind, status and
@@ -822,8 +869,12 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 		Id: in.Id, Kind: in.Kind, Status: in.Status, Ref: in.Ref,
 		Pinned: in.Pinned, Limit: in.Limit, Offset: in.Offset,
 	}
-	if filter.Limit <= 0 {
+	if filter.Limit <= 0 || filter.Limit > defaultNoteLimit {
 		filter.Limit = defaultNoteLimit
+	}
+	budget := getNotesBudget(in.Titles)
+	if in.Id != "" {
+		budget = -1
 	}
 
 	notes, err := s.opts.Catalog.Notes(ctx, "", filter)
@@ -842,19 +893,23 @@ func (s *Server) readNotes(ctx context.Context, in noteInput) (*sdk.CallToolResu
 
 	// A read that matched nothing issues no token: it covers nothing, and a new
 	// note needs none, so the token would be a key offered to no door.
+	noteText, noteData := renderNotes(notes, total, filter.Offset, budget, "offset")
 	page := map[string]any{
-		"notes": notes, "total": total, "limit": filter.Limit, "offset": filter.Offset,
+		"notes": noteData, "total": total, "limit": filter.Limit, "offset": filter.Offset,
 	}
 	if filter.Offset+len(notes) < total {
 		page["next_offset"] = filter.Offset + len(notes)
 	}
 
 	if len(notes) == 0 {
+		if total > 0 {
+			return success(noteText, page), nil, nil
+		}
 		return success(describeNothing(in), page), nil, nil
 	}
 	issued := s.issue(proof.FromNote, seen,
 		"Pass it to `note` with the `id` of one of the above to replace or close it.")
-	return success(renderNotes(notes, total, filter.Offset, notesBudget)+issued.markdown,
+	return success(noteText+issued.markdown,
 		issued.withData(page)), nil, nil
 }
 

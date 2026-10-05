@@ -125,6 +125,36 @@ Ask before restarting the NAS.
 	}
 }
 
+func TestADR0091_CompactContextPreservesMandatoryPolicyAndWarningIndex(t *testing.T) {
+	idx := newIndex(t)
+	seed(t, idx)
+	policy := "Require structured logs, distributed tracing, W3C propagation and browser RUM. Never collect secrets or personal information."
+	profile := []byte("---\ndusk: context/v1\nbudget: 8000\ninventory: counts\nfull_note_kinds: []\n---\n" + policy)
+	pinned := []*duskv1alpha1.Note{
+		note("tracing", "reference", "# Telemetry delivery requirements\n\n"+strings.Repeat("Detailed procedures. ", 1000), true),
+		note("recovery", "gotcha", "# Restore requires an offline backup\n\n"+strings.Repeat("Recovery instructions. ", 1000), true),
+	}
+	if err := idx.PutCatalog(t.Context(), "example/config", mainRef, nil, nil, pinned, nil, profile); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.SetDefaultView(t.Context(), "example/config", mainRef); err != nil {
+		t.Fatal(err)
+	}
+	server := mcp.New(mcp.Options{Catalog: idx, Writer: &recordingWriter{notesGo: "example/config"}})
+	preview, err := server.PreviewContext(t.Context(), homelabRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{policy, ".dusk/tracing.md", ".dusk/recovery.md", "Restore requires an offline backup"} {
+		if !strings.Contains(preview.Context, required) {
+			t.Fatalf("compact context lost %q", required)
+		}
+	}
+	if len(preview.Context) > preview.Budget || strings.Contains(preview.Context, "Detailed procedures.") || strings.Contains(preview.Context, "Recovery instructions.") {
+		t.Fatal("compact context expanded procedural bodies or exceeded its budget")
+	}
+}
+
 func TestADR0050_PinnedNotesReachTheContext(t *testing.T) {
 	idx := newIndex(t)
 	seed(t, idx)
