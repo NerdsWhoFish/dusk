@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
 import { handle } from "./App";
@@ -6,6 +6,7 @@ import { Markdown } from "./Markdown";
 import { opening } from "./Notes";
 import {
   api,
+  type ContextMode,
   type ContextPreview,
   type Note,
   type NotePage,
@@ -31,6 +32,9 @@ const emptyNote: Note = {
 export function Context() {
   const [root, setRoot] = useState("");
   const [activeRoot, setActiveRoot] = useState("");
+  const [mode, setMode] = useState<ContextMode>("startup");
+  const [contextBusy, setContextBusy] = useState(false);
+  const contextRequest = useRef(0);
   const [preview, setPreview] = useState<ContextPreview | null>(null);
   const [repositories, setRepositories] = useState<RepositoryStatus[]>([]);
   const [notePage, setNotePage] = useState<NotePage | null>(null);
@@ -53,18 +57,26 @@ export function Context() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerIndex, setPickerIndex] = useState(0);
 
-  const loadContext = useCallback((scope: string) => {
+  const loadContext = useCallback((scope: string, requestedMode: ContextMode = "startup") => {
+    const request = ++contextRequest.current;
+    setContextBusy(true);
     setProblem(undefined);
     return api
-      .context(scope)
+      .context(scope, requestedMode)
       .then((data) => {
+        if (request !== contextRequest.current) return;
         setPreview(data);
         setPolicy(data.profile.body);
         setFullNoteKinds(data.profile.full_note_kinds);
         setActiveRoot(data.repository || scope);
         return data;
       })
-      .catch(handle(setProblem));
+      .catch((error) => {
+        if (request === contextRequest.current) handle(setProblem)(error);
+      })
+      .finally(() => {
+        if (request === contextRequest.current) setContextBusy(false);
+      });
   }, []);
 
   const loadNotes = useCallback((offset = 0, repository = "") => {
@@ -131,9 +143,12 @@ export function Context() {
   }, [repositories, root]);
 
   const applyScope = (scope: string) => {
+    if (mode === "repository" && !scope.trim()) return;
     setPickerOpen(false);
     setRoot(scope);
-    void loadContext(scope).then((data) => loadNotes(0, data?.repository || scope));
+    void loadContext(scope, mode).then((data) => {
+      if (data) return loadNotes(0, data.repository || scope);
+    });
   };
 
   const showContext = (event: FormEvent) => {
@@ -344,6 +359,22 @@ export function Context() {
       </header>
 
       <form className="context-scope" onSubmit={showContext}>
+        <fieldset className="context-mode" aria-describedby="context-mode-help">
+          <legend>Context mode</legend>
+          <div className="context-mode-options">
+            <button className="btn secondary" type="button" aria-pressed={mode === "startup"} onClick={() => setMode("startup")}>
+              Full startup
+            </button>
+            <button className="btn secondary" type="button" aria-pressed={mode === "repository"} onClick={() => setMode("repository")}>
+              Repository refresh
+            </button>
+          </div>
+        </fieldset>
+        <p id="context-mode-help">
+          {mode === "startup"
+            ? "Includes global instructions and pinned context. Load once per conversation."
+            : "Refreshes the selected repository only. Global startup context is omitted."}
+        </p>
         <label htmlFor="context-root">Repository scope</label>
         <div>
           <div className="repository-picker">
@@ -361,6 +392,7 @@ export function Context() {
               aria-autocomplete="list"
               aria-expanded={pickerOpen && repositoryMatches.length > 0}
               aria-controls="context-repository-results"
+              aria-describedby={mode === "repository" && !root.trim() ? "context-repository-required" : undefined}
               aria-activedescendant={pickerOpen ? `context-repository-${pickerIndex}` : undefined}
               placeholder="Type an owner or repository"
               autoComplete="off"
@@ -387,13 +419,13 @@ export function Context() {
               </ul>
             )}
           </div>
-          <button className="btn" type="submit">
-            Preview
+          <button className="btn" type="submit" disabled={contextBusy || (mode === "repository" && !root.trim())}>
+            {contextBusy ? "Loading..." : "Preview"}
           </button>
         </div>
-        <p>
-          {activeRoot ? <code>{`dusk_context({ root: "${activeRoot}" })`}</code> : "Whole-estate context"}
-        </p>
+        {mode === "repository" && !root.trim() && (
+          <p id="context-repository-required">Choose a repository to preview a refresh.</p>
+        )}
       </form>
 
       {problem && <p className="hint err context-alert" role="alert">{problem}</p>}
@@ -401,11 +433,13 @@ export function Context() {
       {proposal && <Proposal result={proposal} />}
 
       <div className="context-grid">
-        <section className="context-preview" aria-busy={!preview}>
+        <section className="context-preview" aria-busy={contextBusy}>
           <header>
             <div>
-              <p className="eyebrow">Exact output</p>
-              <strong>{preview?.repository || "Entire catalog"}</strong>
+              <p className="eyebrow">
+                {preview ? `Exact output · ${preview.mode === "repository" ? "Repository refresh" : "Full startup"}` : "Loading output"}
+              </p>
+              <strong>{activeRoot || "Entire catalog"}</strong>
             </div>
             <div className="context-preview-actions">
               {activeRoot && (
@@ -426,6 +460,9 @@ export function Context() {
 
           {preview ? (
             <>
+              <p className="context-call">
+                <code>{`dusk_context(${JSON.stringify({ ...(activeRoot ? { root: activeRoot } : {}), mode: preview.mode })})`}</code>
+              </p>
               <div className="context-budget">
                 <span style={{ width: `${ratio}%` }} />
               </div>
@@ -459,13 +496,16 @@ export function Context() {
               onClick={() => setPolicyOpen((open) => !open)}
             >
               <span>
-                <span className="eyebrow">Policy</span>
+                <span className="eyebrow">Startup instructions</span>
                 <strong>{preview?.profile.path ?? ".dusk/context.md"}</strong>
               </span>
               <span aria-hidden="true">{policyOpen ? "−" : "+"}</span>
             </button>
             {policyOpen && (
               <div className="context-policy">
+                <p>
+                  This global policy applies to full startup context. Repository refreshes omit these instructions.
+                </p>
                 <p>
                   New note kinds stay compact automatically. Opt out only when a kind's full body belongs in every agent's initial context.
                 </p>
@@ -484,13 +524,13 @@ export function Context() {
                   <small>Unchecked kinds render as a title with a nested note(id) read call.</small>
                 </fieldset>
                 <textarea
-                  aria-label="Agent context policy"
+                  aria-label="Global startup instructions"
                   value={policy}
                   onChange={(event) => setPolicy(event.target.value)}
                   spellCheck={false}
                 />
                 <button className="btn" type="button" disabled={policyBusy} onClick={savePolicy}>
-                  {policyBusy ? "Saving..." : "Save policy"}
+                  {policyBusy ? "Saving..." : "Save startup policy"}
                 </button>
               </div>
             )}

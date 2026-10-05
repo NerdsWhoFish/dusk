@@ -38,6 +38,7 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 		span.SetAttributes(
 			attribute.Int("dusk.context.token_estimate", 123),
 			attribute.String("dusk.context.token_encoding", "o200k_base"),
+			attribute.String("dusk.context.mode", "repository"),
 		)
 		span.AddEvent(private)
 		span.SetStatus(codes.Error, private)
@@ -57,7 +58,7 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 	if span.SpanContext.TraceID().String() != "0123456789abcdef0123456789abcdef" || span.Parent.SpanID().String() != "0123456789abcdef" {
 		t.Fatal("browser trace context was lost")
 	}
-	var tokenEstimate, tokenEncoding bool
+	var tokenEstimate, tokenEncoding, contextMode bool
 	for _, attr := range span.Attributes {
 		if strings.Contains(attr.Value.String(), private) {
 			t.Fatalf("private attribute exported: %s", attr.Key)
@@ -65,11 +66,13 @@ func TestHTTPTraceAndLogKeepCorrelationWithoutPrivateRequestData(t *testing.T) {
 		switch attr.Key {
 		case "dusk.context.token_estimate":
 			tokenEstimate = attr.Value.AsInt64() == 123
+		case "dusk.context.mode":
+			contextMode = attr.Value.AsString() == "repository"
 		case "dusk.context.token_encoding":
 			tokenEncoding = attr.Value.AsString() == "o200k_base"
 		}
 	}
-	if !tokenEstimate || !tokenEncoding {
+	if !tokenEstimate || !tokenEncoding || !contextMode {
 		t.Fatal("response token metadata was lost")
 	}
 	if len(span.Events) > 0 || span.Status.Description != "" {

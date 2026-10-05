@@ -22,10 +22,11 @@ import (
 type fixedAgentContext struct {
 	preview mcp.ContextPreview
 	root    string
+	mode    mcp.ContextMode
 }
 
-func (f *fixedAgentContext) PreviewContext(_ context.Context, root string) (mcp.ContextPreview, error) {
-	f.root = root
+func (f *fixedAgentContext) PreviewContext(_ context.Context, root string, mode mcp.ContextMode) (mcp.ContextPreview, error) {
+	f.root, f.mode = root, mode
 	return f.preview, nil
 }
 
@@ -109,6 +110,7 @@ func postAPI(t *testing.T, handler http.Handler, target, body string) *httptest.
 
 func TestContextAPIUsesTheAgentRendererAndReturnsTheEditableProfile(t *testing.T) {
 	agent := &fixedAgentContext{preview: mcp.ContextPreview{
+		Mode:       mcp.ContextStartup,
 		Repository: "example/homelab", Declared: []string{"service:home/jellyfin"},
 		EntityCount: 42, Budget: 8000, Context: "# Dusk context\n\nExact agent payload.\n",
 		NoteKinds: []string{"gotcha", "reference"}, FullNoteKinds: []string{"reference"},
@@ -177,6 +179,42 @@ Read every pinned note.
 	}
 	if profile.token != answer.Profile.Proof || string(profile.written) != replacement {
 		t.Fatalf("token = %q, written = %q", profile.token, profile.written)
+	}
+}
+
+func TestContextAPIForwardsRepositoryModeAndCountsItsPayload(t *testing.T) {
+	agent := &fixedAgentContext{preview: mcp.ContextPreview{
+		Mode: mcp.ContextRepository, Repository: "example/homelab",
+		Context: "# Repository refresh only\n", Budget: 8000,
+	}}
+	handler := build(t, setup{
+		store: registered(), catalog: emptyCatalog(t), context: agent,
+		env: map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+	rec := get(t, handler, "/api/context?root=example%2Fhomelab&mode=repository")
+	var answer struct {
+		Mode          string `json:"mode"`
+		TokenEstimate int    `json:"token_estimate"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &answer) != nil {
+		t.Fatalf("preview failed: %d %s", rec.Code, rec.Body.String())
+	}
+	want, err := texttokens.Count(agent.preview.Context)
+	if err != nil || answer.TokenEstimate != want || answer.Mode != "repository" || agent.mode != mcp.ContextRepository || agent.root != "example/homelab" {
+		t.Fatalf("mode or payload mismatch: %+v, renderer=%+v", answer, agent)
+	}
+}
+
+func TestContextAPIRejectsInvalidRefresh(t *testing.T) {
+	handler := build(t, setup{
+		store: registered(), catalog: emptyCatalog(t), context: mcp.New(mcp.Options{}),
+		env: map[string]string{"DUSK_TRUSTED_NETWORK": "true"},
+	})
+	for _, target := range []string{"/api/context?mode=repository", "/api/context?mode=unknown", "/api/context?mode=repository&root=%2Ftmp%2Fexample%2Fhomelab"} {
+		rec := get(t, handler, target)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s = %d, want 400", target, rec.Code)
+		}
 	}
 }
 

@@ -141,7 +141,7 @@ func TestADR0091_CompactContextPreservesMandatoryPolicyAndWarningIndex(t *testin
 		t.Fatal(err)
 	}
 	server := mcp.New(mcp.Options{Catalog: idx, Writer: &recordingWriter{notesGo: "example/config"}})
-	preview, err := server.PreviewContext(t.Context(), homelabRoot)
+	preview, err := server.PreviewContext(t.Context(), homelabRoot, mcp.ContextStartup)
 	if err != nil {
 		t.Fatal(err)
 	}

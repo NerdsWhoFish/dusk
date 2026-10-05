@@ -53,7 +53,7 @@ One tool per schema operation would produce thirty tools and cost a dozen calls 
 | `neighbors(ref, depth?)` | "What breaks if this goes away" |
 | `changes()` | What Dusk last read from git, per repository |
 | `drift(undeclared)` | What the catalog claims and reality does not support. `undeclared` adds what is running and written down nowhere |
-| `dusk_context(root?)` | The operator's estate and what they pinned worth knowing, tailored to an exact `owner/name` repository |
+| `dusk_context(root?, mode?)` | Full startup context by default, or an explicit repository refresh for an exact `owner/name` |
 | `plugin(name?)` | Every installed integration, what each puts in the catalog and what each can be told to do. `name` reads one whole |
 | `invoke(ref?, action?, params?, proof?, confirm?, preview?, idempotency_key?, plugin?, handle?)` | Do something from what `get` or `plugin` offered, or poll an asynchronous handle with `plugin` and `handle` |
 | `configure(plugin, settings?, instance?, version?, proof?)` | Read a plugin's non-sensitive configuration and its version/proof, or pass both back to change it |
@@ -190,6 +190,16 @@ Full rules, roles and their consequences: [`docs/kinds.md`](kinds.md).
 
 ## What `dusk_context` spends its budget on
 
+`mode` chooses `startup` (the default) or `repository` ([ADR-0092](../adr/0092-repository-context-refresh-is-explicit-and-stateless.md)). Load startup once per conversation to retain mandatory operator policy, including telemetry and privacy requirements. When changing repositories later in that conversation, request `dusk_context(root: "owner/repo", mode: "repository")` for fresh repository declarations and relevant pinned notes. Read applicable note bodies before acting.
+
+Repository refresh requires a nonempty exact `owner/name`. It omits operator instructions, global pinned notes, estate inventory, and the manual. An unknown valid repository is reported as unknown, with no global fallback. This mode assumes the conversation still holds startup policy; it is not sufficient onboarding by itself. Invalid modes and missing or malformed repository roots are errors.
+
+If a session-start hook already injected the complete Dusk startup payload, that satisfies the initial load; do not call again just because the hook delivered it. Generic agent instructions, MCP server instructions, and a shared connection are not evidence that the complete payload was received.
+
+Request `mode: "startup"` again when startup policy was lost or deliberately needs refreshing. Compaction does not require another full read when its summary still preserves the policy. Every explicit startup request returns full startup context, even after another request in the same MCP session. The server never equates a transport session with a conversation or guesses what the model remembers. The response's `mode` identifies the selected scope.
+
+The sections below describe startup mode. Repository refresh uses the same profile budget and note rendering policy for its repository sections.
+
 The context has a hard byte ceiling, because every session pays for it whether or not it ever touches Dusk ([ADR-0014](../adr/0014-agent-context-injection.md)).
 It carries four budgeted sections plus a fixed manual, and pinning is how something earns a place in the two that matter most.
 
@@ -279,7 +289,7 @@ Ask before restarting storage or changing network policy.
 The budget is 1024 through 32768 bytes, and the markdown body is operator instruction included in the same budget.
 The file is optional; omitting it keeps the default policy described above.
 
-The trusted operator UI exposes the same renderer at **Agent context**. It can preview any `owner/name` scope, choose full-body note kinds, edit the complete profile, and manage the notes whose pins fund future sessions. Those mutations use the same Git writer and proof-token rules as MCP writes.
+The trusted operator UI exposes the same renderer at **Agent context**. Select **Full startup** (the default) or **Repository refresh** to preview the corresponding MCP response. Repository refresh needs an `owner/name` scope. `GET /api/context?root=owner/repo&mode=repository` uses the same renderer, defaults to startup when mode is omitted, and returns the selected `mode` in its metadata. The UI can also choose full-body note kinds, edit the complete profile, and manage the notes whose pins fund future sessions. Those mutations use the same Git writer and proof-token rules as MCP writes.
 
 The preview shows a token estimate beside the byte budget. It counts the exact response Markdown locally with the embedded `o200k_base` vocabulary from [tiktoken-go/tokenizer](https://github.com/tiktoken-go/tokenizer). This is a response-size comparison, not billed call usage: other model encodings can differ, and inputs, tool schemas, conversation history, and protocol overhead are excluded. The HTTP API returns `token_estimate` and `token_encoding`; request traces record those two values without recording the response text.
 
@@ -309,6 +319,10 @@ Wire it into Claude Code as a `SessionStart` hook, in `~/.claude/settings.json` 
 
 `SessionStart` is the event because it is one of only three whose output reaches the model's context.
 On any other, what a hook prints goes to a debug log the agent never reads, so a hook on the wrong event runs, exits zero, and injects nothing.
+
+The hook injects on fresh startup and `/clear`. It skips `resume`, `compact`, and `fork`, which carry conversation history, to avoid repeating global policy. Missing or unknown lifecycle sources still load startup for compatibility. An agent that has lost mandatory policy must explicitly request startup again; compaction by itself does not prove that policy was lost. See the [Claude Code lifecycle contract](https://code.claude.com/docs/en/hooks#sessionstart).
+
+Claude Code replaces hook strings above 10,000 characters with a file preview. The hook conservatively caps injection at 10,000 bytes; larger startup responses produce a short instruction to call `dusk_context` explicitly. It never truncates required policy or presents that recovery instruction as the complete startup payload.
 
 ### Configuring it
 

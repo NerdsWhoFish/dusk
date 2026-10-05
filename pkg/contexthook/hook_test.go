@@ -199,6 +199,54 @@ func TestOptionsFromEnv(t *testing.T) {
 	}
 }
 
+func TestADR0092_HookDoesNotRepeatRetainedConversationContext(t *testing.T) {
+	for _, source := range []string{"startup", "clear", "resume", "compact", "fork", "", "future-source"} {
+		t.Run(source, func(t *testing.T) {
+			dusk := &stub{answer: orientation}
+			body, err := json.Marshal(map[string]string{"source": source, "cwd": t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, stderr := run(t, contexthook.Options{Endpoint: dusk.serve(t)}, string(body))
+			skip := source == "resume" || source == "compact" || source == "fork"
+			if stderr != "" {
+				t.Fatalf("unexpected diagnostic: %s", stderr)
+			}
+			if skip {
+				if stdout != "" || len(dusk.asked()) != 0 {
+					t.Fatalf("retained context was fetched or injected: requests=%d output=%q", len(dusk.asked()), stdout)
+				}
+			} else if stdout == "" || len(dusk.asked()) != 1 {
+				t.Fatalf("startup context missing: requests=%d output=%q", len(dusk.asked()), stdout)
+			}
+		})
+	}
+}
+
+func TestADR0092_OversizedStartupRequiresExplicitReadInsteadOfPartialPolicy(t *testing.T) {
+	for _, body := range []string{strings.Repeat("x", 10000), strings.Repeat("x", 10001), strings.Repeat("界", 5000)} {
+		dusk := &stub{answer: body}
+		stdout, stderr := run(t, contexthook.Options{Endpoint: dusk.serve(t)}, `{"source":"startup","cwd":"/src/example/homelab"}`)
+		if stderr != "" {
+			t.Fatal(stderr)
+		}
+		var got injected
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatal(err)
+		}
+		injected := got.HookSpecificOutput.AdditionalContext
+		if len(body) <= 10000 {
+			if injected != body {
+				t.Fatal("an in-budget response changed")
+			}
+			continue
+		}
+		if len(injected) > 10000 || !strings.Contains(injected, `dusk_context({"mode":"startup","root":"/src/example/homelab"})`) || !strings.Contains(injected, "not the startup payload") {
+			t.Fatalf("missing bounded explicit startup recovery: %q", injected)
+		}
+	}
+}
+
 func TestOptionsFromEnvWithNothingSet(t *testing.T) {
 	t.Setenv(contexthook.EndpointVar, "")
 	t.Setenv(contexthook.TokenVar, "")
