@@ -9,9 +9,12 @@ import (
 
 	"github.com/NerdsWhoFish/dusk/internal/contextconfig"
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	"github.com/NerdsWhoFish/dusk/internal/tokens"
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/duskmd"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AgentContext is the exact renderer behind dusk_context.
@@ -43,10 +46,20 @@ func (s *Server) handleAPIContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tokenCount, err := tokens.Count(preview.Context)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	trace.SpanFromContext(r.Context()).SetAttributes(
+		attribute.Int("dusk.context.token_estimate", tokenCount),
+		attribute.String("dusk.context.token_encoding", tokens.Encoding),
+	)
 	answer := map[string]any{
 		"context": preview.Context, "repository": preview.Repository,
 		"declared": preview.Declared, "entity_count": preview.EntityCount,
 		"budget": preview.Budget, "bytes": len(preview.Context),
+		"token_estimate": tokenCount, "token_encoding": tokens.Encoding,
 	}
 	profile, err := s.readContextFile(r.Context())
 	if err != nil {

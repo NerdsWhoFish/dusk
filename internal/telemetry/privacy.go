@@ -38,7 +38,8 @@ func (s privateSpan) Attributes() []attribute.KeyValue {
 	for _, attr := range s.ReadOnlySpan.Attributes() {
 		switch attr.Key {
 		case "http.route", "http.request.method", "http.method", "http.response.status_code", "http.status_code",
-			"http.request.body.size", "http.response.body.size", "network.protocol.version":
+			"http.request.body.size", "http.response.body.size", "network.protocol.version",
+			"dusk.context.token_estimate", "dusk.context.token_encoding":
 			safe = append(safe, attr)
 		}
 	}

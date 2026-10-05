@@ -14,6 +14,7 @@ import (
 	"github.com/NerdsWhoFish/dusk/internal/contextconfig"
 	"github.com/NerdsWhoFish/dusk/internal/index"
 	"github.com/NerdsWhoFish/dusk/internal/mcp"
+	texttokens "github.com/NerdsWhoFish/dusk/internal/tokens"
 	"github.com/NerdsWhoFish/dusk/internal/write"
 	"github.com/NerdsWhoFish/dusk/pkg/proof"
 )
@@ -130,12 +131,14 @@ Read every pinned note.
 		t.Fatalf("GET context = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 	var answer struct {
-		Context    string   `json:"context"`
-		Repository string   `json:"repository"`
-		Declared   []string `json:"declared"`
-		Budget     int      `json:"budget"`
-		Bytes      int      `json:"bytes"`
-		Profile    struct {
+		Context       string   `json:"context"`
+		Repository    string   `json:"repository"`
+		Declared      []string `json:"declared"`
+		Budget        int      `json:"budget"`
+		Bytes         int      `json:"bytes"`
+		TokenEstimate int      `json:"token_estimate"`
+		TokenEncoding string   `json:"token_encoding"`
+		Profile       struct {
 			Body          string   `json:"body"`
 			Proof         string   `json:"proof"`
 			Path          string   `json:"path"`
@@ -151,6 +154,10 @@ Read every pinned note.
 	}
 	if answer.Repository != agent.preview.Repository || answer.Budget != agent.preview.Budget || answer.Bytes != len(agent.preview.Context) {
 		t.Fatalf("answer = %+v", answer)
+	}
+	wantTokens, err := texttokens.Count(agent.preview.Context)
+	if err != nil || answer.TokenEstimate != wantTokens || answer.TokenEncoding != texttokens.Encoding {
+		t.Fatalf("token estimate = %d (%s), want %d (%s): %v", answer.TokenEstimate, answer.TokenEncoding, wantTokens, texttokens.Encoding, err)
 	}
 	if answer.Profile.Path != contextconfig.Path || answer.Profile.Proof == "" || answer.Profile.Body != string(profile.body) {
 		t.Fatalf("profile = %+v", answer.Profile)
