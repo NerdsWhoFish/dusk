@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"testing/synctest"
@@ -52,4 +53,67 @@ func TestSchedulerStartsPluginsAddedAfterBoot(t *testing.T) {
 		cancel()
 		synctest.Wait()
 	})
+}
+
+func TestSchedulerRemovalClearsHealth(t *testing.T) {
+	source := &scheduledSource{}
+	scheduler := NewScheduler(schedulerStore{}, slog.New(slog.DiscardHandler), time.Now, source)
+	scheduler.RunDue(t.Context())
+	if len(scheduler.Status()) != 1 {
+		t.Fatal("expected a completed observation before removal")
+	}
+	scheduler.Remove(source.Name())
+	if status := scheduler.Status(); len(status) != 0 {
+		t.Fatalf("removed ingester still reports health: %+v", status)
+	}
+	scheduler.RunDue(t.Context())
+	if source.runs != 1 {
+		t.Fatalf("removed ingester ran again: %d runs", source.runs)
+	}
+}
+
+type blockedSource struct {
+	scheduledSource
+	started chan struct{}
+	finish  chan struct{}
+}
+
+func (s *blockedSource) Observe(context.Context) (*Observation, error) {
+	close(s.started)
+	<-s.finish
+	return nil, errors.New("retired source failed")
+}
+
+func TestSchedulerRetiredRunCannotPublishHealth(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		name := "removed"
+		if replace {
+			name = "replaced"
+		}
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				source := &blockedSource{started: make(chan struct{}), finish: make(chan struct{})}
+				scheduler := NewScheduler(schedulerStore{}, slog.New(slog.DiscardHandler), time.Now, source)
+				go scheduler.RunDue(t.Context())
+				<-source.started
+				scheduler.Remove(source.Name())
+				if replace {
+					scheduler.Add(&scheduledSource{})
+					scheduler.RunDue(t.Context())
+				}
+				close(source.finish)
+				synctest.Wait()
+				status := scheduler.Status()
+				if !replace {
+					if len(status) != 0 {
+						t.Fatalf("retired run restored health: %+v", status)
+					}
+					return
+				}
+				if len(status) != 1 || status[0].Err != nil || status[0].Failures != 0 || status[0].Next.IsZero() {
+					t.Fatalf("retired failure replaced current health: %+v", status)
+				}
+			})
+		})
+	}
 }
