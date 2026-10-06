@@ -73,12 +73,13 @@ func (s *Scheduler) Add(ingester Ingester) {
 	s.notify()
 }
 
-// Remove takes an ingester out. Its observations stay in the index, so
+// Remove takes an ingester and its health out. Its observations stay in the index, so
 // uninstalling a plugin is not a way to delete catalog history.
 func (s *Scheduler) Remove(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.states, name)
+	delete(s.results, name)
 }
 
 // Due brings an ingester's next run forward. An action that mutates its source
@@ -195,6 +196,12 @@ func (s *Scheduler) runOne(ctx context.Context, current *state) {
 	result := Run(ctx, current.ingester, s.store, s.now)
 
 	s.mu.Lock()
+	// A removed run can finish after a replacement with the same name. Its
+	// result must not revive retired health or overwrite the replacement's.
+	if s.states[name] != current {
+		s.mu.Unlock()
+		return
+	}
 	s.results[name] = result
 	if result.Err != nil {
 		current.failures++
