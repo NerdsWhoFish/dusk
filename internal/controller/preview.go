@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/NerdsWhoFish/dusk/internal/index"
+	"github.com/NerdsWhoFish/dusk/internal/telemetry"
 	"github.com/NerdsWhoFish/dusk/pkg/githubapp"
 )
 
@@ -88,6 +89,8 @@ func (c *Controller) closePreview(ctx context.Context, preview Preview, ref stri
 // commentOnPreview posts the semantic diff back to the pull request. A failure
 // is logged and swallowed: the preview is already built, and a comment that
 // would not post is not worth failing a delivery GitHub never redelivers.
+// A 403 is that refusal. It stays on the span as a status code and is not an
+// error, or the trace pages for an outcome the delivery already survived.
 func (c *Controller) commentOnPreview(ctx context.Context, install *githubapp.Install, preview Preview) error {
 	changes, err := c.Compare(ctx, preview.slug(), preview.Number)
 	if err != nil {
@@ -95,6 +98,7 @@ func (c *Controller) commentOnPreview(ctx context.Context, install *githubapp.In
 	}
 
 	body := renderComment(changes, c.previewURL(preview))
+	ctx = telemetry.HandledForbidden(ctx)
 	if err := install.Repository(preview.Owner, preview.Name).Comment(ctx, preview.Number, body); err != nil {
 		c.opts.Logger.Warn("could not comment on the pull request",
 			"repository", preview.slug(), "pull_request", preview.Number, "error", err)

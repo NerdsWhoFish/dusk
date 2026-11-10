@@ -86,3 +86,14 @@ A pull request that is never closed keeps its preview, which is the correct beha
 
 - **Option 1** was rejected because pass or fail is the wrong shape: a catalog change is almost never wrong, it is something to understand, and a check that always passes is one nobody reads.
 - **Option 3** was rejected because the interesting changes have no line to attach to. An entity disappearing because its file was deleted has no line in the diff to comment on, and that is exactly the change worth flagging.
+
+## Amendments
+
+Amendment policy: [ADR-0028](0028-amending-adrs.md).
+
+### 2026-11-10: a refused comment is not an error span
+
+The comment failure is logged and swallowed, and the HTTP client records every status of 400 or above as a span error.
+A pull request the installation may not comment on returns 403, the preview still succeeds, and that span is what pages.
+The comment request is marked so a 403 keeps its HTTP status on the span and does not set the span status to error.
+A server error still does, because GitHub failing is not the same thing as refusing the comment.
