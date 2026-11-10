@@ -25,6 +25,7 @@ Set `OTEL_SDK_DISABLED=true` to disable telemetry explicitly even when an endpoi
 
 The outer HTTP handler records inbound requests and extracts W3C Trace Context and Baggage.
 Dusk's GitHub and plugin marketplace HTTP clients record outbound calls and inject the same context, so a request can be followed across that boundary.
+A pull request comment the caller already treats as non-fatal keeps its HTTP 403 on the span and is not marked failed.
 
 Context-aware structured log records include `trace_id` and `span_id`.
 Ordinary records without a span remain unchanged.

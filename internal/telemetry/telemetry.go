@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -91,9 +92,45 @@ func HTTPHandler(next http.Handler, loggers ...*slog.Logger) http.Handler {
 // HTTPClient returns a client that records spans and injects W3C trace context.
 func HTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Transport: otelhttp.NewTransport(handledForbiddenTransport{base: http.DefaultTransport}),
 		Timeout:   timeout,
 	}
+}
+
+// handledForbidden marks a call whose HTTP 403 the caller already treats as
+// an outcome rather than a failure.
+type handledForbidden struct{}
+
+// HandledForbidden returns a context in which an HTTP 403 recorded by
+// [HTTPClient] keeps its status code and is not an error span.
+// otelhttp marks every status at or above 400 as failed, which pages for a
+// refusal the caller has already decided not to fail on.
+func HandledForbidden(ctx context.Context) context.Context {
+	return context.WithValue(ctx, handledForbidden{}, true)
+}
+
+// handledForbiddenTransport sits under otelhttp. The instrumentation sets
+// span status to Error for every HTTP status of 400 or above after the base
+// transport returns, and the SDK keeps a status that outranks a later one.
+// Ok outranks Error, so setting it here is what that later call cannot undo.
+type handledForbiddenTransport struct {
+	base http.RoundTripper
+}
+
+func (t handledForbiddenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	res, err := base.RoundTrip(r)
+	if err != nil || res == nil || res.StatusCode != http.StatusForbidden {
+		return res, err
+	}
+	if r.Context().Value(handledForbidden{}) == nil {
+		return res, err
+	}
+	trace.SpanFromContext(r.Context()).SetStatus(codes.Ok, "")
+	return res, nil
 }
 
 // LogHandler adds trace and span identifiers to context-aware slog records.
