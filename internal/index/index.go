@@ -134,6 +134,13 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("index: open %q: %w", path, err)
 	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil, fmt.Errorf("index: database handle: %w", err)
+	}
+	// SQLite has one writer. Queue reconciles and embedding writes here rather
+	// than letting competing connections exhaust SQLite's busy timeout.
+	sqlDB.SetMaxOpenConns(1)
 
 	db := &DB{gorm: gormDB}
 	if err := db.migrate(); err != nil {
@@ -159,7 +166,7 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) migrate() error {
-	// WAL keeps a reconcile from blocking readers. It is a no-op in memory.
+	// WAL permits external readers during writes. It is a no-op in memory.
 	if err := db.gorm.Exec(`PRAGMA journal_mode=WAL`).Error; err != nil {
 		return fmt.Errorf("index: enable WAL: %w", err)
 	}
